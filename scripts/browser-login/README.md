@@ -9,7 +9,7 @@ exposes the `auth.json` payload so it can be copied or downloaded manually.
 - `index.php` – entry point that seeds a PKCE verifier/state pair and redirects
   the browser to ChatGPT’s authorize endpoint while offering a manual fallback
   button.
-- `callback.php` – handles the OAuth redirect, exchanges the authorization code
+- `auth/callback/index.php` – handles the OAuth redirect, exchanges the authorization code
   for tokens, performs the API-key token exchange, and renders the browser-based
   success page with the serialized `auth.json` data.
 - `lib/helpers.php` – shared helpers that mirror the CLI defaults (client ID,
@@ -25,7 +25,7 @@ exposes the `auth.json` payload so it can be copied or downloaded manually.
    that the CLI would open—including the `codex_cli_simplified_flow=true` flag—and
    provides an **Open login** button you can click to follow the flow manually.
 4. Complete the ChatGPT authorization. After the redirect returns to
-   `callback.php`, the page shows a success banner along with the serialized
+   `auth/callback/`, the page shows a success banner along with the serialized
    `auth.json` payload.
 5. Copy the payload or download it as `auth.json` and place it under
    `$CODEX_HOME/auth.json` on the machine that will run the CLI.

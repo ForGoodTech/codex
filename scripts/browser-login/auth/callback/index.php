@@ -16,7 +16,7 @@ use function CodexBrowserLogin\reset_session;
 use function CodexBrowserLogin\session_debug_log;
 use function CodexBrowserLogin\summarize_secret;
 
-require __DIR__ . '/lib/helpers.php';
+require __DIR__ . '/../../lib/helpers.php';
 
 ensure_session();
 
@@ -117,7 +117,7 @@ function render_error(string $title, string $message, ?string $detail = null): v
           <pre><?php foreach ($logEntries as $entry) { echo htmlspecialchars(format_log_entry($entry), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\n"; } ?></pre>
         </details>
       <?php endif; ?>
-      <a class="button" href="index.php">Start over</a>
+      <a class="button" href="../../index.php">Start over</a>
     </div>
   </body>
 </html>

@@ -12,7 +12,7 @@ use RuntimeException;
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const ISSUER = 'https://auth.openai.com';
 const AUTH_SCOPE = 'openid profile email offline_access';
-const DEFAULT_REDIRECT_PATH = 'callback.php';
+const DEFAULT_REDIRECT_PATH = 'auth/callback';
 const CURL_TIMEOUT = 15;
 const SESSION_LOG_KEY = '_codex_browser_login_debug';
 const MAX_DEBUG_LOG_ENTRIES = 200;
@@ -258,6 +258,7 @@ function compute_redirect_uri(): string
     $uri = absolute_url(DEFAULT_REDIRECT_PATH);
     log_debug('Computed redirect URI', [
         'redirect_uri' => $uri,
+        'source' => 'absolute_url',
     ]);
 
     return $uri;
