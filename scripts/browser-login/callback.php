@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use function CodexBrowserLogin\build_auth_json;
 use function CodexBrowserLogin\compose_success_data;
+use function CodexBrowserLogin\compute_redirect_uri;
 use function CodexBrowserLogin\ensure_session;
 use function CodexBrowserLogin\ensure_workspace_allowed;
 use function CodexBrowserLogin\exchange_code_for_tokens;
@@ -82,7 +83,7 @@ function render_error(string $title, string $message, ?string $detail = null): v
     exit;
 }
 
-if (!isset($_SESSION['pkce'], $_SESSION['state'])) {
+if (!isset($_SESSION['pkce'], $_SESSION['state'], $_SESSION['redirect_uri'])) {
     render_error('Login session expired', 'The login helper could not find an active session. Start again to generate a new OAuth request.');
 }
 
@@ -106,10 +107,11 @@ if ($authorizationCode === null || $authorizationCode === '') {
 }
 
 $pkce = $_SESSION['pkce'];
+$redirectUri = is_string($_SESSION['redirect_uri']) ? $_SESSION['redirect_uri'] : compute_redirect_uri();
 $forcedWorkspace = $_SESSION['allowed_workspace_id'] ?? null;
 
 try {
-    $tokens = exchange_code_for_tokens($authorizationCode, $pkce);
+    $tokens = exchange_code_for_tokens($authorizationCode, $pkce, $redirectUri);
 } catch (Throwable $exception) {
     render_error('Token exchange failed', 'The login helper could not exchange the authorization code for tokens.', $exception->getMessage());
 }

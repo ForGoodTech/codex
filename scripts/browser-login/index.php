@@ -27,16 +27,22 @@ if (isset($_GET['allowed_workspace_id'])) {
 
 $pkce = generate_pkce();
 $state = generate_state();
+$redirectUri = compute_redirect_uri();
 
 $_SESSION['pkce'] = $pkce;
 $_SESSION['state'] = $state;
-$_SESSION['redirect_uri'] = compute_redirect_uri();
+$_SESSION['redirect_uri'] = $redirectUri;
 
 if (!isset($_SESSION['allowed_workspace_id'])) {
     $_SESSION['allowed_workspace_id'] = $allowedWorkspace;
 }
 
-$authUrl = build_authorize_url($pkce, $state, $_SESSION['allowed_workspace_id'] ?? null);
+$authUrl = build_authorize_url(
+    $pkce,
+    $state,
+    $redirectUri,
+    $_SESSION['allowed_workspace_id'] ?? null
+);
 
 ?><!DOCTYPE html>
 <html lang="en">

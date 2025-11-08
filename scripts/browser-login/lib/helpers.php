@@ -23,7 +23,7 @@ function ensure_session(): void
     if (session_status() !== PHP_SESSION_ACTIVE) {
         session_start([
             'cookie_httponly' => true,
-            'cookie_secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+            'cookie_secure' => determine_request_scheme() === 'https',
             'cookie_samesite' => 'Lax',
         ]);
     }
@@ -64,12 +64,17 @@ function compute_redirect_uri(): string
 /**
  * Build the authorization URL mirroring the CLI defaults.
  */
-function build_authorize_url(array $pkce, string $state, ?string $allowedWorkspaceId = null): string
+function build_authorize_url(
+    array $pkce,
+    string $state,
+    string $redirectUri,
+    ?string $allowedWorkspaceId = null
+): string
 {
     $query = [
         'response_type' => 'code',
         'client_id' => CLIENT_ID,
-        'redirect_uri' => compute_redirect_uri(),
+        'redirect_uri' => $redirectUri,
         'scope' => AUTH_SCOPE,
         'code_challenge' => $pkce['code_challenge'],
         'code_challenge_method' => 'S256',
@@ -91,12 +96,12 @@ function build_authorize_url(array $pkce, string $state, ?string $allowedWorkspa
  *
  * @return array{id_token: string, access_token: string, refresh_token: string}
  */
-function exchange_code_for_tokens(string $code, array $pkce): array
+function exchange_code_for_tokens(string $code, array $pkce, string $redirectUri): array
 {
     $payload = http_build_query([
         'grant_type' => 'authorization_code',
         'code' => $code,
-        'redirect_uri' => compute_redirect_uri(),
+        'redirect_uri' => $redirectUri,
         'client_id' => CLIENT_ID,
         'code_verifier' => $pkce['code_verifier'],
     ], '', '&', PHP_QUERY_RFC3986);
@@ -307,8 +312,8 @@ function post_form(string $url, string $payload): string
  */
 function absolute_url(string $path): string
 {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $scheme = determine_request_scheme();
+    $host = determine_request_host($scheme);
     $dir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
     if ($dir === '/' || $dir === '.') {
         $dir = '';
@@ -316,9 +321,127 @@ function absolute_url(string $path): string
     $dir = rtrim($dir, '/');
 
     $base = $scheme . '://' . $host;
+    $prefix = forwarded_header_value('HTTP_X_FORWARDED_PREFIX');
+    if ($prefix !== null) {
+        $normalizedPrefix = '/' . trim($prefix, '/');
+        $base .= rtrim($normalizedPrefix, '/');
+    }
+
     if ($dir !== '') {
         $base .= '/' . ltrim($dir, '/');
     }
 
     return rtrim($base, '/') . '/' . ltrim($path, '/');
+}
+
+/**
+ * Return the first entry from a forwarded header value if present.
+ */
+function forwarded_header_value(string $key): ?string
+{
+    if (!isset($_SERVER[$key])) {
+        return null;
+    }
+
+    $raw = trim((string)$_SERVER[$key]);
+    if ($raw === '') {
+        return null;
+    }
+
+    $parts = explode(',', $raw);
+    $value = trim($parts[0]);
+
+    return $value === '' ? null : str_replace(["\r", "\n"], '', $value);
+}
+
+/**
+ * Decide whether the current request arrived via HTTP or HTTPS.
+ */
+function determine_request_scheme(): string
+{
+    $forwardedProto = forwarded_header_value('HTTP_X_FORWARDED_PROTO');
+    if ($forwardedProto !== null) {
+        $proto = strtolower($forwardedProto);
+        if ($proto === 'https' || $proto === 'http') {
+            return $proto;
+        }
+    }
+
+    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        return 'https';
+    }
+
+    return 'http';
+}
+
+/**
+ * Determine the host (and optional port) that should appear in absolute URLs.
+ */
+function determine_request_host(string $scheme): string
+{
+    $hostHeader = forwarded_header_value('HTTP_X_FORWARDED_HOST') ?? ($_SERVER['HTTP_HOST'] ?? '');
+    $hostHeader = trim((string)$hostHeader);
+    if ($hostHeader === '') {
+        $hostHeader = 'localhost';
+    }
+
+    [$host, $port] = parse_host_and_port($hostHeader);
+
+    if ($port === null) {
+        $forwardedPort = forwarded_header_value('HTTP_X_FORWARDED_PORT');
+        if ($forwardedPort !== null && ctype_digit($forwardedPort)) {
+            $port = (int)$forwardedPort;
+        } elseif (isset($_SERVER['SERVER_PORT']) && ctype_digit((string)$_SERVER['SERVER_PORT'])) {
+            $port = (int)$_SERVER['SERVER_PORT'];
+        }
+    }
+
+    $defaultPort = $scheme === 'https' ? 443 : 80;
+    if ($port === $defaultPort) {
+        $port = null;
+    }
+
+    $host = sanitize_host($host);
+
+    if ($port !== null) {
+        return $host . ':' . $port;
+    }
+
+    return $host;
+}
+
+/**
+ * Parse a host header into host and port components.
+ *
+ * @return array{0: string, 1: int|null}
+ */
+function parse_host_and_port(string $header): array
+{
+    $header = str_replace(["\r", "\n"], '', trim($header));
+    if ($header === '') {
+        return ['localhost', null];
+    }
+
+    $parsed = @parse_url('scheme://' . $header);
+    if ($parsed === false) {
+        return [$header, null];
+    }
+
+    $host = isset($parsed['host']) ? (string)$parsed['host'] : $header;
+    $port = isset($parsed['port']) ? (int)$parsed['port'] : null;
+
+    return [$host, $port];
+}
+
+/**
+ * Remove dangerous characters and fall back to localhost when necessary.
+ */
+function sanitize_host(string $host): string
+{
+    $host = str_replace(["\r", "\n"], '', trim($host));
+    if ($host === '') {
+        return 'localhost';
+    }
+
+    return $host;
 }

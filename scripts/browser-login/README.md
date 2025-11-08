@@ -37,6 +37,16 @@ To restrict the login to a particular workspace (matching the CLI’s
 `--allowed-workspace-id` guard), append
 `?allowed_workspace_id=ws-123` to the `index.php` URL before starting the flow.
 
+## Reverse proxy deployments
+
+If you serve the helper behind a load balancer or reverse proxy, make sure the
+proxy forwards the standard `X-Forwarded-Proto`, `X-Forwarded-Host`, and
+`X-Forwarded-Port` headers. The scripts use these headers to reconstruct the
+public callback URL so the OAuth server sees the exact redirect URI that the
+browser used. Set `X-Forwarded-Prefix` when the helper is published under a
+path prefix (for example `/tools/browser-login`) to ensure generated links keep
+that prefix intact.
+
 ## Security notes
 
 - The script stores PKCE and state information only in the user’s PHP session
