@@ -21,13 +21,9 @@ exposes the `auth.json` payload so it can be copied or downloaded manually.
    server capable of running PHP 8.1+.
 2. Ensure the directory is accessible at a stable URL, for example:
    `https://example.com/browser-login/`.
-3. Visit `index.php` in a browser. The script auto-redirects to
-   `https://auth.openai.com/oauth/authorize` with the same parameters used by the
-   CLI when the callback targets `http://localhost`. When the callback lives on
-   a different host, the helper omits the CLI’s `codex_cli_simplified_flow`
-   toggle to avoid the cross-origin fetch that causes `unknown_error` pages for
-   non-local deployments. If browser pop-up protection blocks the redirect,
-   click the provided **Open login** button.
+3. Visit `index.php` in a browser. The page presents the exact authorize URL
+   that the CLI would open—including the `codex_cli_simplified_flow=true` flag—and
+   provides an **Open login** button you can click to follow the flow manually.
 4. Complete the ChatGPT authorization. After the redirect returns to
    `callback.php`, the page shows a success banner along with the serialized
    `auth.json` payload.

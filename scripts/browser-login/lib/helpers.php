@@ -11,7 +11,6 @@ use RuntimeException;
 
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const ISSUER = 'https://auth.openai.com';
-const ORIGINATOR = 'codex_cli_rs';
 const AUTH_SCOPE = 'openid profile email offline_access';
 const DEFAULT_REDIRECT_PATH = 'callback.php';
 const CURL_TIMEOUT = 15;
@@ -283,17 +282,12 @@ function build_authorize_url(
         'code_challenge_method' => 'S256',
         'id_token_add_organizations' => 'true',
         'state' => $state,
-        'originator' => ORIGINATOR,
+        'codex_cli_simplified_flow' => 'true',
     ];
 
-    if (redirect_targets_localhost($redirectUri)) {
-        $query['codex_cli_simplified_flow'] = 'true';
-        log_debug('Enabled simplified flow parameter for localhost redirect');
-    } else {
-        log_debug('Omitted simplified flow parameter for non-localhost redirect', [
-            'redirect_host' => parse_url($redirectUri, PHP_URL_HOST),
-        ]);
-    }
+    log_debug('Included simplified flow parameter', [
+        'redirect_host' => parse_url($redirectUri, PHP_URL_HOST),
+    ]);
 
     if ($allowedWorkspaceId !== null && $allowedWorkspaceId !== '') {
         $query['allowed_workspace_id'] = $allowedWorkspaceId;
