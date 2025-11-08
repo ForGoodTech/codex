@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CodexBrowserLogin;
 
 use DateTimeImmutable;
+use DateTimeInterface;
 use DateTimeZone;
 use RuntimeException;
 
@@ -16,6 +17,117 @@ const DEFAULT_REDIRECT_PATH = 'callback.php';
 const CURL_TIMEOUT = 15;
 
 /**
+ * Emit a structured log line to the PHP error log.
+ *
+ * @param array<string, mixed> $context
+ */
+function log_debug(string $message, array $context = []): void
+{
+    $timestamp = (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.u\Z');
+    $payload = [
+        'ts' => $timestamp,
+        'message' => $message,
+    ];
+
+    if ($context !== []) {
+        $payload['context'] = sanitize_for_log($context);
+    }
+
+    $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        $fallback = $timestamp . ' ' . $message;
+        error_log('[CodexBrowserLogin] ' . $fallback);
+        return;
+    }
+
+    error_log('[CodexBrowserLogin] ' . $json);
+}
+
+/**
+ * Sanitize potentially nested context values for logging.
+ *
+ * @param mixed $value
+ * @return mixed
+ */
+function sanitize_for_log($value)
+{
+    if (is_array($value)) {
+        $result = [];
+        foreach ($value as $key => $item) {
+            $result[$key] = sanitize_for_log($item);
+        }
+
+        return $result;
+    }
+
+    if ($value instanceof DateTimeInterface) {
+        return $value->format('Y-m-d\TH:i:s.u\Z');
+    }
+
+    if (is_string($value)) {
+        $clean = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value);
+        if ($clean === null) {
+            $clean = $value;
+        }
+
+        if (strlen($clean) > 1024) {
+            return substr($clean, 0, 1024) . '…';
+        }
+
+        return $clean;
+    }
+
+    if (is_scalar($value) || $value === null) {
+        return $value;
+    }
+
+    return gettype($value);
+}
+
+/**
+ * Return a hash-based summary suitable for logging secrets.
+ */
+function summarize_secret(string $value): array
+{
+    return [
+        'length' => strlen($value),
+        'sha256_prefix' => substr(hash('sha256', $value), 0, 16),
+    ];
+}
+
+/**
+ * Build a log-friendly description of the authorize URL.
+ */
+function describe_authorize_url(string $url): array
+{
+    $parts = parse_url($url);
+    $base = '';
+    if ($parts !== false) {
+        $scheme = isset($parts['scheme']) ? $parts['scheme'] . '://' : '';
+        $host = $parts['host'] ?? '';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $path = $parts['path'] ?? '';
+        $base = $scheme . $host . $port . $path;
+    }
+
+    $query = [];
+    if ($parts !== false && isset($parts['query'])) {
+        parse_str($parts['query'], $query);
+    }
+
+    foreach (['code_challenge', 'state'] as $sensitiveKey) {
+        if (isset($query[$sensitiveKey]) && is_string($query[$sensitiveKey])) {
+            $query[$sensitiveKey] = summarize_secret($query[$sensitiveKey]);
+        }
+    }
+
+    return [
+        'base' => $base,
+        'query' => $query,
+    ];
+}
+
+/**
  * Ensure the PHP session is active.
  */
 function ensure_session(): void
@@ -25,6 +137,13 @@ function ensure_session(): void
             'cookie_httponly' => true,
             'cookie_secure' => determine_request_scheme() === 'https',
             'cookie_samesite' => 'Lax',
+        ]);
+        log_debug('Session started', [
+            'session_id' => session_id(),
+        ]);
+    } else {
+        log_debug('Session already active', [
+            'session_id' => session_id(),
         ]);
     }
 }
@@ -39,6 +158,11 @@ function generate_pkce(): array
     $verifier = base64url_encode(random_bytes(64));
     $challenge = base64url_encode(hash('sha256', $verifier, true));
 
+    log_debug('Generated PKCE pair', [
+        'verifier' => summarize_secret($verifier),
+        'challenge' => summarize_secret($challenge),
+    ]);
+
     return [
         'code_verifier' => $verifier,
         'code_challenge' => $challenge,
@@ -50,7 +174,12 @@ function generate_pkce(): array
  */
 function generate_state(): string
 {
-    return base64url_encode(random_bytes(32));
+    $state = base64url_encode(random_bytes(32));
+    log_debug('Generated state token', [
+        'state' => summarize_secret($state),
+    ]);
+
+    return $state;
 }
 
 /**
@@ -58,7 +187,12 @@ function generate_state(): string
  */
 function compute_redirect_uri(): string
 {
-    return absolute_url(DEFAULT_REDIRECT_PATH);
+    $uri = absolute_url(DEFAULT_REDIRECT_PATH);
+    log_debug('Computed redirect URI', [
+        'redirect_uri' => $uri,
+    ]);
+
+    return $uri;
 }
 
 /**
@@ -88,7 +222,10 @@ function build_authorize_url(
         $query['allowed_workspace_id'] = $allowedWorkspaceId;
     }
 
-    return ISSUER . '/oauth/authorize?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    $url = ISSUER . '/oauth/authorize?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    log_debug('Built authorize URL', describe_authorize_url($url));
+
+    return $url;
 }
 
 /**
@@ -106,12 +243,32 @@ function exchange_code_for_tokens(string $code, array $pkce, string $redirectUri
         'code_verifier' => $pkce['code_verifier'],
     ], '', '&', PHP_QUERY_RFC3986);
 
-    $response = post_form(ISSUER . '/oauth/token', $payload);
+    log_debug('Initiating token exchange', [
+        'code' => summarize_secret($code),
+        'redirect_uri' => $redirectUri,
+    ]);
+
+    $response = post_form(ISSUER . '/oauth/token', $payload, [
+        'operation' => 'exchange_code_for_tokens',
+        'payload' => [
+            'grant_type' => 'authorization_code',
+            'client_id' => CLIENT_ID,
+            'redirect_uri' => $redirectUri,
+            'code' => summarize_secret($code),
+            'code_verifier' => summarize_secret($pkce['code_verifier']),
+        ],
+    ]);
 
     $data = json_decode($response, true);
     if (!is_array($data) || !isset($data['id_token'], $data['access_token'], $data['refresh_token'])) {
         throw new RuntimeException('Token response was missing expected fields.');
     }
+
+    log_debug('Token exchange succeeded', [
+        'id_token' => summarize_secret($data['id_token']),
+        'access_token' => summarize_secret($data['access_token']),
+        'refresh_token' => summarize_secret($data['refresh_token']),
+    ]);
 
     return [
         'id_token' => $data['id_token'],
@@ -133,16 +290,32 @@ function obtain_api_key(string $idToken): ?string
         'subject_token_type' => 'urn:ietf:params:oauth:token-type:id_token',
     ], '', '&', PHP_QUERY_RFC3986);
 
+    log_debug('Attempting API key exchange', [
+        'id_token' => summarize_secret($idToken),
+    ]);
+
     try {
-        $response = post_form(ISSUER . '/oauth/token', $payload);
+        $response = post_form(ISSUER . '/oauth/token', $payload, [
+            'operation' => 'obtain_api_key',
+        ]);
     } catch (RuntimeException $e) {
+        log_debug('API key exchange failed with transport error', [
+            'error' => $e->getMessage(),
+        ]);
         return null;
     }
 
     $data = json_decode($response, true);
     if (!is_array($data) || empty($data['access_token'])) {
+        log_debug('API key exchange returned unexpected payload', [
+            'payload' => $data,
+        ]);
         return null;
     }
+
+    log_debug('API key exchange succeeded', [
+        'api_key' => summarize_secret($data['access_token']),
+    ]);
 
     return $data['access_token'];
 }
@@ -159,7 +332,7 @@ function build_auth_json(array $tokens, ?string $apiKey): array
 
     $accountId = $claims['chatgpt_account_id'] ?? null;
 
-    return [
+    $result = [
         'OPENAI_API_KEY' => $apiKey,
         'tokens' => [
             'id_token' => $tokens['id_token'],
@@ -169,6 +342,13 @@ function build_auth_json(array $tokens, ?string $apiKey): array
         ],
         'last_refresh' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.u\Z'),
     ];
+
+    log_debug('Prepared auth.json payload', [
+        'has_api_key' => $apiKey !== null,
+        'account_id' => $accountId,
+    ]);
+
+    return $result;
 }
 
 /**
@@ -179,21 +359,33 @@ function build_auth_json(array $tokens, ?string $apiKey): array
 function ensure_workspace_allowed(?string $expectedWorkspace, ?array $idTokenClaims): ?string
 {
     if ($expectedWorkspace === null || $expectedWorkspace === '') {
+        log_debug('Workspace check skipped', ['reason' => 'no expected workspace']);
         return null;
     }
 
     if ($idTokenClaims === null) {
+        log_debug('Workspace check failed', ['reason' => 'missing ID token claims']);
         return 'Login is restricted to a specific workspace, but the ID token could not be parsed.';
     }
 
     $actual = $idTokenClaims['chatgpt_account_id'] ?? null;
     if ($actual === null) {
+        log_debug('Workspace check failed', ['reason' => 'missing chatgpt_account_id']);
         return 'Login is restricted to a specific workspace, but the token did not include a chatgpt_account_id claim.';
     }
 
     if ($actual !== $expectedWorkspace) {
+        log_debug('Workspace check failed', [
+            'reason' => 'mismatch',
+            'expected' => $expectedWorkspace,
+            'actual' => $actual,
+        ]);
         return 'Login is restricted to workspace id ' . htmlspecialchars($expectedWorkspace, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '.';
     }
+
+    log_debug('Workspace check passed', [
+        'workspace_id' => $expectedWorkspace,
+    ]);
 
     return null;
 }
@@ -250,7 +442,7 @@ function compose_success_data(array $tokens): array
     $isOrgOwner = (bool)($idClaims['is_org_owner'] ?? false);
     $needsSetup = !$completedOnboarding && $isOrgOwner;
 
-    return [
+    $result = [
         'needs_setup' => $needsSetup,
         'platform_url' => ISSUER === 'https://auth.openai.com'
             ? 'https://platform.openai.com'
@@ -259,6 +451,10 @@ function compose_success_data(array $tokens): array
         'project_id' => (string)($idClaims['project_id'] ?? ''),
         'plan_type' => (string)($accessClaims['chatgpt_plan_type'] ?? ''),
     ];
+
+    log_debug('Composed success metadata', $result);
+
+    return $result;
 }
 
 /**
@@ -274,12 +470,17 @@ function base64url_encode(string $binary): string
  *
  * @throws RuntimeException when the request fails.
  */
-function post_form(string $url, string $payload): string
+function post_form(string $url, string $payload, array $logContext = []): string
 {
     $ch = curl_init($url);
     if ($ch === false) {
         throw new RuntimeException('Unable to initialize HTTP client.');
     }
+
+    log_debug('Issuing POST request', array_merge([
+        'url' => $url,
+        'payload_length' => strlen($payload),
+    ], $logContext));
 
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
@@ -294,6 +495,10 @@ function post_form(string $url, string $payload): string
     if ($response === false) {
         $error = curl_error($ch);
         curl_close($ch);
+        log_debug('POST request failed', [
+            'url' => $url,
+            'error' => $error,
+        ]);
         throw new RuntimeException('HTTP request failed: ' . $error);
     }
 
@@ -301,8 +506,18 @@ function post_form(string $url, string $payload): string
     curl_close($ch);
 
     if ($status < 200 || $status >= 300) {
+        log_debug('POST request returned non-success status', [
+            'url' => $url,
+            'status' => $status,
+            'body' => $response,
+        ]);
         throw new RuntimeException('HTTP request returned status ' . $status . '. Body: ' . $response);
     }
+
+    log_debug('POST request succeeded', [
+        'url' => $url,
+        'status' => $status,
+    ]);
 
     return $response;
 }
@@ -331,7 +546,17 @@ function absolute_url(string $path): string
         $base .= '/' . ltrim($dir, '/');
     }
 
-    return rtrim($base, '/') . '/' . ltrim($path, '/');
+    $absolute = rtrim($base, '/') . '/' . ltrim($path, '/');
+    log_debug('Computed absolute URL', [
+        'path' => $path,
+        'absolute' => $absolute,
+        'scheme' => $scheme,
+        'host' => $host,
+        'dir' => $dir,
+        'prefix' => $prefix,
+    ]);
+
+    return $absolute;
 }
 
 /**
@@ -351,7 +576,13 @@ function forwarded_header_value(string $key): ?string
     $parts = explode(',', $raw);
     $value = trim($parts[0]);
 
-    return $value === '' ? null : str_replace(["\r", "\n"], '', $value);
+    $sanitized = $value === '' ? null : str_replace(["\r", "\n"], '', $value);
+    log_debug('Read forwarded header', [
+        'header' => $key,
+        'value' => $sanitized,
+    ]);
+
+    return $sanitized;
 }
 
 /**
@@ -363,13 +594,21 @@ function determine_request_scheme(): string
     if ($forwardedProto !== null) {
         $proto = strtolower($forwardedProto);
         if ($proto === 'https' || $proto === 'http') {
+            log_debug('Determined scheme from forwarded proto', [
+                'scheme' => $proto,
+            ]);
             return $proto;
         }
     }
 
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        log_debug('Determined scheme from HTTPS server var', [
+            'scheme' => 'https',
+        ]);
         return 'https';
     }
+
+    log_debug('Falling back to http scheme');
 
     return 'http';
 }
@@ -403,11 +642,15 @@ function determine_request_host(string $scheme): string
 
     $host = sanitize_host($host);
 
-    if ($port !== null) {
-        return $host . ':' . $port;
-    }
+    $result = $port !== null ? $host . ':' . $port : $host;
+    log_debug('Determined request host', [
+        'scheme' => $scheme,
+        'host_header' => $hostHeader,
+        'result' => $result,
+        'port' => $port,
+    ]);
 
-    return $host;
+    return $result;
 }
 
 /**
@@ -430,7 +673,13 @@ function parse_host_and_port(string $header): array
     $host = isset($parsed['host']) ? (string)$parsed['host'] : $header;
     $port = isset($parsed['port']) ? (int)$parsed['port'] : null;
 
-    return [$host, $port];
+    $result = [$host, $port];
+    log_debug('Parsed host header', [
+        'input' => $header,
+        'output' => $result,
+    ]);
+
+    return $result;
 }
 
 /**

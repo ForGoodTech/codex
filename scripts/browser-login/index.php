@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 use function CodexBrowserLogin\build_authorize_url;
 use function CodexBrowserLogin\compute_redirect_uri;
+use function CodexBrowserLogin\describe_authorize_url;
 use function CodexBrowserLogin\ensure_session;
 use function CodexBrowserLogin\generate_pkce;
 use function CodexBrowserLogin\generate_state;
+use function CodexBrowserLogin\log_debug;
+use function CodexBrowserLogin\summarize_secret;
 
 require __DIR__ . '/lib/helpers.php';
 
@@ -15,6 +18,13 @@ ensure_session();
 if (empty($_SESSION['flow_initialized'])) {
     session_regenerate_id(true);
     $_SESSION['flow_initialized'] = true;
+    log_debug('Initialized new login session', [
+        'session_id' => session_id(),
+    ]);
+} else {
+    log_debug('Reusing login session', [
+        'session_id' => session_id(),
+    ]);
 }
 
 $allowedWorkspace = null;
@@ -25,6 +35,11 @@ if (isset($_GET['allowed_workspace_id'])) {
     }
 }
 
+log_debug('Processed allowed workspace parameter', [
+    'allowed_workspace_query' => $allowedWorkspace,
+    'session_value' => $_SESSION['allowed_workspace_id'] ?? null,
+]);
+
 $pkce = generate_pkce();
 $state = generate_state();
 $redirectUri = compute_redirect_uri();
@@ -32,6 +47,16 @@ $redirectUri = compute_redirect_uri();
 $_SESSION['pkce'] = $pkce;
 $_SESSION['state'] = $state;
 $_SESSION['redirect_uri'] = $redirectUri;
+
+log_debug('Stored OAuth handshake state', [
+    'session_id' => session_id(),
+    'pkce' => [
+        'verifier' => summarize_secret($pkce['code_verifier']),
+        'challenge' => summarize_secret($pkce['code_challenge']),
+    ],
+    'state' => summarize_secret($state),
+    'redirect_uri' => $redirectUri,
+]);
 
 if (!isset($_SESSION['allowed_workspace_id'])) {
     $_SESSION['allowed_workspace_id'] = $allowedWorkspace;
@@ -43,6 +68,11 @@ $authUrl = build_authorize_url(
     $redirectUri,
     $_SESSION['allowed_workspace_id'] ?? null
 );
+
+log_debug('Prepared authorize redirect', [
+    'session_id' => session_id(),
+    'authorize' => describe_authorize_url($authUrl),
+]);
 
 ?><!DOCTYPE html>
 <html lang="en">

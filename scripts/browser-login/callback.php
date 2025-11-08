@@ -9,14 +9,32 @@ use function CodexBrowserLogin\ensure_session;
 use function CodexBrowserLogin\ensure_workspace_allowed;
 use function CodexBrowserLogin\exchange_code_for_tokens;
 use function CodexBrowserLogin\extract_auth_claims;
+use function CodexBrowserLogin\log_debug;
 use function CodexBrowserLogin\obtain_api_key;
+use function CodexBrowserLogin\summarize_secret;
 
 require __DIR__ . '/lib/helpers.php';
 
 ensure_session();
 
+log_debug('Callback invoked', [
+    'session_id' => session_id(),
+    'query' => [
+        'has_code' => isset($_GET['code']),
+        'has_state' => isset($_GET['state']),
+        'error' => $_GET['error'] ?? null,
+        'error_description' => $_GET['error_description'] ?? null,
+    ],
+    'session_keys' => array_keys($_SESSION),
+]);
+
 function render_error(string $title, string $message, ?string $detail = null): void
 {
+    log_debug('Rendering error page', [
+        'title' => $title,
+        'message' => $message,
+        'detail' => $detail,
+    ]);
     http_response_code(400);
     ?><!DOCTYPE html>
 <html lang="en">
@@ -84,6 +102,9 @@ function render_error(string $title, string $message, ?string $detail = null): v
 }
 
 if (!isset($_SESSION['pkce'], $_SESSION['state'], $_SESSION['redirect_uri'])) {
+    log_debug('Session state missing required keys', [
+        'session_keys' => array_keys($_SESSION),
+    ]);
     render_error('Login session expired', 'The login helper could not find an active session. Start again to generate a new OAuth request.');
 }
 
@@ -92,32 +113,58 @@ if (isset($_GET['error'])) {
     $description = isset($_GET['error_description']) && is_string($_GET['error_description'])
         ? $_GET['error_description']
         : 'The authorization server returned an error.';
+    log_debug('Authorization server returned error', [
+        'error' => $error,
+        'description' => $description,
+    ]);
     render_error('Authorization failed', $description, $error);
 }
 
 $expectedState = $_SESSION['state'];
 $actualState = isset($_GET['state']) && is_string($_GET['state']) ? $_GET['state'] : null;
 if ($actualState !== $expectedState) {
+    log_debug('State mismatch detected', [
+        'expected' => summarize_secret((string)$expectedState),
+        'actual' => $actualState === null ? null : summarize_secret($actualState),
+    ]);
     render_error('State mismatch', 'The OAuth response did not include the expected state token. This can happen when the browser reused an expired tab.');
 }
+
+log_debug('State token validated', [
+    'state' => summarize_secret($expectedState),
+]);
 
 $authorizationCode = isset($_GET['code']) && is_string($_GET['code']) ? $_GET['code'] : null;
 if ($authorizationCode === null || $authorizationCode === '') {
     render_error('Missing authorization code', 'The OAuth callback was missing the authorization code parameter.');
 }
 
+log_debug('Authorization code received', [
+    'code' => summarize_secret($authorizationCode),
+]);
+
 $pkce = $_SESSION['pkce'];
 $redirectUri = is_string($_SESSION['redirect_uri']) ? $_SESSION['redirect_uri'] : compute_redirect_uri();
 $forcedWorkspace = $_SESSION['allowed_workspace_id'] ?? null;
 
+log_debug('Loaded session state for callback', [
+    'redirect_uri' => $redirectUri,
+    'forced_workspace' => $forcedWorkspace,
+]);
+
 try {
     $tokens = exchange_code_for_tokens($authorizationCode, $pkce, $redirectUri);
 } catch (Throwable $exception) {
+    log_debug('Token exchange threw exception', [
+        'exception' => get_class($exception),
+        'message' => $exception->getMessage(),
+    ]);
     render_error('Token exchange failed', 'The login helper could not exchange the authorization code for tokens.', $exception->getMessage());
 }
 
 $idClaims = extract_auth_claims($tokens['id_token']);
 if ($idClaims === null) {
+    log_debug('Failed to parse ID token');
     render_error('Invalid ID token', 'The returned ID token could not be parsed.');
 }
 
@@ -126,6 +173,11 @@ if ($message = ensure_workspace_allowed($forcedWorkspace, $idClaims)) {
 }
 
 $apiKey = obtain_api_key($tokens['id_token']);
+$apiKeySummary = $apiKey === null ? null : summarize_secret($apiKey);
+log_debug('API key exchange outcome', [
+    'obtained' => $apiKey !== null,
+    'api_key' => $apiKeySummary,
+]);
 $authJson = build_auth_json($tokens, $apiKey);
 $authJsonString = json_encode($authJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 if ($authJsonString === false) {
@@ -137,6 +189,13 @@ $downloadHref = 'data:application/json;charset=utf-8,' . rawurlencode($authJsonS
 
 $_SESSION = [];
 session_destroy();
+
+log_debug('Rendered success page', [
+    'needs_setup' => $successData['needs_setup'],
+    'org_id' => $successData['org_id'],
+    'project_id' => $successData['project_id'],
+    'plan_type' => $successData['plan_type'],
+]);
 
 ?><!DOCTYPE html>
 <html lang="en">

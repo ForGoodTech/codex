@@ -47,6 +47,18 @@ browser used. Set `X-Forwarded-Prefix` when the helper is published under a
 path prefix (for example `/tools/browser-login`) to ensure generated links keep
 that prefix intact.
 
+## Debug logging
+
+All entry points emit structured JSON logs to the PHP error log under the
+`[CodexBrowserLogin]` prefix. Each log line includes a UTC timestamp and
+redacted context—sensitive values such as PKCE verifiers, OAuth codes, and
+tokens are summarized with length and SHA-256 prefixes instead of the raw
+secret. Use these logs to trace the authorize redirect, callback handling, and
+token exchanges when diagnosing authentication failures (for example, the
+`unknown_error` page). On shared hosts, ensure the PHP error log is writable and
+that only trusted administrators can read it, since the summaries still contain
+metadata about the login attempt.
+
 ## Security notes
 
 - The script stores PKCE and state information only in the user’s PHP session
