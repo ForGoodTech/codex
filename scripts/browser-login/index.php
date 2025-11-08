@@ -15,6 +15,14 @@ require __DIR__ . '/lib/helpers.php';
 
 ensure_session();
 
+log_debug('Index request received', [
+    'session_id' => session_id(),
+    'method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+    'query' => array_map(static function ($value) {
+        return is_string($value) ? $value : gettype($value);
+    }, $_GET),
+]);
+
 if (empty($_SESSION['flow_initialized'])) {
     session_regenerate_id(true);
     $_SESSION['flow_initialized'] = true;
@@ -74,12 +82,20 @@ log_debug('Prepared authorize redirect', [
     'authorize' => describe_authorize_url($authUrl),
 ]);
 
+log_debug('Rendering index without automatic redirect', [
+    'session_id' => session_id(),
+    'auto_redirect' => false,
+]);
+
 ?><!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Codex Browser Login</title>
-    <meta http-equiv="refresh" content="0;url=<?php echo htmlspecialchars($authUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?>" />
+    <!--
+      Automatic redirect disabled to allow manual step-by-step troubleshooting of the OAuth flow.
+      <meta http-equiv="refresh" content="0;url=<?php echo htmlspecialchars($authUrl, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?>" />
+    -->
     <style>
       body {
         font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
