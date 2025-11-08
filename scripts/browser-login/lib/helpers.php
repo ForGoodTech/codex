@@ -282,10 +282,18 @@ function build_authorize_url(
         'code_challenge' => $pkce['code_challenge'],
         'code_challenge_method' => 'S256',
         'id_token_add_organizations' => 'true',
-        'codex_cli_simplified_flow' => 'true',
         'state' => $state,
         'originator' => ORIGINATOR,
     ];
+
+    if (redirect_targets_localhost($redirectUri)) {
+        $query['codex_cli_simplified_flow'] = 'true';
+        log_debug('Enabled simplified flow parameter for localhost redirect');
+    } else {
+        log_debug('Omitted simplified flow parameter for non-localhost redirect', [
+            'redirect_host' => parse_url($redirectUri, PHP_URL_HOST),
+        ]);
+    }
 
     if ($allowedWorkspaceId !== null && $allowedWorkspaceId !== '') {
         $query['allowed_workspace_id'] = $allowedWorkspaceId;
@@ -344,6 +352,28 @@ function exchange_code_for_tokens(string $code, array $pkce, string $redirectUri
         'access_token' => $data['access_token'],
         'refresh_token' => $data['refresh_token'],
     ];
+}
+
+/**
+ * Determine whether the redirect URI resolves to localhost.
+ */
+function redirect_targets_localhost(string $redirectUri): bool
+{
+    $host = parse_url($redirectUri, PHP_URL_HOST);
+    if (!is_string($host)) {
+        return false;
+    }
+
+    $normalized = strtolower($host);
+    $result = in_array($normalized, ['localhost', '127.0.0.1', '::1'], true);
+
+    log_debug('Evaluated redirect host locality', [
+        'redirect_uri' => $redirectUri,
+        'host' => $host,
+        'is_localhost' => $result,
+    ]);
+
+    return $result;
 }
 
 /**
