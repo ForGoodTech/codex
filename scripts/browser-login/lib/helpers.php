@@ -15,6 +15,8 @@ const ORIGINATOR = 'codex_cli_rs';
 const AUTH_SCOPE = 'openid profile email offline_access';
 const DEFAULT_REDIRECT_PATH = 'callback.php';
 const CURL_TIMEOUT = 15;
+const SESSION_LOG_KEY = '_codex_browser_login_debug';
+const MAX_DEBUG_LOG_ENTRIES = 200;
 
 /**
  * Emit a structured log line to the PHP error log.
@@ -32,6 +34,8 @@ function log_debug(string $message, array $context = []): void
     if ($context !== []) {
         $payload['context'] = sanitize_for_log($context);
     }
+
+    append_debug_log($payload);
 
     $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     if ($json === false) {
@@ -82,6 +86,71 @@ function sanitize_for_log($value)
     }
 
     return gettype($value);
+}
+
+/**
+ * Append a log entry to the session-scoped debug buffer.
+ *
+ * @param array<string, mixed> $entry
+ */
+function append_debug_log(array $entry): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+
+    if (!isset($_SESSION[SESSION_LOG_KEY]) || !is_array($_SESSION[SESSION_LOG_KEY])) {
+        $_SESSION[SESSION_LOG_KEY] = [];
+    }
+
+    $_SESSION[SESSION_LOG_KEY][] = $entry;
+
+    $count = count($_SESSION[SESSION_LOG_KEY]);
+    if ($count > MAX_DEBUG_LOG_ENTRIES) {
+        $_SESSION[SESSION_LOG_KEY] = array_slice($_SESSION[SESSION_LOG_KEY], $count - MAX_DEBUG_LOG_ENTRIES);
+    }
+}
+
+/**
+ * Return the collected session debug log entries.
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function session_debug_log(): array
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return [];
+    }
+
+    $entries = $_SESSION[SESSION_LOG_KEY] ?? [];
+    return is_array($entries) ? $entries : [];
+}
+
+/**
+ * Format a debug entry for display.
+ */
+function format_log_entry(array $entry): string
+{
+    $json = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($json !== false) {
+        return $json;
+    }
+
+    return print_r($entry, true);
+}
+
+/**
+ * Clear the session debug log and destroy the session.
+ */
+function reset_session(): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return;
+    }
+
+    unset($_SESSION[SESSION_LOG_KEY]);
+    $_SESSION = [];
+    session_destroy();
 }
 
 /**

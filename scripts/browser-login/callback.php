@@ -9,8 +9,11 @@ use function CodexBrowserLogin\ensure_session;
 use function CodexBrowserLogin\ensure_workspace_allowed;
 use function CodexBrowserLogin\exchange_code_for_tokens;
 use function CodexBrowserLogin\extract_auth_claims;
+use function CodexBrowserLogin\format_log_entry;
 use function CodexBrowserLogin\log_debug;
 use function CodexBrowserLogin\obtain_api_key;
+use function CodexBrowserLogin\reset_session;
+use function CodexBrowserLogin\session_debug_log;
 use function CodexBrowserLogin\summarize_secret;
 
 require __DIR__ . '/lib/helpers.php';
@@ -35,6 +38,8 @@ function render_error(string $title, string $message, ?string $detail = null): v
         'message' => $message,
         'detail' => $detail,
     ]);
+    $logEntries = session_debug_log();
+    reset_session();
     http_response_code(400);
     ?><!DOCTYPE html>
 <html lang="en">
@@ -83,6 +88,20 @@ function render_error(string $title, string $message, ?string $detail = null): v
         text-decoration: none;
         font-weight: 600;
       }
+      details.log {
+        margin-top: 1.5rem;
+      }
+      details.log summary {
+        font-weight: 600;
+        cursor: pointer;
+      }
+      details.log pre {
+        background: rgba(15, 23, 42, 0.04);
+        padding: 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
@@ -92,12 +111,17 @@ function render_error(string $title, string $message, ?string $detail = null): v
       <?php if ($detail !== null) : ?>
         <p><code><?php echo htmlspecialchars($detail, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); ?></code></p>
       <?php endif; ?>
+      <?php if (!empty($logEntries)) : ?>
+        <details class="log" open>
+          <summary>Debug log</summary>
+          <pre><?php foreach ($logEntries as $entry) { echo htmlspecialchars(format_log_entry($entry), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\n"; } ?></pre>
+        </details>
+      <?php endif; ?>
       <a class="button" href="index.php">Start over</a>
     </div>
   </body>
 </html>
 <?php
-    session_destroy();
     exit;
 }
 
@@ -187,15 +211,15 @@ if ($authJsonString === false) {
 $successData = compose_success_data($tokens);
 $downloadHref = 'data:application/json;charset=utf-8,' . rawurlencode($authJsonString);
 
-$_SESSION = [];
-session_destroy();
-
-log_debug('Rendered success page', [
+$successContext = [
     'needs_setup' => $successData['needs_setup'],
     'org_id' => $successData['org_id'],
     'project_id' => $successData['project_id'],
     'plan_type' => $successData['plan_type'],
-]);
+];
+log_debug('Rendering success page', $successContext);
+$logEntries = session_debug_log();
+reset_session();
 
 ?><!DOCTYPE html>
 <html lang="en">
@@ -320,6 +344,27 @@ log_debug('Rendered success page', [
         color: #4b5563;
         margin-top: 16px;
       }
+      details.log {
+        width: min(720px, 100%);
+        background: #ffffff;
+        border-radius: 18px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
+        padding: 20px 24px;
+      }
+      details.log summary {
+        font-weight: 600;
+        cursor: pointer;
+        outline: none;
+      }
+      details.log pre {
+        margin-top: 16px;
+        background: rgba(15, 23, 42, 0.04);
+        padding: 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
@@ -357,6 +402,12 @@ log_debug('Rendered success page', [
         <?php endif; ?>
         <div class="copy-success" id="copy-status" hidden>Copied to clipboard.</div>
       </div>
+      <?php if (!empty($logEntries)) : ?>
+        <details class="log" open>
+          <summary>Debug log</summary>
+          <pre><?php foreach ($logEntries as $entry) { echo htmlspecialchars(format_log_entry($entry), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "\n"; } ?></pre>
+        </details>
+      <?php endif; ?>
     </div>
     <script>
       (() => {
