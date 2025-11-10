@@ -11,6 +11,8 @@ pub mod helloworld {
 use helloworld::greeter_server::{Greeter, GreeterServer};
 use helloworld::{HelloReply, HelloRequest};
 
+const SOCKET_PATH: &str = "/tmp/helloworld.sock";
+
 #[derive(Default)]
 struct MyGreeter;
 
@@ -30,15 +32,14 @@ impl Greeter for MyGreeter {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let socket_path = "/tmp/helloworld.sock";
-    if Path::new(socket_path).exists() {
-        std::fs::remove_file(socket_path)?;
+    if Path::new(SOCKET_PATH).exists() {
+        std::fs::remove_file(SOCKET_PATH)?;
     }
 
-    let listener = UnixListener::bind(socket_path)?;
+    let listener = UnixListener::bind(SOCKET_PATH)?;
     let incoming = UnixListenerStream::new(listener);
 
-    println!("Server listening on {}", socket_path);
+    println!("Server listening on UDS: {}", SOCKET_PATH);
 
     Server::builder()
         .add_service(GreeterServer::new(MyGreeter::default()))
