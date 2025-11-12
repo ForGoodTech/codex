@@ -1,36 +1,23 @@
 use tokio::net::UnixStream;
-use tonic::transport::{
-    Channel,
-    Endpoint,
-    Uri,
-};
+use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
 
-pub mod helloworld
-{
+pub mod helloworld {
     tonic::include_proto!("helloworld");
 }
 
-use helloworld::{
-    greeter_client::GreeterClient,
-    HelloRequest,
-};
+use helloworld::{greeter_client::GreeterClient, HelloRequest};
 
-async fn connect_via_unix_socket(path: impl Into<String>) -> Result<Channel, Box<dyn std::error::Error>>
-{
-    let path = path.into();
+const SOCKET_PATH: &str = "/tmp/helloworld.sock";
 
+async fn connect_via_unix_socket(path: &str) -> Result<Channel, Box<dyn std::error::Error>> {
+    let path = path.to_owned();
     let endpoint = Endpoint::try_from("http://[::]:50051")?;
 
     let channel = endpoint
-        .connect_with_connector(service_fn(move |_: Uri|
-        {
+        .connect_with_connector(service_fn(move |_: Uri| {
             let path = path.clone();
-
-            async move
-            {
-                UnixStream::connect(path).await
-            }
+            async move { UnixStream::connect(path).await }
         }))
         .await?;
 
@@ -38,19 +25,15 @@ async fn connect_via_unix_socket(path: impl Into<String>) -> Result<Channel, Box
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>>
-{
-    // Must match the server's "Server listening on /tmp/helloworld.sock"
-    let channel = connect_via_unix_socket("/tmp/helloworld.sock").await?;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Must match the server's "Server listening on UDS: /tmp/helloworld.sock"
+    let channel = connect_via_unix_socket(SOCKET_PATH).await?;
 
     let mut client = GreeterClient::new(channel);
 
-    let request = tonic::Request::new(
-        HelloRequest
-        {
-            name: "Codex".to_string(),
-        }
-    );
+    let request = tonic::Request::new(HelloRequest {
+        name: "Codex".to_string(),
+    });
 
     let response = client.say_hello(request).await?;
 
@@ -58,4 +41,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>
 
     Ok(())
 }
-
