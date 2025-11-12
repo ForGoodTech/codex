@@ -72,3 +72,26 @@ Use the MCP inspector and `codex mcp-server` to build a simple tic-tac-toe game 
 **sandbox:** workspace-write
 
 Click "Run Tool" and you should see a list of events emitted from the Codex MCP server as it builds the game.
+
+## gRPC bridge {#grpc-bridge}
+
+Codex also exposes its CLI through a lightweight gRPC server for integrations
+that prefer RPC calls over spawning local processes. Start the server with:
+
+```bash
+cargo run --manifest-path ext/grpc/Cargo.toml --bin server
+```
+
+By default the server listens on `/tmp/codex-grpc.sock`. Use
+`--socket-path /custom/path.sock` or the `CODEX_GRPC_SOCKET` environment
+variable to change the Unix-domain socket location. Additional flags:
+
+- `--cli-path` / `CODEX_GRPC_CLI_BIN`: override the Codex CLI executable the
+  server invokes.
+- `--concurrency-limit`: limit the number of simultaneous `codex` processes.
+
+The service implements the `CodexCli.RunCommand` RPC defined in
+[`ext/grpc/proto/codex.proto`](../ext/grpc/proto/codex.proto); each request can
+provide CLI arguments, environment variables, working directory, and stdin. The
+response returns the exit code alongside aggregated stdout/stderr buffers so
+clients can interpret results without streaming.
