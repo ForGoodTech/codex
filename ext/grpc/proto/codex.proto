@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package codex;
+
+service CodexCli {
+  rpc RunCommand(RunCommandRequest) returns (RunCommandResponse);
+}
+
+message RunCommandRequest {
+  repeated string args = 1;
+  map<string, string> env = 2;
+  string cwd = 3;
+  bytes stdin = 4;
+}
+
+message RunCommandResponse {
+  int32 exit_code = 1;
+  bytes stdout = 2;
+  bytes stderr = 3;
+}
