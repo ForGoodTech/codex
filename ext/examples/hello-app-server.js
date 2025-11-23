@@ -11,14 +11,11 @@
  *
  * How to run
  * ----------
- * 1) Build the Codex CLI so the `codex-app-server` binary is available (for local checkouts, `cargo build` in `codex-rs`).
- * 2) In a separate terminal, start the app server and expose its stdio via FIFOs:
+ * 1) In a separate terminal, start the app server and expose its stdio via FIFOs:
  *      mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
- *      # Either run the built binary directly (adjust path if you built in release mode)
- *      ./codex-rs/target/debug/codex-app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
- *      # Or start it via cargo without changing directories
+ *      # Start the server via cargo without changing directories
  *      cargo run --manifest-path codex-rs/Cargo.toml -p codex-app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
- * 3) From the repo root, run the client against those pipes (overridable via env vars):
+ * 2) From the repo root, run the client against those pipes (overridable via env vars):
  *      APP_SERVER_IN=/tmp/codex-app-server.in APP_SERVER_OUT=/tmp/codex-app-server.out \\
  *      node ext/examples/hello-app-server.js
  *

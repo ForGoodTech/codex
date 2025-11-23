@@ -7,7 +7,7 @@ This directory is a staging area for fork-only add-ons and generated assets. It 
 
 ## Starting the app server from this repo
 
-Assuming the CLI is already built, launch the app server from the repository root so examples can attach:
+Launch the app server from the repository root so examples can attach:
 
 1. (Optional) Create shared FIFOs so multiple terminals can share the same server without mixing streams:
 
@@ -15,12 +15,12 @@ Assuming the CLI is already built, launch the app server from the repository roo
    mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
    ```
 
-2. Start the server, wiring stdio directly or via the FIFOs above. You can run the built binary directly (e.g., `./codex-rs/target/debug/codex-app-server`) or launch it through Cargo without changing directories:
+2. Start the server with Cargo using the workspace manifest; wire stdio directly or via the FIFOs above:
 
    ```shell
    # Plain stdio via cargo
    cargo run --manifest-path codex-rs/Cargo.toml -p codex-app-server
-   # Or with the FIFOs created in step 1 (works the same with the built binary if you prefer not to use cargo run)
+   # Or with the FIFOs created in step 1
    cargo run --manifest-path codex-rs/Cargo.toml -p codex-app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
    ```
 
