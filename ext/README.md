@@ -9,11 +9,10 @@ This directory is a staging area for fork-only add-ons and generated assets. It 
 
 Use these steps from the repository root to boot the Codex app server for the examples to consume:
 
-1. Build the CLI binary from source:
+1. Build the CLI binary from source (stay at repo root by using `--manifest-path`):
 
    ```shell
-   cd codex-rs
-   cargo build -p codex
+   cargo build --manifest-path codex-rs/Cargo.toml -p codex
    ```
 
 2. (Optional) Create shared FIFOs so multiple terminals can attach to the same server without mixing streams:
@@ -22,14 +21,13 @@ Use these steps from the repository root to boot the Codex app server for the ex
    mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
    ```
 
-3. Start the server, wiring stdio directly or via the FIFOs above. This keeps you in the repo root while executing the binary from `codex-rs`:
+3. Start the server, wiring stdio directly or via the FIFOs above. Using `--manifest-path` lets you launch the binary from the repo root while pointing at the `codex-rs` workspace:
 
    ```shell
-   cd codex-rs
    # Plain stdio
-   cargo run -p codex -- app-server
+   cargo run --manifest-path codex-rs/Cargo.toml -p codex -- app-server
    # Or with the FIFOs created in step 2
-   cargo run -p codex -- app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
+   cargo run --manifest-path codex-rs/Cargo.toml -p codex -- app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
    ```
 
 4. Leave the server running and connect clients by writing JSONL (JSON-RPC 2.0 messages without the `jsonrpc` field) to the input stream and reading notifications from the output stream.
