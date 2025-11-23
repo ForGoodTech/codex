@@ -65,6 +65,29 @@ You can also use Codex with an API key, but this requires [additional setup](./d
 
 Codex can access MCP servers. To configure them, refer to the [config docs](./docs/config.md#mcp_servers).
 
+### Starting the app server from this repo
+
+Follow these steps from the repository root to boot the Codex app server over stdio so client examples (such as `ext/examples/hello-app-server.js`) can connect:
+
+1. Build the CLI binary from source:
+   ```shell
+   cd codex-rs
+   cargo build -p codex
+   ```
+2. (Optional but recommended) Create FIFOs so other terminals can share the server’s stdio without mixing streams:
+   ```shell
+   mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
+   ```
+3. Start the server from the workspace, wiring stdio directly or via the FIFOs above. This keeps you in the repo root while executing the binary from `codex-rs`:
+   ```shell
+   cd codex-rs
+   # Plain stdio
+   cargo run -p codex -- app-server
+   # Or with the FIFOs created in step 2
+   cargo run -p codex -- app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
+   ```
+4. Leave the server running and connect clients by writing JSONL (JSON-RPC 2.0 messages without the `jsonrpc` field) to the input stream and reading notifications from the output stream.
+
 ### Configuration
 
 Codex CLI supports a rich set of configuration options, with preferences stored in `~/.codex/config.toml`. For full configuration options, see [Configuration](./docs/config.md).
