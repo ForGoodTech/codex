@@ -15,12 +15,12 @@ Assuming the CLI is already built, launch the app server from the repository roo
    mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
    ```
 
-2. Start the server, wiring stdio directly or via the FIFOs above. The `--manifest-path` flag keeps the command rooted here while targeting the `codex-rs` workspace:
+2. Start the server, wiring stdio directly or via the FIFOs above. You can run the built binary directly (e.g., `./codex-rs/target/debug/codex-app-server`) or launch it through Cargo without changing directories:
 
    ```shell
-   # Plain stdio
+   # Plain stdio via cargo
    cargo run --manifest-path codex-rs/Cargo.toml -p codex-app-server
-   # Or with the FIFOs created in step 1
+   # Or with the FIFOs created in step 1 (works the same with the built binary if you prefer not to use cargo run)
    cargo run --manifest-path codex-rs/Cargo.toml -p codex-app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
    ```
 
