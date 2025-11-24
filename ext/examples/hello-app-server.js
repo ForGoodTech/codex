@@ -90,7 +90,27 @@ function logNotification(method, params) {
       console.log(`Turn started: ${params.turn?.id ?? 'unknown'}`);
       break;
     case 'item/agentMessage/delta':
-      console.log(params.delta?.content?.map((c) => c.text).join(''));
+      if (params.delta?.content?.length) {
+        console.log(params.delta.content.map((c) => c.text ?? '').join(''));
+        break;
+      }
+
+      if (typeof params.delta?.text === 'string') {
+        console.log(params.delta.text);
+        break;
+      }
+
+      if (typeof params.delta === 'string') {
+        console.log(params.delta);
+        break;
+      }
+
+      if (params.delta !== undefined) {
+        console.log(JSON.stringify(params.delta));
+        break;
+      }
+
+      console.log('Notification', method, params);
       break;
     case 'turn/completed':
       console.log(`Turn completed with status: ${params.turn?.status}`);
