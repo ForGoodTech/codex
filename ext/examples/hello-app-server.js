@@ -77,9 +77,8 @@ rl.on('line', (line) => {
       watchedTurnId &&
       message.params?.turn?.id === watchedTurnId
     ) {
-      console.log('Turn completed; shutting down.');
-      rl.close();
-      serverInput.end();
+      console.log('Turn completed; exiting without closing channels.');
+      process.exit(0);
     }
   }
 });
@@ -168,5 +167,5 @@ async function main() {
 
 main().catch((error) => {
   console.error('Example failed:', error);
-  serverInput.end();
+  process.exit(1);
 });
