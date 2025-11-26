@@ -46,7 +46,7 @@ let watchedTurnId = null;
 
 const rl = readline.createInterface({ input: serverOutput });
 
-rl.on('line', (line) => {
+const handleLine = (line) => {
   if (!line.trim()) {
     return;
   }
@@ -77,11 +77,16 @@ rl.on('line', (line) => {
       watchedTurnId &&
       message.params?.turn?.id === watchedTurnId
     ) {
-      console.log('Turn completed; exiting without closing channels.');
-      process.exit(0);
+      console.log(
+        'Turn completed; keeping channels open. Press Ctrl+C to close the client when ready.'
+      );
+      rl.removeListener('line', handleLine);
+      serverOutput.pause();
     }
   }
-});
+};
+
+rl.on('line', handleLine);
 
 function logNotification(method, params) {
   switch (method) {
@@ -166,6 +171,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('Example failed:', error);
-  process.exit(1);
+  console.error('Example failed; keeping channels open so the server continues running:', error);
+  console.error('Press Ctrl+C when you are ready to close this client.');
 });
