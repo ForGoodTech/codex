@@ -80,8 +80,6 @@ const handleLine = (line) => {
       console.log(
         'Turn completed; keeping channels open. Press Ctrl+C to close the client when ready.'
       );
-      rl.removeListener('line', handleLine);
-      serverOutput.pause();
     }
   }
 };
