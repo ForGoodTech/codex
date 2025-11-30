@@ -9,7 +9,8 @@ pushd "$SCRIPT_DIR/.." >> /dev/null || {
   exit 1
 }
 pnpm install
-pnpm run build
+# Legacy TypeScript CLI is already checked in as compiled JavaScript; no additional build step is required.
+mkdir -p ./dist
 rm -rf ./dist/openai-codex-*.tgz
 pnpm pack --pack-destination ./dist
 mv ./dist/openai-codex-*.tgz ./dist/codex.tgz
