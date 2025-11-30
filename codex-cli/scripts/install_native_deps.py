@@ -362,12 +362,12 @@ def extract_archive(
 
 
 def _load_manifest(manifest_path: Path) -> dict:
-    cmd = ["dotslash", "--", "parse", str(manifest_path)]
-    stdout = subprocess.check_output(cmd, text=True)
     try:
-        manifest = json.loads(stdout)
+        manifest = json.loads(manifest_path.read_text())
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Invalid DotSlash manifest output from {manifest_path}.") from exc
+        raise RuntimeError(
+            f"Invalid DotSlash manifest JSON in {manifest_path}"
+        ) from exc
 
     if not isinstance(manifest, dict):
         raise RuntimeError(
