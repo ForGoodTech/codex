@@ -12,7 +12,7 @@ import zipfile
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
@@ -51,7 +51,7 @@ BINARY_COMPONENTS = {
     ),
 }
 
-RG_TARGET_PLATFORM_PAIRS: list[tuple[str, str]] = [
+RG_TARGET_PLATFORM_PAIRS: List[Tuple[str, str]] = [
     ("x86_64-unknown-linux-musl", "linux-x86_64"),
     ("aarch64-unknown-linux-musl", "linux-aarch64"),
     ("x86_64-apple-darwin", "macos-x86_64"),
@@ -130,10 +130,10 @@ def main() -> int:
 
 def fetch_rg(
     vendor_dir: Path,
-    targets: Sequence[str] | None = None,
+    targets: Optional[Sequence[str]] = None,
     *,
     manifest_path: Path,
-) -> list[Path]:
+) -> List[Path]:
     """Download ripgrep binaries described by the DotSlash manifest."""
 
     if targets is None:
@@ -151,7 +151,7 @@ def fetch_rg(
     if not targets:
         return []
 
-    task_configs: list[tuple[str, str, dict]] = []
+    task_configs: List[Tuple[str, str, Dict]] = []
     for target in targets:
         platform_key = RG_TARGET_TO_PLATFORM.get(target)
         if platform_key is None:
@@ -163,7 +163,7 @@ def fetch_rg(
 
         task_configs.append((target, platform_key, platform_info))
 
-    results: dict[str, Path] = {}
+    results: Dict[str, Path] = {}
     max_workers = min(len(task_configs), max(1, (os.cpu_count() or 1)))
 
     print("Installing ripgrep binaries for targets: " + ", ".join(targets))
@@ -275,7 +275,7 @@ def _fetch_single_rg(
     vendor_dir: Path,
     target: str,
     platform_key: str,
-    platform_info: dict,
+    platform_info: Dict,
     manifest_path: Path,
 ) -> Path:
     providers = platform_info.get("providers", [])
@@ -317,7 +317,7 @@ def _download_file(url: str, dest: Path) -> None:
 def extract_archive(
     archive_path: Path,
     archive_format: str,
-    archive_member: str | None,
+    archive_member: Optional[str],
     dest: Path,
 ) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
