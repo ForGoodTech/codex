@@ -41,12 +41,48 @@ pushd "$CLI_ROOT" > /dev/null
 
 pnpm install
 
-# Build the native Codex binary from the local workspace.
-pushd "$RUST_ROOT" > /dev/null
-cargo build --release -p codex-cli --bin codex
-popd > /dev/null
+# Build (or reuse) the native Codex binary from the local workspace.
+# CODEX_BUILD_PROFILE can be set to "release", "debug", or "auto" (default) to
+# control whether an existing binary is reused or a build is triggered.
+BUILD_PROFILE=${CODEX_BUILD_PROFILE:-auto}
 
-CODEX_BIN_SRC="$RUST_ROOT/target/release/codex"
+function ensure_codex_binary() {
+  local profile="$1"
+  case "$profile" in
+    release)
+      echo "$RUST_ROOT/target/release/codex"
+      ;;
+    debug)
+      echo "$RUST_ROOT/target/debug/codex"
+      ;;
+    auto)
+      if [[ -x "$RUST_ROOT/target/release/codex" ]]; then
+        echo "$RUST_ROOT/target/release/codex"
+      elif [[ -x "$RUST_ROOT/target/debug/codex" ]]; then
+        echo "$RUST_ROOT/target/debug/codex"
+      else
+        echo "$RUST_ROOT/target/release/codex"
+      fi
+      ;;
+    *)
+      echo "Unknown build profile: $profile" >&2
+      exit 1
+      ;;
+  esac
+}
+
+CODEX_BIN_SRC=$(ensure_codex_binary "$BUILD_PROFILE")
+
+if [[ ! -x "$CODEX_BIN_SRC" ]]; then
+  pushd "$RUST_ROOT" > /dev/null
+  if [[ "$BUILD_PROFILE" == "debug" ]]; then
+    cargo build -p codex-cli --bin codex
+  else
+    cargo build --release -p codex-cli --bin codex
+  fi
+  popd > /dev/null
+fi
+
 if [[ ! -x "$CODEX_BIN_SRC" ]]; then
   echo "Built Codex binary not found at $CODEX_BIN_SRC" >&2
   exit 1
