@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Build a Codex Docker image for interactive use, ensuring native dependencies
+# are installed before packaging the CLI.
 set -euo pipefail
 
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
