@@ -88,11 +88,40 @@ if [[ ! -x "$CODEX_BIN_SRC" ]]; then
   exit 1
 fi
 
-RG_BIN_SRC=$(command -v rg || true)
-if [[ -z "$RG_BIN_SRC" ]]; then
-  echo "ripgrep (rg) not found in PATH. Install it before running this script." >&2
+function ensure_rg_binary() {
+  local rg_path
+  rg_path=$(command -v rg || true)
+  if [[ -n "$rg_path" ]]; then
+    echo "$rg_path"
+    return
+  fi
+
+  if command -v apt-get >/dev/null 2>&1 && [[ $(id -u) -eq 0 ]]; then
+    apt-get update
+    apt-get install -y --no-install-recommends ripgrep
+    rg_path=$(command -v rg || true)
+    if [[ -n "$rg_path" ]]; then
+      echo "$rg_path"
+      return
+    fi
+  fi
+
+  if command -v cargo >/dev/null 2>&1; then
+    local rg_root="$RUST_ROOT/target/ripgrep-install"
+    mkdir -p "$rg_root"
+    cargo install --locked ripgrep --root "$rg_root"
+    if [[ -x "$rg_root/bin/rg" ]]; then
+      echo "$rg_root/bin/rg"
+      return
+    fi
+  fi
+
+  echo "ripgrep (rg) not found in PATH and automatic installation failed." >&2
+  echo "Install ripgrep manually (e.g., via apt or cargo install ripgrep) and re-run." >&2
   exit 1
-fi
+}
+
+RG_BIN_SRC=$(ensure_rg_binary)
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
