@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Install Codex native binaries (Rust CLI plus ripgrep helpers)."""
 
-from __future__ import annotations
-
 import argparse
 import json
 import os
