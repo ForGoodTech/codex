@@ -43,7 +43,7 @@ pnpm install
 
 # Build the native Codex binary from the local workspace.
 pushd "$RUST_ROOT" > /dev/null
-cargo build --release -p codex
+cargo build --release -p codex-cli --bin codex
 popd > /dev/null
 
 CODEX_BIN_SRC="$RUST_ROOT/target/release/codex"
