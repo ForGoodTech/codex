@@ -20,7 +20,6 @@ fi
 pushd "$CLI_ROOT" > /dev/null
 
 pnpm install
-pnpm run build
 
 # Hydrate vendor/ from the published npm package (assumes version matches).
 PACKAGE_VERSION=$(node -pe "require('./package.json').version")
