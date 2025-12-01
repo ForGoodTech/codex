@@ -5,9 +5,14 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
-REPO_ROOT=$(realpath "$SCRIPT_DIR/../..")
+REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
 IMAGE_TAG=${CODEX_INTERACTIVE_IMAGE_TAG:-codex-interactive}
+
+if [[ ! -d "$CLI_ROOT" ]]; then
+  echo "Codex CLI directory not found at: $CLI_ROOT" >&2
+  exit 1
+fi
 
 pushd "$CLI_ROOT" > /dev/null
 
