@@ -1,4 +1,4 @@
-FROM node:24-slim
+FROM node:24-bullseye
 
 ARG TZ
 ENV TZ="$TZ"
@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   iptables \
   jq \
   less \
+  libssl1.1 \
   man-db \
   procps \
   unzip \
