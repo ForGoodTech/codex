@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "CommandRiskLevel": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "SandboxCommandAssessment": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "riskLevel": {
+          "$ref": "#/definitions/CommandRiskLevel"
+        }
+      },
+      "required": [
+        "description",
+        "riskLevel"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "itemId": {
+      "type": "string"
+    },
+    "reason": {
+      "description": "Optional explanatory reason (e.g. request for network access).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "risk": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SandboxCommandAssessment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional model-provided risk assessment describing the blocked command."
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "itemId",
+    "threadId",
+    "turnId"
+  ],
+  "title": "CommandExecutionRequestApprovalParams",
+  "type": "object"
+}

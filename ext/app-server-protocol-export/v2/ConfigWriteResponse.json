@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ConfigLayerMetadata": {
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/ConfigLayerName"
+        },
+        "source": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ConfigLayerName": {
+      "enum": [
+        "mdm",
+        "system",
+        "sessionFlags",
+        "user"
+      ],
+      "type": "string"
+    },
+    "OverriddenMetadata": {
+      "properties": {
+        "effectiveValue": true,
+        "message": {
+          "type": "string"
+        },
+        "overridingLayer": {
+          "$ref": "#/definitions/ConfigLayerMetadata"
+        }
+      },
+      "required": [
+        "effectiveValue",
+        "message",
+        "overridingLayer"
+      ],
+      "type": "object"
+    },
+    "WriteStatus": {
+      "enum": [
+        "ok",
+        "okOverridden"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "overriddenMetadata": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/OverriddenMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "$ref": "#/definitions/WriteStatus"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "version"
+  ],
+  "title": "ConfigWriteResponse",
+  "type": "object"
+}
