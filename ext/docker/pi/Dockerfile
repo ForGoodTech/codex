@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   curl \
   dnsutils \
   fzf \
-  gh \
   git \
   gnupg2 \
   iproute2 \
