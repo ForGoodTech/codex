@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ConversationId": {
+      "type": "string"
+    }
+  },
+  "properties": {
+    "classification": {
+      "type": "string"
+    },
+    "conversationId": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ConversationId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "includeLogs": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "classification",
+    "includeLogs"
+  ],
+  "title": "FeedbackUploadParams",
+  "type": "object"
+}
