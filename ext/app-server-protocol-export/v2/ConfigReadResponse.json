@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ConfigLayer": {
+      "properties": {
+        "config": true,
+        "name": {
+          "$ref": "#/definitions/ConfigLayerName"
+        },
+        "source": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "config",
+        "name",
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ConfigLayerMetadata": {
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/ConfigLayerName"
+        },
+        "source": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ConfigLayerName": {
+      "enum": [
+        "mdm",
+        "system",
+        "sessionFlags",
+        "user"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "config": true,
+    "layers": {
+      "items": {
+        "$ref": "#/definitions/ConfigLayer"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "origins": {
+      "additionalProperties": {
+        "$ref": "#/definitions/ConfigLayerMetadata"
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "config",
+    "origins"
+  ],
+  "title": "ConfigReadResponse",
+  "type": "object"
+}
