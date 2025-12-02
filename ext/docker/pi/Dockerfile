@@ -1,4 +1,4 @@
-FROM node:24-slim
+FROM node:24-bullseye
 
 ARG TZ
 ENV TZ="$TZ"
@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   curl \
   dnsutils \
   fzf \
-  gh \
   git \
   gnupg2 \
   iproute2 \
@@ -18,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   iptables \
   jq \
   less \
+  libssl1.1 \
   man-db \
   procps \
   unzip \
@@ -41,6 +41,11 @@ ENV PATH=$PATH:/usr/local/share/npm-global/bin
 # Install codex
 COPY dist/codex.tgz codex.tgz
 RUN npm install -g codex.tgz \
+  && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
+  && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
+       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/path/rg; \
+       chown -R node:node "${INSTALL_ROOT}/vendor"; \
+     fi \
   && npm cache clean --force \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/node_modules/.cache \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/tests \
