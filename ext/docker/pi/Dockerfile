@@ -43,7 +43,7 @@ COPY dist/codex.tgz codex.tgz
 RUN npm install -g codex.tgz \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
-       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/path/rg; \
+       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/path/rg; \
        chown -R node:node "${INSTALL_ROOT}/vendor"; \
      fi \
   && npm cache clean --force \
