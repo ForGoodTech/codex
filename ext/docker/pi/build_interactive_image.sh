@@ -10,14 +10,19 @@ REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
 RUST_ROOT="$REPO_ROOT/codex-rs"
 IMAGE_TAG=${CODEX_INTERACTIVE_IMAGE_TAG:-codex-interactive}
+BUILD_PROFILE=debug
 
-if [[ $# -gt 1 ]]; then
-  echo "Usage: $(basename "$0") [image-tag]" >&2
+if [[ $# -gt 2 ]]; then
+  echo "Usage: $(basename "$0") [image-tag] [build-profile]" >&2
   exit 1
 fi
 
-if [[ $# -eq 1 ]]; then
+if [[ $# -ge 1 ]]; then
   IMAGE_TAG=$1
+fi
+
+if [[ $# -ge 2 ]]; then
+  BUILD_PROFILE=$2
 fi
 VENDOR_DIR="$CLI_ROOT/vendor"
 
@@ -51,36 +56,18 @@ pushd "$CLI_ROOT" > /dev/null
 pnpm install
 
 # Build (or reuse) the native Codex binary from the local workspace.
-# CODEX_BUILD_PROFILE can be set to "release", "debug", or "auto" (default) to
-# control whether an existing binary is reused or a build is triggered.
-BUILD_PROFILE=${CODEX_BUILD_PROFILE:-auto}
-
-function ensure_codex_binary() {
-  local profile="$1"
-  case "$profile" in
-    release)
-      echo "$RUST_ROOT/target/release/codex"
-      ;;
-    debug)
-      echo "$RUST_ROOT/target/debug/codex"
-      ;;
-    auto)
-      if [[ -x "$RUST_ROOT/target/release/codex" ]]; then
-        echo "$RUST_ROOT/target/release/codex"
-      elif [[ -x "$RUST_ROOT/target/debug/codex" ]]; then
-        echo "$RUST_ROOT/target/debug/codex"
-      else
-        echo "$RUST_ROOT/target/release/codex"
-      fi
-      ;;
-    *)
-      echo "Unknown build profile: $profile" >&2
-      exit 1
-      ;;
-  esac
-}
-
-CODEX_BIN_SRC=$(ensure_codex_binary "$BUILD_PROFILE")
+case "$BUILD_PROFILE" in
+  release)
+    CODEX_BIN_SRC="$RUST_ROOT/target/release/codex"
+    ;;
+  debug)
+    CODEX_BIN_SRC="$RUST_ROOT/target/debug/codex"
+    ;;
+  *)
+    echo "Unknown build profile: $BUILD_PROFILE" >&2
+    exit 1
+    ;;
+esac
 
 if [[ ! -x "$CODEX_BIN_SRC" ]]; then
   pushd "$RUST_ROOT" > /dev/null
