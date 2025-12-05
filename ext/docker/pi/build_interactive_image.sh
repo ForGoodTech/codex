@@ -10,6 +10,15 @@ REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
 RUST_ROOT="$REPO_ROOT/codex-rs"
 IMAGE_TAG=${CODEX_INTERACTIVE_IMAGE_TAG:-codex-interactive}
+
+if [[ $# -gt 1 ]]; then
+  echo "Usage: $(basename "$0") [image-tag]" >&2
+  exit 1
+fi
+
+if [[ $# -eq 1 ]]; then
+  IMAGE_TAG=$1
+fi
 VENDOR_DIR="$CLI_ROOT/vendor"
 
 if [[ ! -d "$CLI_ROOT" ]]; then
