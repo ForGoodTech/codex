@@ -9,7 +9,7 @@ SCRIPT_DIR=$(realpath "$(dirname "$0")")
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
 RUST_ROOT="$REPO_ROOT/codex-rs"
-IMAGE_TAG=${CODEX_INTERACTIVE_IMAGE_TAG:-codex-interactive}
+IMAGE_TAG=${CODEX_INTERACTIVE_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 
 if [[ $# -gt 2 ]]; then
