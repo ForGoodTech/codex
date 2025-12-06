@@ -39,7 +39,10 @@
  *
  * Notes
  * -----
- * - This script is a pure client; it does not start or stop the server. It talks JSON-RPC over two FIFOs.
+ * - Host FIFO mode: the script is a pure client and expects the server to be running already.
+ * - Container exec mode: the script spawns a one-off server process inside the container with docker exec
+ *   so it can talk to it over stdio; stop the container process separately if you want it to stay alive
+ *   beyond this demo.
  * - JSON-RPC responses are matched to the requests issued below; notifications are logged as they arrive.
  * - The example keeps the scope intentionally small so future examples can focus on other flows (auth, approvals, etc.).
  */
