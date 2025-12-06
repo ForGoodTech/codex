@@ -9,8 +9,8 @@
  * - Starts a new conversation thread and kicks off one turn with a simple text prompt.
  * - Streams and prints server notifications until the turn completes, then exits.
  *
- * How to run
- * ----------
+ * How to run (host app server)
+ * ----------------------------
  * 1) In a separate terminal, start the app server and expose its stdio via FIFOs:
  *      mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
  *      # Start the server via cargo without changing directories
@@ -19,14 +19,29 @@
  *      APP_SERVER_IN=/tmp/codex-app-server.in APP_SERVER_OUT=/tmp/codex-app-server.out \\
  *      node ext/examples/hello-app-server.js
  *
+ * How to run (server inside Docker container)
+ * -------------------------------------------
+ * - In the container, run the long-lived proxy to bridge the app server stdio to a TCP
+ *   port (see ext/examples/app-server-proxy.js for full instructions). Example inside the container:
+ *      APP_SERVER_PORT=9395 codex-app-server-proxy
+ * - Publish the proxy port to the host when starting the container, e.g.:
+ *      docker run -it --rm -p 9395:9395 my-codex-docker-image /bin/bash
+ * - From the host, point this client at the forwarded TCP endpoint:
+ *      APP_SERVER_TCP_HOST=127.0.0.1 APP_SERVER_TCP_PORT=9395 \\
+ *      node ext/examples/hello-app-server.js
+ *
  * Environment variables
  * ---------------------
  * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults to /tmp/codex-app-server.in.
  * - APP_SERVER_OUT (optional): path to the FIFO to read server responses/notifications from. Defaults to /tmp/codex-app-server.out.
+ * - APP_SERVER_TCP_HOST (optional): connect over TCP instead of FIFOs. Defaults to undefined (FIFO mode).
+ * - APP_SERVER_TCP_PORT (optional): port for TCP mode. Defaults to 9395 when APP_SERVER_TCP_HOST is set.
  *
  * Notes
  * -----
- * - This script is a pure client; it does not start or stop the server. It talks JSON-RPC over two FIFOs.
+ * - Host FIFO mode: the script is a pure client and expects the server to be running already.
+ * - Container TCP proxy mode: start the proxy separately in the container; this client connects over the
+ *   forwarded TCP port and does not manage the server lifecycle.
  * - JSON-RPC responses are matched to the requests issued below; notifications are logged as they arrive.
  * - The example keeps the scope intentionally small so future examples can focus on other flows (auth, approvals, etc.).
  */
@@ -34,11 +49,34 @@
 const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
+const net = require('node:net');
 
-const serverInPath = process.env.APP_SERVER_IN ?? '/tmp/codex-app-server.in';
-const serverOutPath = process.env.APP_SERVER_OUT ?? '/tmp/codex-app-server.out';
-const serverInput = fs.createWriteStream(serverInPath, { flags: 'a' });
-const serverOutput = fs.createReadStream(serverOutPath, { encoding: 'utf8' });
+const tcpHost = process.env.APP_SERVER_TCP_HOST;
+const tcpPort = process.env.APP_SERVER_TCP_PORT
+  ? Number.parseInt(process.env.APP_SERVER_TCP_PORT, 10)
+  : 9395;
+
+let serverInput;
+let serverOutput;
+let socket = null;
+
+if (tcpHost) {
+  console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
+  socket = net.connect({ host: tcpHost, port: tcpPort });
+  socket.setKeepAlive(true);
+  serverInput = socket;
+  serverOutput = socket;
+
+  socket.on('error', (error) => {
+    console.error('TCP connection error:', error);
+    process.exitCode = 1;
+  });
+} else {
+  const serverInPath = process.env.APP_SERVER_IN ?? '/tmp/codex-app-server.in';
+  const serverOutPath = process.env.APP_SERVER_OUT ?? '/tmp/codex-app-server.out';
+  serverInput = fs.createWriteStream(serverInPath, { flags: 'a' });
+  serverOutput = fs.createReadStream(serverOutPath, { encoding: 'utf8' });
+}
 
 let nextId = 1;
 const pending = new Map();
@@ -78,11 +116,18 @@ rl.on('line', (line) => {
       message.params?.turn?.id === watchedTurnId
     ) {
       console.log('Turn completed; shutting down.');
-      rl.close();
-      serverInput.end();
+      shutdown();
     }
   }
 });
+
+function shutdown() {
+  rl.close();
+  serverInput.end();
+  if (socket) {
+    socket.end();
+  }
+}
 
 function logNotification(method, params) {
   switch (method) {
@@ -137,7 +182,11 @@ function notify(method, params = {}) {
 async function main() {
   console.log('Connecting to codex app-server...');
 
-  await Promise.all([once(serverInput, 'open'), once(serverOutput, 'open')]);
+  if (socket) {
+    await once(socket, 'connect');
+  } else {
+    await Promise.all([once(serverInput, 'open'), once(serverOutput, 'open')]);
+  }
 
   const initializeResult = await request('initialize', {
     clientInfo: {
@@ -168,5 +217,5 @@ async function main() {
 
 main().catch((error) => {
   console.error('Example failed:', error);
-  serverInput.end();
+  shutdown();
 });
