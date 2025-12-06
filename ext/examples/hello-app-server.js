@@ -21,9 +21,9 @@
  *
  * How to run (server inside Docker container)
  * -------------------------------------------
- * - In the container, run ext/examples/app-server-proxy.js to bridge the app server stdio to a TCP
- *   port (see that file for full instructions). Example inside the container:
- *      APP_SERVER_PORT=9395 node ext/examples/app-server-proxy.js
+ * - In the container, run the long-lived proxy to bridge the app server stdio to a TCP
+ *   port (see ext/examples/app-server-proxy.js for full instructions). Example inside the container:
+ *      APP_SERVER_PORT=9395 codex-app-server-proxy
  * - Publish the proxy port to the host when starting the container, e.g.:
  *      docker run -it --rm -p 9395:9395 my-codex-docker-image /bin/bash
  * - From the host, point this client at the forwarded TCP endpoint:

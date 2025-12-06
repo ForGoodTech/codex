@@ -144,6 +144,6 @@ rm -f dist/openai-codex-*.tgz dist/codex.tgz
 pnpm pack --pack-destination dist
 mv dist/openai-codex-*.tgz dist/codex.tgz
 
-docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$CLI_ROOT"
+docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$REPO_ROOT"
 
 popd > /dev/null
