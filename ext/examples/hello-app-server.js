@@ -9,8 +9,8 @@
  * - Starts a new conversation thread and kicks off one turn with a simple text prompt.
  * - Streams and prints server notifications until the turn completes, then exits.
  *
- * How to run
- * ----------
+ * How to run (host app server)
+ * ----------------------------
  * 1) In a separate terminal, start the app server and expose its stdio via FIFOs:
  *      mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
  *      # Start the server via cargo without changing directories
@@ -19,10 +19,23 @@
  *      APP_SERVER_IN=/tmp/codex-app-server.in APP_SERVER_OUT=/tmp/codex-app-server.out \\
  *      node ext/examples/hello-app-server.js
  *
+ * How to run (server inside Docker container)
+ * -------------------------------------------
+ * - Ensure the container is running and the app server binary is on PATH inside the container
+ *   (the interactive image does this via the npm-global bin symlink).
+ * - From the host, exec the server and let this script talk to it over the exec stdio tunnel:
+ *      APP_SERVER_CONTAINER=codex-shell \\
+ *      APP_SERVER_CMD="codex-app-server" \\
+ *      node ext/examples/hello-app-server.js
+ * - The script will spawn `docker exec -i $APP_SERVER_CONTAINER $APP_SERVER_CMD` and wire the
+ *   exec stdin/stdout directly, so no FIFOs are required on the host.
+ *
  * Environment variables
  * ---------------------
  * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults to /tmp/codex-app-server.in.
  * - APP_SERVER_OUT (optional): path to the FIFO to read server responses/notifications from. Defaults to /tmp/codex-app-server.out.
+ * - APP_SERVER_CONTAINER (optional): if set, run the server via `docker exec -i $APP_SERVER_CONTAINER ...`.
+ * - APP_SERVER_CMD (optional): command to exec inside the container when APP_SERVER_CONTAINER is set. Defaults to codex-app-server.
  *
  * Notes
  * -----
@@ -34,11 +47,39 @@
 const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
+const { spawn } = require('node:child_process');
 
-const serverInPath = process.env.APP_SERVER_IN ?? '/tmp/codex-app-server.in';
-const serverOutPath = process.env.APP_SERVER_OUT ?? '/tmp/codex-app-server.out';
-const serverInput = fs.createWriteStream(serverInPath, { flags: 'a' });
-const serverOutput = fs.createReadStream(serverOutPath, { encoding: 'utf8' });
+const containerName = process.env.APP_SERVER_CONTAINER;
+const containerCmd = process.env.APP_SERVER_CMD ?? 'codex-app-server';
+
+let serverInput;
+let serverOutput;
+let serverProc = null;
+
+if (containerName) {
+  console.log('Starting codex-app-server inside container', containerName);
+
+  serverProc = spawn('docker', ['exec', '-i', containerName, containerCmd], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+
+  serverInput = serverProc.stdin;
+  serverOutput = serverProc.stdout;
+
+  serverProc.on('exit', (code, signal) => {
+    console.log(`Docker exec exited (code=${code}, signal=${signal ?? 'none'})`);
+  });
+
+  serverProc.on('error', (error) => {
+    console.error('Failed to start codex-app-server in container:', error);
+    process.exitCode = 1;
+  });
+} else {
+  const serverInPath = process.env.APP_SERVER_IN ?? '/tmp/codex-app-server.in';
+  const serverOutPath = process.env.APP_SERVER_OUT ?? '/tmp/codex-app-server.out';
+  serverInput = fs.createWriteStream(serverInPath, { flags: 'a' });
+  serverOutput = fs.createReadStream(serverOutPath, { encoding: 'utf8' });
+}
 
 let nextId = 1;
 const pending = new Map();
@@ -78,11 +119,18 @@ rl.on('line', (line) => {
       message.params?.turn?.id === watchedTurnId
     ) {
       console.log('Turn completed; shutting down.');
-      rl.close();
-      serverInput.end();
+      shutdown();
     }
   }
 });
+
+function shutdown() {
+  rl.close();
+  serverInput.end();
+  if (serverProc) {
+    serverProc.kill('SIGINT');
+  }
+}
 
 function logNotification(method, params) {
   switch (method) {
@@ -137,7 +185,11 @@ function notify(method, params = {}) {
 async function main() {
   console.log('Connecting to codex app-server...');
 
-  await Promise.all([once(serverInput, 'open'), once(serverOutput, 'open')]);
+  if (serverProc) {
+    await once(serverProc, 'spawn');
+  } else {
+    await Promise.all([once(serverInput, 'open'), once(serverOutput, 'open')]);
+  }
 
   const initializeResult = await request('initialize', {
     clientInfo: {
@@ -168,5 +220,5 @@ async function main() {
 
 main().catch((error) => {
   console.error('Example failed:', error);
-  serverInput.end();
+  shutdown();
 });
