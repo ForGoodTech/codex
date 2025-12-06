@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# Build a Codex Docker image for interactive use on Raspberry Pi/Ubuntu.
-# This script builds the Codex binary from the local repository and stages
-# vendor assets without relying on published npm artifacts.
+# Build a Codex Docker image for Raspberry Pi/Ubuntu.
+# This script builds the Codex binary from the local repository and stages vendor assets without
+# relying on published npm artifacts.
 set -euo pipefail
 
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
 RUST_ROOT="$REPO_ROOT/codex-rs"
-IMAGE_TAG=${CODEX_INTERACTIVE_IMAGE_TAG:-my-codex-docker-image}
+IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 
 if [[ $# -gt 2 ]]; then
