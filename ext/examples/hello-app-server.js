@@ -21,28 +21,27 @@
  *
  * How to run (server inside Docker container)
  * -------------------------------------------
- * - Ensure the container is running and the app server binary is on PATH inside the container
- *   (the interactive image does this via the npm-global bin symlink).
- * - From the host, exec the server and let this script talk to it over the exec stdio tunnel:
- *      APP_SERVER_CONTAINER=codex-shell \\
- *      APP_SERVER_CMD="codex-app-server" \\
+ * - In the container, run ext/examples/app-server-proxy.js to bridge the app server stdio to a TCP
+ *   port (see that file for full instructions). Example inside the container:
+ *      APP_SERVER_PORT=9395 node ext/examples/app-server-proxy.js
+ * - Publish the proxy port to the host when starting the container, e.g.:
+ *      docker run -it --rm -p 9395:9395 my-codex-docker-image /bin/bash
+ * - From the host, point this client at the forwarded TCP endpoint:
+ *      APP_SERVER_TCP_HOST=127.0.0.1 APP_SERVER_TCP_PORT=9395 \\
  *      node ext/examples/hello-app-server.js
- * - The script will spawn `docker exec -i $APP_SERVER_CONTAINER $APP_SERVER_CMD` and wire the
- *   exec stdin/stdout directly, so no FIFOs are required on the host.
  *
  * Environment variables
  * ---------------------
  * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults to /tmp/codex-app-server.in.
  * - APP_SERVER_OUT (optional): path to the FIFO to read server responses/notifications from. Defaults to /tmp/codex-app-server.out.
- * - APP_SERVER_CONTAINER (optional): if set, run the server via `docker exec -i $APP_SERVER_CONTAINER ...`.
- * - APP_SERVER_CMD (optional): command to exec inside the container when APP_SERVER_CONTAINER is set. Defaults to codex-app-server.
+ * - APP_SERVER_TCP_HOST (optional): connect over TCP instead of FIFOs. Defaults to undefined (FIFO mode).
+ * - APP_SERVER_TCP_PORT (optional): port for TCP mode. Defaults to 9395 when APP_SERVER_TCP_HOST is set.
  *
  * Notes
  * -----
  * - Host FIFO mode: the script is a pure client and expects the server to be running already.
- * - Container exec mode: the script spawns a one-off server process inside the container with docker exec
- *   so it can talk to it over stdio; stop the container process separately if you want it to stay alive
- *   beyond this demo.
+ * - Container TCP proxy mode: start the proxy separately in the container; this client connects over the
+ *   forwarded TCP port and does not manage the server lifecycle.
  * - JSON-RPC responses are matched to the requests issued below; notifications are logged as they arrive.
  * - The example keeps the scope intentionally small so future examples can focus on other flows (auth, approvals, etc.).
  */
@@ -50,31 +49,26 @@
 const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
-const { spawn } = require('node:child_process');
+const net = require('node:net');
 
-const containerName = process.env.APP_SERVER_CONTAINER;
-const containerCmd = process.env.APP_SERVER_CMD ?? 'codex-app-server';
+const tcpHost = process.env.APP_SERVER_TCP_HOST;
+const tcpPort = process.env.APP_SERVER_TCP_PORT
+  ? Number.parseInt(process.env.APP_SERVER_TCP_PORT, 10)
+  : 9395;
 
 let serverInput;
 let serverOutput;
-let serverProc = null;
+let socket = null;
 
-if (containerName) {
-  console.log('Starting codex-app-server inside container', containerName);
+if (tcpHost) {
+  console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
+  socket = net.connect({ host: tcpHost, port: tcpPort });
+  socket.setKeepAlive(true);
+  serverInput = socket;
+  serverOutput = socket;
 
-  serverProc = spawn('docker', ['exec', '-i', containerName, containerCmd], {
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-
-  serverInput = serverProc.stdin;
-  serverOutput = serverProc.stdout;
-
-  serverProc.on('exit', (code, signal) => {
-    console.log(`Docker exec exited (code=${code}, signal=${signal ?? 'none'})`);
-  });
-
-  serverProc.on('error', (error) => {
-    console.error('Failed to start codex-app-server in container:', error);
+  socket.on('error', (error) => {
+    console.error('TCP connection error:', error);
     process.exitCode = 1;
   });
 } else {
@@ -130,8 +124,8 @@ rl.on('line', (line) => {
 function shutdown() {
   rl.close();
   serverInput.end();
-  if (serverProc) {
-    serverProc.kill('SIGINT');
+  if (socket) {
+    socket.end();
   }
 }
 
@@ -188,8 +182,8 @@ function notify(method, params = {}) {
 async function main() {
   console.log('Connecting to codex app-server...');
 
-  if (serverProc) {
-    await once(serverProc, 'spawn');
+  if (socket) {
+    await once(socket, 'connect');
   } else {
     await Promise.all([once(serverInput, 'open'), once(serverOutput, 'open')]);
   }
