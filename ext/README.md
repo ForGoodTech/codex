@@ -39,6 +39,8 @@ Debug builds reuse `target/debug` artifacts; release builds pull from `target/re
 
 ## Running Codex and the app server in a container
 
+> **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). After obtaining it, copy the file into the container's `.codex` directory, for example with `docker cp ~/.codex/auth.json my-codex-docker-container:/home/node/.codex/auth.json` (adjust the container name if you used a different one).
+
 Assume you want the app server ready; publishing the proxy port is safe even if you only use the CLI. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
 
 ```shell
