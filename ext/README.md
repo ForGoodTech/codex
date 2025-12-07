@@ -53,7 +53,7 @@ docker run -it --rm \
 codex-app-server-proxy
 
 # Or run Codex standalone inside the same container
-codex run /home/node/workdir/path/to/your/session
+codex "explain this repo"  # or any other prompt
 
 ```
 
@@ -63,7 +63,7 @@ Clients outside the container (for example, `ext/examples/hello-app-server.js`) 
 APP_SERVER_TCP_HOST=127.0.0.1 APP_SERVER_TCP_PORT=9395 node ext/examples/hello-app-server.js
 ```
 
-The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex run <path-to-your-session>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior.
+The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior.
 
 ## Other assets
 
