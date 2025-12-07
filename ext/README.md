@@ -21,13 +21,13 @@ cd ext/docker/pi
 ./build_image.sh
 
 # Build a debug image with a custom tag
-CODEX_IMAGE_TAG=codex-dev ./build_image.sh
+./build_image.sh codex-dev
 
 # Build a release image with a custom tag
-CODEX_IMAGE_TAG=codex-release ./build_image.sh codex-release release
+./build_image.sh codex-release release
 ```
 
-What the script does:
+The optional arguments are positional: the first sets the image tag; the second chooses the Rust profile (`debug` by default, `release` when specified). What the script does:
 
 1. Installs JavaScript dependencies for the CLI with `pnpm install`.
 2. Builds the native `codex` and `codex-app-server` binaries from the workspace if they are not already present, honoring the requested profile (`debug` or `release`).
@@ -35,7 +35,7 @@ What the script does:
 4. Packs the CLI (`pnpm pack`) into `dist/codex.tgz` and feeds it into the Docker build.
 5. Runs `docker build` with the generated artifact to produce the final image.
 
-Debug builds reuse `target/debug` artifacts; release builds pull from `target/release`. Set `CODEX_IMAGE_TAG` or pass an image tag as the first argument to name the resulting image.
+Debug builds reuse `target/debug` artifacts; release builds pull from `target/release`. Pass an image tag as the first argument to name the resulting image (defaults to `my-codex-docker-image`).
 
 ## Running Codex in a container
 
