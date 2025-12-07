@@ -55,9 +55,10 @@ RUN npm install -g codex.tgz \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/tests \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/docs
 
-# Make the TCP proxy example available inside the image (mirror host path).
-COPY --chown=node:node ext/examples/app-server-proxy.js /ext/examples/app-server-proxy.js
-RUN ln -sf /ext/examples/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy
+# Make the TCP proxy available inside the image and accessible from the default home directory.
+COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-proxy.js
+RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
+  mkdir -p /home/node/.codex
 
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.
