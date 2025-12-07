@@ -39,6 +39,8 @@ Debug builds reuse `target/debug` artifacts; release builds pull from `target/re
 
 ## Running Codex and the app server in a container
 
+> **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). After obtaining it, copy the file into the container's `.codex` directory, for example with `docker cp ~/.codex/auth.json my-codex-docker-container:/home/node/.codex/auth.json` (adjust the container name if you used a different one).
+
 Assume you want the app server ready; publishing the proxy port is safe even if you only use the CLI. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
 
 ```shell
@@ -62,8 +64,6 @@ Clients outside the container (for example, `ext/examples/hello-app-server.js`) 
 ```shell
 APP_SERVER_TCP_HOST=127.0.0.1 APP_SERVER_TCP_PORT=9395 node ext/examples/hello-app-server.js
 ```
-
-> **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json`. After obtaining it, copy the file into the container's home directory with `docker cp auth.json my-codex-docker-container:/home/node/` (adjust the container name if you used a different one).
 
 The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior.
 
