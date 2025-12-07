@@ -52,6 +52,9 @@ docker run -it --rm \
 # Inside the container, launch the proxy (spawns codex-app-server)
 codex-app-server-proxy
 
+# Or run Codex standalone inside the same container
+codex run /home/node/workdir/path/to/your/session
+
 ```
 
 Clients outside the container (for example, `ext/examples/hello-app-server.js`) can connect using the published host port (`APP_SERVER_TCP_HOST=127.0.0.1`, `APP_SERVER_TCP_PORT=9395`). A simple host-side run looks like:
