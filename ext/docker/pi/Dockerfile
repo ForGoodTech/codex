@@ -71,3 +71,8 @@ RUN chmod 500 /usr/local/bin/init_firewall.sh
 
 # Drop back to non-root.
 USER node
+
+# Default workspace under the user's home directory so it can be bind-mounted easily.
+WORKDIR /home/node/workdir
+RUN mkdir -p /home/node/workdir && \
+  printf 'sandbox_mode = "danger-full-access"\n' > /home/node/.codex/config.toml
