@@ -37,30 +37,17 @@ The optional arguments are positional: the first sets the image tag; the second 
 
 Debug builds reuse `target/debug` artifacts; release builds pull from `target/release`. Pass an image tag as the first argument to name the resulting image (defaults to `my-codex-docker-image`).
 
-## Running Codex in a container
+## Running Codex and the app server in a container
 
-Start an interactive container when you want to use the Codex CLI directly. Bind-mount a workspace so Codex can access your files.
+Assume you want the app server ready; publishing the proxy port is safe even if you only use the CLI. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
 
 ```shell
 docker run -it --rm \
+  --name my-codex-docker-container \
+  -p 9395:9395 \
   -v "$PWD:/home/node/workdir" \
   my-codex-docker-image \
   bash
-
-# Inside the container
-codex --help
-codex run <path-to-your-session>
-```
-
-The image defaults to `/home/node/workdir` as the working directory and enables an unsafe sandbox mode suitable for containerized use. Adjust mounts and environment variables as needed for your project.
-
-## Exposing the app server via TCP
-
-Use the bundled proxy to run `codex-app-server` inside the container while exposing it to the host through a single TCP port (useful when the host cannot easily create FIFOs).
-
-```shell
-# Start the container and publish the proxy port (default 9395) to the host
-docker run -it --rm -p 9395:9395 my-codex-docker-image bash
 
 # Inside the container, launch the proxy (spawns codex-app-server)
 codex-app-server-proxy
@@ -69,7 +56,7 @@ codex-app-server-proxy
 # APP_SERVER_PORT=9400 APP_SERVER_CMD=codex-app-server APP_SERVER_ARGS="--help" codex-app-server-proxy
 ```
 
-Clients outside the container (for example, `ext/examples/hello-app-server.js`) can connect using the published host port (`APP_SERVER_TCP_HOST=127.0.0.1`, `APP_SERVER_TCP_PORT=9395`). The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state.
+Clients outside the container (for example, `ext/examples/hello-app-server.js`) can connect using the published host port (`APP_SERVER_TCP_HOST=127.0.0.1`, `APP_SERVER_TCP_PORT=9395`). The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state, and the container remains available for direct Codex CLI use (`codex --help`, `codex run <path-to-your-session>`).
 
 ## Other assets
 
