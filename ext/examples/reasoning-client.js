@@ -127,11 +127,8 @@ function shutdown() {
 
 function handleNotification(method, params) {
   switch (method) {
-    case 'turn/started': {
-      const turnId = params.turn?.id ?? 'unknown';
-      console.log(`Turn started: ${turnId}`);
+    case 'turn/started':
       break;
-    }
     case 'item/agentMessage/delta': {
       const { delta, itemId } = params;
       if (!itemId || typeof delta !== 'string') {
@@ -143,15 +140,17 @@ function handleNotification(method, params) {
       break;
     }
     case 'item/reasoning/summaryPartAdded':
+      process.stdout.write('.');
       reasoningState.sections += 1;
       break;
     case 'item/reasoning/summaryTextDelta':
       if (typeof params.delta === 'string') {
+        process.stdout.write('.');
         reasoningState.summary += params.delta;
       }
       break;
     case 'item/reasoning/textDelta':
-      // Intentionally processed but not shown; could be used for tracing or metrics.
+      process.stdout.write('.');
       break;
     case 'turn/completed': {
       const completedTurnId = params.turn?.id ?? watchedTurnId;
@@ -163,14 +162,10 @@ function handleNotification(method, params) {
         ? agentMessageText.get(latestAgentMessageId)
         : null;
       if (finalMessage) {
-        console.log('\nFinal response:');
+        process.stdout.write('\n\n');
         console.log(finalMessage.trim());
       } else {
         console.log('Turn completed without an agent message.');
-      }
-
-      if (reasoningState.summary || reasoningState.sections > 0) {
-        console.log('\n(Reasoning was received but hidden from user output.)');
       }
 
       if (typeof activeTurnResolver === 'function') {
@@ -242,8 +237,6 @@ async function startTurn(promptText) {
   if (!watchedTurnId) {
     throw new Error('Server did not return a turn id');
   }
-
-  console.log('Waiting for turn', watchedTurnId, 'to complete...');
 
   await new Promise((resolve) => {
     activeTurnResolver = resolve;
