@@ -164,8 +164,10 @@ function handleNotification(method, params) {
       if (finalMessage) {
         process.stdout.write('\n\n');
         console.log(finalMessage.trim());
+        process.stdout.write('\n\n\n');
       } else {
         console.log('Turn completed without an agent message.');
+        process.stdout.write('\n\n\n');
       }
 
       if (typeof activeTurnResolver === 'function') {
