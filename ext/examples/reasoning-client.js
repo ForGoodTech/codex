@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * Feature example: reasoning-only prompt/response
- * ------------------------------------------------
+ * Feature example: reasoning-only chat loop
+ * -----------------------------------------
  * This client connects to an already-running Codex app server over JSONL (JSON-RPC 2.0 without the jsonrpc header),
- * performs the initialize/initialized handshake, starts a thread, sends a prompt, and prints only the final assistant
- * message. Reasoning-related notifications are fully processed to keep local state consistent but are intentionally
- * hidden from user output.
+ * performs the initialize/initialized handshake, starts a thread, then runs an interactive chat loop that accepts a
+ * prompt, waits for the final assistant reply, prints it (hiding all reasoning notifications), and prompts again.
  *
  * Naming convention for app-server client examples
  * ------------------------------------------------
@@ -40,6 +39,7 @@
  *   forwarded TCP port and does not manage the server lifecycle.
  * - Reasoning notifications are handled to keep the local state consistent but are not shown to the user.
  * - Only the final assistant response is printed when the turn completes.
+ * - After each turn, the user is prompted for another message; type "exit" or press Ctrl+C to quit.
  */
 
 const fs = require('node:fs');
@@ -84,9 +84,10 @@ const reasoningState = {
   sections: 0,
 };
 
-const rl = readline.createInterface({ input: serverOutput });
+const serverLines = readline.createInterface({ input: serverOutput });
+const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-rl.on('line', (line) => {
+serverLines.on('line', (line) => {
   if (!line.trim()) {
     return;
   }
@@ -116,7 +117,8 @@ rl.on('line', (line) => {
 });
 
 function shutdown() {
-  rl.close();
+  serverLines.close();
+  userInput.close();
   serverInput.end();
   if (socket) {
     socket.end();
@@ -125,9 +127,11 @@ function shutdown() {
 
 function handleNotification(method, params) {
   switch (method) {
-    case 'turn/started':
-      console.log(`Turn started: ${params.turn?.id ?? 'unknown'}`);
+    case 'turn/started': {
+      const turnId = params.turn?.id ?? 'unknown';
+      console.log(`Turn started: ${turnId}`);
       break;
+    }
     case 'item/agentMessage/delta': {
       const { delta, itemId } = params;
       if (!itemId || typeof delta !== 'string') {
@@ -150,6 +154,11 @@ function handleNotification(method, params) {
       // Intentionally processed but not shown; could be used for tracing or metrics.
       break;
     case 'turn/completed': {
+      const completedTurnId = params.turn?.id ?? watchedTurnId;
+      if (completedTurnId && watchedTurnId && completedTurnId !== watchedTurnId) {
+        console.warn('Received completion for unexpected turn:', completedTurnId);
+      }
+
       const finalMessage = latestAgentMessageId
         ? agentMessageText.get(latestAgentMessageId)
         : null;
@@ -164,7 +173,12 @@ function handleNotification(method, params) {
         console.log('\n(Reasoning was received but hidden from user output.)');
       }
 
-      shutdown();
+      if (typeof activeTurnResolver === 'function') {
+        activeTurnResolver();
+        activeTurnResolver = null;
+      }
+
+      promptForNextTurn();
       break;
     }
     default:
@@ -187,6 +201,57 @@ function notify(method, params = {}) {
   serverInput.write(`${JSON.stringify({ method, params })}\n`);
 }
 
+function waitForUserPrompt(question) {
+  return new Promise((resolve) => {
+    userInput.question(question, (answer) => {
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function promptForNextTurn() {
+  const prompt = await waitForUserPrompt('\nEnter a prompt (or type "exit" to quit): ');
+  if (!prompt || prompt.toLowerCase() === 'exit') {
+    console.log('Goodbye.');
+    shutdown();
+    return;
+  }
+
+  await startTurn(prompt);
+}
+
+let activeTurnResolver = null;
+
+async function startTurn(promptText) {
+  agentMessageText.clear();
+  latestAgentMessageId = null;
+  reasoningState.summary = '';
+  reasoningState.sections = 0;
+
+  const turnResult = await request('turn/start', {
+    threadId,
+    input: [
+      {
+        type: 'text',
+        text: promptText,
+      },
+    ],
+  });
+
+  watchedTurnId = turnResult?.turn?.id;
+  if (!watchedTurnId) {
+    throw new Error('Server did not return a turn id');
+  }
+
+  console.log('Waiting for turn', watchedTurnId, 'to complete...');
+
+  await new Promise((resolve) => {
+    activeTurnResolver = resolve;
+  });
+}
+
+let threadId = null;
+
 async function main() {
   console.log('Connecting to codex app-server...');
 
@@ -204,28 +269,22 @@ async function main() {
     },
   });
 
-  console.log('Server user agent:', initializeResult?.userAgent);
+  const userAgent = initializeResult?.userAgent;
+  if (typeof userAgent === 'string' && userAgent.trim()) {
+    console.log('Server user agent:', userAgent);
+  } else {
+    console.log('Server user agent: (not provided by server)');
+  }
   notify('initialized');
 
   const threadResult = await request('thread/start', {});
-  const threadId = threadResult?.thread?.id;
+  threadId = threadResult?.thread?.id;
   if (!threadId) {
     throw new Error('Server did not return a thread id');
   }
   console.log('Started thread', threadId);
 
-  const turnResult = await request('turn/start', {
-    threadId,
-    input: [
-      {
-        type: 'text',
-        text: 'Solve 12 + 7 and respond only with the final result.',
-      },
-    ],
-  });
-
-  watchedTurnId = turnResult?.turn?.id;
-  console.log('Waiting for turn', watchedTurnId, 'to complete...');
+  await promptForNextTurn();
 }
 
 main().catch((error) => {
