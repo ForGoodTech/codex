@@ -107,7 +107,11 @@ serverLines.on('line', (line) => {
     const resolver = pending.get(message.id);
     if (resolver) {
       pending.delete(message.id);
-      resolver.resolve(message.result ?? message.error);
+      if (message.error) {
+        resolver.reject(new Error(message.error?.message ?? 'Request failed'));
+      } else {
+        resolver.resolve(message.result);
+      }
     } else {
       console.warn('Unmatched response', message);
     }
@@ -129,6 +133,11 @@ function shutdown() {
 }
 
 function handleNotification(method, params) {
+  const notificationTurnId = params.turn?.id;
+  const isDifferentTurn = Boolean(
+    watchedTurnId && notificationTurnId && notificationTurnId !== watchedTurnId,
+  );
+
   switch (method) {
     case 'turn/started': {
       const turnId = params.turn?.id ?? 'unknown';
@@ -146,16 +155,25 @@ function handleNotification(method, params) {
       break;
     }
     case 'item/reasoning/summaryPartAdded':
+      if (isDifferentTurn) {
+        break;
+      }
       process.stdout.write('.');
       reasoningState.sections += 1;
       break;
     case 'item/reasoning/summaryTextDelta':
+      if (isDifferentTurn) {
+        break;
+      }
       if (typeof params.delta === 'string') {
         reasoningState.summary += params.delta;
       }
       process.stdout.write('.');
       break;
     case 'item/reasoning/textDelta':
+      if (isDifferentTurn) {
+        break;
+      }
       if (typeof params.delta === 'string') {
         reasoningState.details += params.delta;
       }
@@ -196,8 +214,8 @@ function request(method, params = {}) {
   const payload = { method, params, id };
   serverInput.write(`${JSON.stringify(payload)}\n`);
 
-  return new Promise((resolve) => {
-    pending.set(id, { resolve });
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
   });
 }
 
