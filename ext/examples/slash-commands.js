@@ -144,18 +144,25 @@ function notify(method, params = {}) {
   serverInput.write(`${JSON.stringify({ method, params })}\n`);
 }
 
-function askYesNo(question) {
+function askInput(question) {
   return new Promise((resolve) => {
     userInput.question(question, (answerRaw) => {
-      const answer = answerRaw.trim().toLowerCase();
-      resolve(answer === 'y' || answer === 'yes');
+      resolve(answerRaw.trim());
     });
+  });
+}
+
+function askYesNo(question) {
+  return askInput(question).then((answer) => {
+    const normalized = answer.trim().toLowerCase();
+    return normalized === 'y' || normalized === 'yes';
   });
 }
 
 function printMenu() {
   console.log('\nAvailable commands:');
   console.log('  /status  - show current session details (user agent and auth)');
+  console.log('  /model   - list available models');
   console.log('  /help    - show this help');
   console.log('  /quit    - exit client');
   console.log('  /exit    - exit client');
@@ -187,9 +194,9 @@ async function runCommandLoop(context) {
       continue;
     }
 
-    if (command === '/status') {
+    if (command === '/status' || command === '/model') {
       const handler = loadCommand(command);
-      await handler.run({ ...context, askYesNo });
+      await handler.run({ ...context, askYesNo, askInput });
       continue;
     }
 
