@@ -56,7 +56,7 @@ function describeApproval(approvalPolicy) {
     case 'never':
       return 'never';
     default:
-      return '(default)';
+      return 'unspecified (server default)';
   }
 }
 
@@ -134,7 +134,9 @@ async function run({ request, connectionMode }) {
   const userAgent = toDisplayString(userAgentResponse?.userAgent, '(not provided)');
   const config = savedConfigResponse?.config ?? {};
   const model = config.model ?? '(default)';
-  const approval = describeApproval(config.approvalPolicy);
+  const approval = Object.prototype.hasOwnProperty.call(config, 'approvalPolicy')
+    ? describeApproval(config.approvalPolicy)
+    : '(not provided by protocol)';
   const sandbox = describeSandbox(config.sandboxMode);
   const authMethod = toDisplayString(authStatus?.authMethod, '(not configured)');
   const requiresOpenaiAuth = authStatus?.requiresOpenaiAuth ?? accountResponse?.requiresOpenaiAuth;
