@@ -144,12 +144,18 @@ function notify(method, params = {}) {
   serverInput.write(`${JSON.stringify({ method, params })}\n`);
 }
 
-function askYesNo(question) {
+function askInput(question) {
   return new Promise((resolve) => {
     userInput.question(question, (answerRaw) => {
-      const answer = answerRaw.trim().toLowerCase();
-      resolve(answer === 'y' || answer === 'yes');
+      resolve(answerRaw.trim());
     });
+  });
+}
+
+function askYesNo(question) {
+  return askInput(question).then((answer) => {
+    const normalized = answer.trim().toLowerCase();
+    return normalized === 'y' || normalized === 'yes';
   });
 }
 
@@ -190,7 +196,7 @@ async function runCommandLoop(context) {
 
     if (command === '/status' || command === '/model') {
       const handler = loadCommand(command);
-      await handler.run({ ...context, askYesNo });
+      await handler.run({ ...context, askYesNo, askInput });
       continue;
     }
 

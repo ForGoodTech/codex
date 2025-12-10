@@ -48,7 +48,28 @@ function formatEffortOptions(model) {
     .join('; ');
 }
 
-async function run({ request }) {
+async function promptForModelSelection(models, askInput) {
+  while (true) {
+    const answer = await askInput('Enter the number of the model to activate (blank to cancel): ');
+    if (!answer) {
+      return null;
+    }
+
+    const index = Number.parseInt(answer, 10);
+    if (!Number.isNaN(index) && index >= 1 && index <= models.length) {
+      return models[index - 1];
+    }
+
+    const exactMatch = models.find((model) => model.model === answer || model.displayName === answer);
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    console.log(`  Invalid selection: ${answer}`);
+  }
+}
+
+async function run({ request, askYesNo, askInput }) {
   const [savedConfigResponse, modelListResponse] = await Promise.all([
     request('getUserSavedConfig'),
     request('model/list', { cursor: null, limit: null }),
@@ -96,6 +117,29 @@ async function run({ request }) {
     );
     console.log('');
   });
+
+  if (!askInput || !askYesNo) {
+    return;
+  }
+
+  const wantsSwitch = await askYesNo('Switch to a different model? (y/N): ');
+  if (!wantsSwitch) {
+    return;
+  }
+
+  const selection = await promptForModelSelection(models, askInput);
+  if (!selection) {
+    console.log('No model change made.');
+    return;
+  }
+
+  if (selection.model === activeModelId || (!activeModelId && selection.isDefault)) {
+    console.log(`Already using ${selection.displayName} (${selection.model}).`);
+    return;
+  }
+
+  await request('setDefaultModel', { model: selection.model });
+  console.log(`Active model updated to ${selection.displayName} (${selection.model}).`);
 }
 
 module.exports = { run };
