@@ -34,6 +34,18 @@ function describeModel(modelId, models, fallback = '(server default)') {
   return toDisplayString(modelId, fallback);
 }
 
+function describeReasoningEffort(activeEffort, activeModel) {
+  if (activeEffort) {
+    return activeEffort;
+  }
+
+  if (activeModel?.defaultReasoningEffort) {
+    return `${activeModel.defaultReasoningEffort} (model default)`;
+  }
+
+  return '(server default)';
+}
+
 function formatEffortOptions(model) {
   const options = model.supportedReasoningEfforts ?? [];
   if (!options.length) {
@@ -69,6 +81,42 @@ async function promptForModelSelection(models, askInput) {
   }
 }
 
+async function promptForReasoningEffort(model, askInput) {
+  const options = model.supportedReasoningEfforts ?? [];
+
+  if (!options.length) {
+    return model.defaultReasoningEffort ?? null;
+  }
+
+  console.log('');
+  console.log(`Select a reasoning effort for ${model.displayName}:`);
+  options.forEach((option, index) => {
+    const description = option.description ? ` – ${option.description}` : '';
+    console.log(`  ${index + 1}. ${option.reasoningEffort}${description}`);
+  });
+  console.log(`  default: ${toDisplayString(model.defaultReasoningEffort, '(not provided)')}`);
+
+  while (true) {
+    const answer = await askInput('Enter the number or name of the reasoning effort (blank for default): ');
+    if (!answer) {
+      return model.defaultReasoningEffort ?? null;
+    }
+
+    const index = Number.parseInt(answer, 10);
+    if (!Number.isNaN(index) && index >= 1 && index <= options.length) {
+      return options[index - 1].reasoningEffort;
+    }
+
+    const normalized = answer.trim().toLowerCase();
+    const named = options.find((option) => option.reasoningEffort.toLowerCase() === normalized);
+    if (named) {
+      return named.reasoningEffort;
+    }
+
+    console.log(`  Invalid reasoning effort: ${answer}`);
+  }
+}
+
 async function run({ request, askYesNo, askInput }) {
   const [savedConfigResponse, modelListResponse] = await Promise.all([
     request('getUserSavedConfig'),
@@ -77,12 +125,17 @@ async function run({ request, askYesNo, askInput }) {
 
   const models = modelListResponse?.data ?? [];
   const activeModelId = savedConfigResponse?.config?.model;
+  const activeReasoningEffort = savedConfigResponse?.config?.modelReasoningEffort;
   const defaultModel = models.find((model) => model.isDefault) ?? null;
+  const activeModel = models.find((model) => model.model === activeModelId) ?? defaultModel;
 
   const summaryLines = [];
   summaryLines.push(' >_ OpenAI Codex (example)');
   summaryLines.push('');
   summaryLines.push(labelLine('Active model:', describeModel(activeModelId, models)));
+  summaryLines.push(
+    labelLine('Reasoning effort:', describeReasoningEffort(activeReasoningEffort, activeModel)),
+  );
   summaryLines.push(
     labelLine(
       'Server default:',
@@ -138,8 +191,14 @@ async function run({ request, askYesNo, askInput }) {
     return;
   }
 
-  await request('setDefaultModel', { model: selection.model });
-  console.log(`Active model updated to ${selection.displayName} (${selection.model}).`);
+  const reasoningEffort = await promptForReasoningEffort(selection, askInput);
+
+  await request('setDefaultModel', { model: selection.model, reasoningEffort });
+  console.log(
+    `Active model updated to ${selection.displayName} (${selection.model}), reasoning: ${
+      reasoningEffort ?? '(server default)'
+    }.`,
+  );
 }
 
 module.exports = { run };
