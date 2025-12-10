@@ -99,8 +99,12 @@ function formatDuration(minutes) {
 }
 
 function formatLimitRow(window) {
-  if (!window) return null;
-  const remaining = 100 - (window.used_percent ?? 0);
+  if (!window) return '(not provided by protocol)';
+  if (window.used_percent === null || window.used_percent === undefined) {
+    return '(usage not provided by protocol)';
+  }
+
+  const remaining = 100 - window.used_percent;
   const bar = formatBar(remaining);
   const resets = formatResetsAt(window.resets_at);
   const suffix = resets ? ` (${resets})` : '';
@@ -143,10 +147,12 @@ async function run({ request, connectionMode }) {
   const directory = '(not provided by protocol)';
   const agentsFile = '(not provided by protocol)';
 
-  const primaryLabel = formatDuration(rateLimitsResponse?.rateLimits?.primary?.window_minutes) ?? '(window not provided)';
-  const secondaryLabel = formatDuration(rateLimitsResponse?.rateLimits?.secondary?.window_minutes) ?? '(window not provided)';
-  const primaryLimit = formatLimitRow(rateLimitsResponse?.rateLimits?.primary);
-  const secondaryLimit = formatLimitRow(rateLimitsResponse?.rateLimits?.secondary);
+  const primaryWindow = rateLimitsResponse?.rateLimits?.primary;
+  const secondaryWindow = rateLimitsResponse?.rateLimits?.secondary;
+  const primaryLabel = formatDuration(primaryWindow?.window_minutes) ?? '(window not provided by protocol)';
+  const secondaryLabel = formatDuration(secondaryWindow?.window_minutes) ?? '(window not provided by protocol)';
+  const primaryLimit = formatLimitRow(primaryWindow);
+  const secondaryLimit = formatLimitRow(secondaryWindow);
 
   const lines = [];
   lines.push(' >_ OpenAI Codex (example)');
@@ -167,14 +173,12 @@ async function run({ request, connectionMode }) {
   lines.push(labelLine('Auth method:', authMethod));
   lines.push(labelLine('Requires auth:', toDisplayString(requiresOpenaiAuth, '(unknown)')));
 
-  if (primaryLimit || secondaryLimit) {
-    lines.push('');
-    if (primaryLimit) {
-      lines.push(labelLine(`${primaryLabel} limit:`, primaryLimit));
-    }
-    if (secondaryLimit) {
-      lines.push(labelLine(`${secondaryLabel} limit:`, secondaryLimit));
-    }
+  lines.push('');
+  if (rateLimitsResponse?.rateLimits) {
+    lines.push(labelLine(`${primaryLabel} limit:`, primaryLimit));
+    lines.push(labelLine(`${secondaryLabel} limit:`, secondaryLimit));
+  } else {
+    lines.push(labelLine('Rate limits:', '(not provided by protocol)'));
   }
 
   console.log(`\n/status\n\n${renderBox(lines)}\n`);
