@@ -156,6 +156,7 @@ function askYesNo(question) {
 function printMenu() {
   console.log('\nAvailable commands:');
   console.log('  /status  - show current session details (user agent and auth)');
+  console.log('  /model   - list available models');
   console.log('  /help    - show this help');
   console.log('  /quit    - exit client');
   console.log('  /exit    - exit client');
@@ -187,7 +188,7 @@ async function runCommandLoop(context) {
       continue;
     }
 
-    if (command === '/status') {
+    if (command === '/status' || command === '/model') {
       const handler = loadCommand(command);
       await handler.run({ ...context, askYesNo });
       continue;
