@@ -1,6 +1,3 @@
-const fs = require('node:fs');
-const path = require('node:path');
-
 const BAR_SEGMENTS = 20;
 const BAR_FILLED = '█';
 const BAR_EMPTY = '░';
@@ -76,21 +73,6 @@ function describeSandbox(mode) {
   }
 }
 
-function findNearestAgentsFile(startDir) {
-  let current = startDir;
-  // Limit traversal to avoid accidental infinite loops.
-  for (let i = 0; i < 10; i += 1) {
-    const candidate = path.join(current, 'AGENTS.md');
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return null;
-}
-
 function formatResetsAt(resetsAt) {
   if (!resetsAt) return null;
   const seconds = Number(resetsAt);
@@ -118,11 +100,11 @@ function formatDuration(minutes) {
 
 function formatLimitRow(window) {
   if (!window) return null;
-  const remaining = 100 - (window.usedPercent ?? 0);
+  const remaining = 100 - (window.used_percent ?? 0);
   const bar = formatBar(remaining);
-  const resets = formatResetsAt(window.resetsAt);
+  const resets = formatResetsAt(window.resets_at);
   const suffix = resets ? ` (${resets})` : '';
-  const leftText = `${Math.round(remaining)}% left`; 
+  const leftText = `${Math.round(remaining)}% left`;
   return `${bar} ${leftText}${suffix}`;
 }
 
@@ -136,7 +118,6 @@ function renderBox(lines) {
 }
 
 async function run({ request, connectionMode }) {
-  const cwd = process.cwd();
   const [userAgentResponse, authStatus, accountResponse, rateLimitsResponse, savedConfigResponse, userInfo] = await Promise.all([
     request('getUserAgent'),
     request('getAuthStatus', { includeToken: false, refreshToken: false }),
@@ -151,15 +132,19 @@ async function run({ request, connectionMode }) {
   const model = config.model ?? '(default)';
   const approval = describeApproval(config.approvalPolicy);
   const sandbox = describeSandbox(config.sandboxMode);
-  const agentsFile = findNearestAgentsFile(cwd) ?? '<none>';
   const authMethod = toDisplayString(authStatus?.authMethod, '(not configured)');
   const requiresOpenaiAuth = authStatus?.requiresOpenaiAuth ?? accountResponse?.requiresOpenaiAuth;
   const account = describeAccount(accountResponse, userInfo);
-  const sessionId = toDisplayString(process.env.CODEX_SESSION_ID, '(not provided)');
-  const connection = connectionMode === 'tcp' ? 'TCP proxy' : 'FIFOs';
+  const sessionId = process.env.CODEX_SESSION_ID
+    ? `(client env) ${process.env.CODEX_SESSION_ID}`
+    : '(not provided by protocol)';
+  const connection = connectionMode === 'tcp' ? '(client) TCP proxy' : '(client) FIFOs';
 
-  const primaryLabel = formatDuration(rateLimitsResponse?.rateLimits?.primary?.windowDurationMins) ?? '5h';
-  const secondaryLabel = formatDuration(rateLimitsResponse?.rateLimits?.secondary?.windowDurationMins) ?? 'weekly';
+  const directory = '(not provided by protocol)';
+  const agentsFile = '(not provided by protocol)';
+
+  const primaryLabel = formatDuration(rateLimitsResponse?.rateLimits?.primary?.window_minutes) ?? '(window not provided)';
+  const secondaryLabel = formatDuration(rateLimitsResponse?.rateLimits?.secondary?.window_minutes) ?? '(window not provided)';
   const primaryLimit = formatLimitRow(rateLimitsResponse?.rateLimits?.primary);
   const secondaryLimit = formatLimitRow(rateLimitsResponse?.rateLimits?.secondary);
 
@@ -170,7 +155,7 @@ async function run({ request, connectionMode }) {
   lines.push(' information on rate limits and credits');
   lines.push('');
   lines.push(labelLine('Model:', `${model}`));
-  lines.push(labelLine('Directory:', cwd));
+  lines.push(labelLine('Directory:', directory));
   lines.push(labelLine('Approval:', approval));
   lines.push(labelLine('Sandbox:', sandbox));
   lines.push(labelLine('Agents.md:', agentsFile));
