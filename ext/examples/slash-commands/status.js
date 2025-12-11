@@ -148,10 +148,11 @@ function renderBox(lines) {
 
 // The /status slash command exercises the app-server protocol exported under
 // ext/app-server-protocol-export. It issues requests whose shapes live in
-// `GetUserAgentResponse.ts`, `GetAuthStatusResponse.ts`, `v2/GetAccountResponse.ts`,
-// `v2/GetAccountRateLimitsResponse.ts`, `GetUserSavedConfigResponse.ts`,
-// `UserInfoResponse.ts`, and `v2/ModelListResponse.ts` to display the active
-// session, auth, model, and rate limit details.
+// `v1/GetUserAgentResponse.json`, `v1/GetAuthStatusResponse.json`,
+// `v2/GetAccountResponse.json`, `v2/GetAccountRateLimitsResponse.json`,
+// `v1/GetUserSavedConfigResponse.json`, `v1/UserInfoResponse.json`, and
+// `v2/ModelListResponse.json` to display the active session, auth, model, and
+// rate limit details.
 async function run({ request, connectionMode }) {
   const [
     userAgentResponse,
