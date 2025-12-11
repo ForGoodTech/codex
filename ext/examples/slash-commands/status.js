@@ -3,6 +3,31 @@ const BAR_FILLED = '█';
 const BAR_EMPTY = '░';
 const LABEL_WIDTH = 17;
 
+function describeModel(modelId, models, fallback = '(server default)') {
+  if (!modelId) {
+    return fallback;
+  }
+
+  const found = models.find((model) => model.model === modelId);
+  if (found) {
+    return `${found.displayName} (${found.model})`;
+  }
+
+  return toDisplayString(modelId, fallback);
+}
+
+function describeReasoningEffort(activeEffort, activeModel) {
+  if (activeEffort) {
+    return activeEffort;
+  }
+
+  if (activeModel?.defaultReasoningEffort) {
+    return `${activeModel.defaultReasoningEffort} (model default)`;
+  }
+
+  return '(server default)';
+}
+
 function toDisplayString(value, fallback = '(unknown)') {
   if (value === null || value === undefined) {
     return fallback;
@@ -122,18 +147,31 @@ function renderBox(lines) {
 }
 
 async function run({ request, connectionMode }) {
-  const [userAgentResponse, authStatus, accountResponse, rateLimitsResponse, savedConfigResponse, userInfo] = await Promise.all([
+  const [
+    userAgentResponse,
+    authStatus,
+    accountResponse,
+    rateLimitsResponse,
+    savedConfigResponse,
+    userInfo,
+    modelListResponse,
+  ] = await Promise.all([
     request('getUserAgent'),
     request('getAuthStatus', { includeToken: false, refreshToken: false }),
     request('account/read'),
     request('account/rateLimits/read'),
     request('getUserSavedConfig'),
     request('userInfo'),
+    request('model/list', { cursor: null, limit: null }),
   ]);
 
   const userAgent = toDisplayString(userAgentResponse?.userAgent, '(not provided)');
   const config = savedConfigResponse?.config ?? {};
-  const model = config.model ?? '(default)';
+  const models = modelListResponse?.data ?? [];
+  const defaultModel = models.find((candidate) => candidate.isDefault) ?? null;
+  const activeModel = models.find((candidate) => candidate.model === config.model) ?? defaultModel;
+  const model = describeModel(config.model, models, '(default)');
+  const reasoningEffort = describeReasoningEffort(config.modelReasoningEffort, activeModel);
   const approval = Object.prototype.hasOwnProperty.call(config, 'approvalPolicy')
     ? describeApproval(config.approvalPolicy)
     : '(not provided by protocol)';
@@ -162,7 +200,7 @@ async function run({ request, connectionMode }) {
   lines.push(' Visit https://chatgpt.com/codex/settings/usage for up-to-date');
   lines.push(' information on rate limits and credits');
   lines.push('');
-  lines.push(labelLine('Model:', `${model}`));
+  lines.push(labelLine('Model:', `${model} (reasoning: ${reasoningEffort})`));
   lines.push(labelLine('Directory:', directory));
   lines.push(labelLine('Approval:', approval));
   lines.push(labelLine('Sandbox:', sandbox));
