@@ -117,6 +117,11 @@ async function promptForReasoningEffort(model, askInput) {
   }
 }
 
+// Implements the /model slash command by calling the app-server requests
+// defined in `v1/GetUserSavedConfigResponse.json`, `v2/ModelListResponse.json`,
+// and `v1/SetDefaultModelParams.json` under ext/app-server-protocol-export.
+// These protocol shapes supply the active model, available models, and payload
+// for updating the default model.
 async function run({ request, askYesNo, askInput }) {
   const [savedConfigResponse, modelListResponse] = await Promise.all([
     request('getUserSavedConfig'),
