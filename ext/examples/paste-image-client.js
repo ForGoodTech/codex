@@ -71,6 +71,7 @@ const turnCompletionResolvers = new Map();
 let threadId = null;
 const queuedInputs = [];
 const turnOutputs = new Map();
+let printedProgressDot = false;
 
 const serverLines = readline.createInterface({ input: serverOutput });
 const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -118,12 +119,20 @@ function appendTurnOutput(turnId, text) {
     return;
   }
 
+  process.stdout.write('.');
+  printedProgressDot = true;
+
   const existing = turnOutputs.get(turnId) ?? [];
   existing.push(text);
   turnOutputs.set(turnId, existing);
 }
 
 function emitTurnResult(turnId, status) {
+  if (printedProgressDot) {
+    process.stdout.write('\n');
+    printedProgressDot = false;
+  }
+
   const combined = turnOutputs.get(turnId)?.join('') ?? '';
   if (combined) {
     console.log(`\nTurn ${turnId ?? 'unknown'} completed (${status ?? 'unknown'}).`);
