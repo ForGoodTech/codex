@@ -240,11 +240,6 @@ async function encodeImageAsDataUrl(filePath) {
 }
 
 async function queueImageFromPath(filePath) {
-  if (!filePath) {
-    console.log('Enter at least one image path.');
-    return;
-  }
-
   try {
     const { dataUrl, mime, size, absolutePath } = await encodeImageAsDataUrl(filePath);
     queuedInputs.push({ type: 'image', url: dataUrl });
@@ -261,7 +256,7 @@ async function sendTurn() {
   }
 
   if (!queuedInputs.length) {
-    console.log('Nothing to send yet. Enter image paths and a prompt first.');
+    console.log('Nothing to send yet. Enter image paths or a prompt first.');
     return;
   }
 
@@ -313,7 +308,7 @@ async function main() {
   while (true) {
     queuedInputs.length = 0;
 
-    const imagePathAnswer = await askQuestion('\nEnter image file path(s) (comma-separated) or /exit to exit:\n> ');
+    const imagePathAnswer = await askQuestion('\nEnter image file path(s) (comma-separated, optional) or /exit to exit:\n> ');
     if (imagePathAnswer === '/exit' || imagePathAnswer === '/quit') {
       console.log('Goodbye.');
       shutdown();
@@ -325,19 +320,9 @@ async function main() {
       .map((part) => part.trim())
       .filter(Boolean);
 
-    if (!imagePaths.length) {
-      console.log('Please enter at least one image path.');
-      continue;
-    }
-
     for (const imagePath of imagePaths) {
       // eslint-disable-next-line no-await-in-loop
       await queueImageFromPath(imagePath);
-    }
-
-    if (!queuedInputs.length) {
-      console.log('No valid images queued. Try again.');
-      continue;
     }
 
     const promptAnswer = await askQuestion('Enter a text prompt (or /exit to exit):\n> ');
@@ -347,12 +332,14 @@ async function main() {
       return;
     }
 
-    if (!promptAnswer) {
-      console.log('Please enter a text prompt.');
-      continue;
+    if (promptAnswer) {
+      queuedInputs.push({ type: 'text', text: promptAnswer });
     }
 
-    queuedInputs.push({ type: 'text', text: promptAnswer });
+    if (!queuedInputs.length) {
+      console.log('Nothing to send. Enter an image path or a text prompt.');
+      continue;
+    }
 
     const turnId = await sendTurn();
     await waitForTurnCompletion(turnId);
