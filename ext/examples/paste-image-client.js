@@ -67,6 +67,7 @@ if (tcpHost) {
 let nextId = 1;
 const pending = new Map();
 let watchedTurnId = null;
+const turnCompletionResolvers = new Map();
 let threadId = null;
 const queuedInputs = [];
 const turnOutputs = new Map();
@@ -167,6 +168,12 @@ function handleNotification(method, params) {
       if (watchedTurnId && turnId === watchedTurnId) {
         watchedTurnId = null;
       }
+
+      const resolver = turnCompletionResolvers.get(turnId);
+      if (resolver) {
+        turnCompletionResolvers.delete(turnId);
+        resolver();
+      }
       break;
     }
     default:
@@ -252,6 +259,17 @@ async function sendTurn() {
   const turnResult = await request('turn/start', { threadId, input: queuedInputs.splice(0) });
   watchedTurnId = turnResult?.turn?.id;
   console.log('Submitted turn', watchedTurnId ?? '(unknown)');
+  return watchedTurnId;
+}
+
+function waitForTurnCompletion(turnId) {
+  if (!turnId) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    turnCompletionResolvers.set(turnId, resolve);
+  });
 }
 
 async function main() {
@@ -327,7 +345,8 @@ async function main() {
 
     queuedInputs.push({ type: 'text', text: promptAnswer });
 
-    await sendTurn();
+    const turnId = await sendTurn();
+    await waitForTurnCompletion(turnId);
   }
 }
 
