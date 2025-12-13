@@ -110,12 +110,18 @@ serverLines.on('line', (line) => {
 });
 
 process.stdin.on('keypress', (str, key) => {
-  if (key.ctrl && key.name === 'v') {
+  if (key?.name === 'backspace') {
+    // Avoid treating backspace as a submit key when editing commands.
+    userInput.write(null, key);
+    return;
+  }
+
+  if (key?.ctrl && key.name === 'v') {
     handlePasteShortcut();
     return;
   }
 
-  if (key.ctrl && key.name === 'c') {
+  if (key?.ctrl && key.name === 'c') {
     console.log('\nGoodbye.');
     shutdown();
   }
@@ -236,7 +242,7 @@ async function encodeImageAsDataUrl(filePath) {
 
 async function queueImageFromPath(filePath) {
   if (!filePath) {
-    console.log('Usage: /paste <path-to-image>');
+    console.log('Usage: /paste <path-to-image[,additional-image]>');
     return;
   }
 
@@ -280,7 +286,7 @@ async function sendTurn() {
 }
 
 function promptForNextMessage() {
-  userInput.setPrompt('Enter a message (Ctrl+V or /paste <path> to attach image, /quit to exit): ');
+  userInput.setPrompt('Enter a message (Ctrl+V or /paste <path[,extra]> to attach image(s), /quit to exit): ');
   userInput.prompt();
 }
 
@@ -323,8 +329,18 @@ async function main() {
 
     if (trimmed.startsWith('/paste')) {
       const [, ...pathParts] = trimmed.split(/\s+/);
-      const imagePath = pathParts.join(' ');
-      await queueImageFromPath(imagePath);
+      const imagePaths = pathParts.join(' ').split(',').map((part) => part.trim()).filter(Boolean);
+      if (!imagePaths.length) {
+        console.log('Usage: /paste <path-to-image[,additional-image]>');
+        promptForNextMessage();
+        return;
+      }
+
+      for (const imagePath of imagePaths) {
+        // eslint-disable-next-line no-await-in-loop
+        await queueImageFromPath(imagePath);
+      }
+
       promptForNextMessage();
       return;
     }
