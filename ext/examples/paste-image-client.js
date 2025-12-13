@@ -2,12 +2,9 @@
 /**
  * Paste image client (ext/examples/paste-image-client.js)
  * -------------------------------------------------------
- * Interactive client that mirrors Codex standalone's image paste flow.
- * Press Ctrl+V to choose an image file from the local machine; the client
- * encodes it as a data URL and sends it to the app server so the standard
- * paste logic can process it as a turn input. When Ctrl+V isn't available
- * (e.g., an SSH terminal), type "/paste /path/to/image" to attach the file
- * instead.
+ * Interactive client for sending image files plus a text prompt.
+ * Enter one or more comma-separated file paths when prompted, then enter a
+ * text prompt. Type /exit at any prompt to exit.
  *
  * How to run (server inside Docker container)
  * -------------------------------------------
@@ -70,15 +67,13 @@ if (tcpHost) {
 let nextId = 1;
 const pending = new Map();
 let watchedTurnId = null;
+const turnCompletionResolvers = new Map();
 let threadId = null;
 const queuedInputs = [];
+const turnOutputs = new Map();
 
 const serverLines = readline.createInterface({ input: serverOutput });
 const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
-readline.emitKeypressEvents(process.stdin, userInput);
-if (process.stdin.isTTY) {
-  process.stdin.setRawMode(true);
-}
 
 serverLines.on('line', (line) => {
   if (!line.trim()) {
@@ -109,18 +104,6 @@ serverLines.on('line', (line) => {
   }
 });
 
-process.stdin.on('keypress', (str, key) => {
-  if (key.ctrl && key.name === 'v') {
-    handlePasteShortcut();
-    return;
-  }
-
-  if (key.ctrl && key.name === 'c') {
-    console.log('\nGoodbye.');
-    shutdown();
-  }
-});
-
 function shutdown() {
   serverLines.close();
   userInput.close();
@@ -128,53 +111,74 @@ function shutdown() {
   if (socket) {
     socket.end();
   }
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(false);
-  }
 }
 
-function logNotification(method, params) {
+function appendTurnOutput(turnId, text) {
+  if (!turnId || !text) {
+    return;
+  }
+
+  const existing = turnOutputs.get(turnId) ?? [];
+  existing.push(text);
+  turnOutputs.set(turnId, existing);
+}
+
+function emitTurnResult(turnId, status) {
+  const combined = turnOutputs.get(turnId)?.join('') ?? '';
+  if (combined) {
+    console.log(`\nTurn ${turnId ?? 'unknown'} completed (${status ?? 'unknown'}).`);
+    console.log(combined);
+  } else {
+    console.log(`\nTurn ${turnId ?? 'unknown'} completed with status: ${status ?? 'unknown'}.`);
+  }
+
+  turnOutputs.delete(turnId);
+}
+
+function handleNotification(method, params) {
   switch (method) {
-    case 'turn/started':
-      console.log(`Turn started: ${params.turn?.id ?? 'unknown'}`);
-      break;
-    case 'turn/completed':
-      console.log(`Turn completed with status: ${params.turn?.status}`);
-      if (watchedTurnId && params.turn?.id === watchedTurnId) {
-        watchedTurnId = null;
-        promptForNextMessage();
+    case 'turn/started': {
+      const turnId = params.turn?.id;
+      if (turnId) {
+        turnOutputs.set(turnId, []);
       }
       break;
-    case 'item/agentMessage/delta':
+    }
+    case 'item/agentMessage/delta': {
+      const turnId = params.turn?.id ?? params.item?.turnId ?? watchedTurnId;
       if (params.delta?.content?.length) {
-        console.log(params.delta.content.map((c) => c.text ?? '').join(''));
+        appendTurnOutput(turnId, params.delta.content.map((c) => c.text ?? '').join(''));
         break;
       }
 
       if (typeof params.delta?.text === 'string') {
-        console.log(params.delta.text);
+        appendTurnOutput(turnId, params.delta.text);
         break;
       }
 
       if (typeof params.delta === 'string') {
-        console.log(params.delta);
+        appendTurnOutput(turnId, params.delta);
         break;
       }
-
-      if (params.delta !== undefined) {
-        console.log(JSON.stringify(params.delta));
-        break;
-      }
-
-      console.log('Notification', method, params);
       break;
-    default:
-      console.log('Notification', method, params);
-  }
-}
+    }
+    case 'turn/completed': {
+      const turnId = params.turn?.id ?? watchedTurnId;
+      emitTurnResult(turnId, params.turn?.status);
+      if (watchedTurnId && turnId === watchedTurnId) {
+        watchedTurnId = null;
+      }
 
-function handleNotification(method, params) {
-  logNotification(method, params);
+      const resolver = turnCompletionResolvers.get(turnId);
+      if (resolver) {
+        turnCompletionResolvers.delete(turnId);
+        resolver();
+      }
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 function request(method, params = {}) {
@@ -192,19 +196,11 @@ function notify(method, params = {}) {
 }
 
 async function askQuestion(question) {
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(false);
-  }
-
   const answer = await new Promise((resolve) => {
     userInput.question(question, (response) => {
       resolve(response.trim());
     });
   });
-
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-  }
 
   return answer;
 }
@@ -236,31 +232,17 @@ async function encodeImageAsDataUrl(filePath) {
 
 async function queueImageFromPath(filePath) {
   if (!filePath) {
-    console.log('Usage: /paste <path-to-image>');
+    console.log('Enter at least one image path.');
     return;
   }
 
   try {
     const { dataUrl, mime, size, absolutePath } = await encodeImageAsDataUrl(filePath);
     queuedInputs.push({ type: 'image', url: dataUrl });
-    console.log(`Queued image from ${absolutePath} (${mime}, ${size} bytes). Press Enter to send.`);
+    console.log(`Queued image from ${absolutePath} (${mime}, ${size} bytes).`);
   } catch (error) {
     console.error('Unable to read image:', error.message);
   }
-}
-
-async function handlePasteShortcut() {
-  console.log('\nPaste detected (Ctrl+V).');
-  const filePath = await askQuestion('Enter the path to an image file to paste: ');
-  if (!filePath) {
-    console.log('No file selected; paste cancelled.');
-    promptForNextMessage();
-    return;
-  }
-
-  await queueImageFromPath(filePath);
-
-  promptForNextMessage();
 }
 
 async function sendTurn() {
@@ -270,18 +252,24 @@ async function sendTurn() {
   }
 
   if (!queuedInputs.length) {
-    console.log('Nothing to send yet. Type a message or press Ctrl+V to paste an image.');
+    console.log('Nothing to send yet. Enter image paths and a prompt first.');
     return;
   }
 
   const turnResult = await request('turn/start', { threadId, input: queuedInputs.splice(0) });
   watchedTurnId = turnResult?.turn?.id;
   console.log('Submitted turn', watchedTurnId ?? '(unknown)');
+  return watchedTurnId;
 }
 
-function promptForNextMessage() {
-  userInput.setPrompt('Enter a message (Ctrl+V or /paste <path> to attach image, /quit to exit): ');
-  userInput.prompt();
+function waitForTurnCompletion(turnId) {
+  if (!turnId) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    turnCompletionResolvers.set(turnId, resolve);
+  });
 }
 
 async function main() {
@@ -311,31 +299,55 @@ async function main() {
   }
   console.log('Started thread', threadId);
 
-  promptForNextMessage();
+  // Prompt loop: image paths first, then a text prompt. Type /exit at any prompt to exit.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    queuedInputs.length = 0;
 
-  userInput.on('line', async (line) => {
-    const trimmed = line.trim();
-    if (trimmed === '/quit' || trimmed === '/exit') {
+    const imagePathAnswer = await askQuestion('\nEnter image file path(s) (comma-separated) or /exit to exit:\n> ');
+    if (imagePathAnswer === '/exit' || imagePathAnswer === '/quit') {
       console.log('Goodbye.');
       shutdown();
       return;
     }
 
-    if (trimmed.startsWith('/paste')) {
-      const [, ...pathParts] = trimmed.split(/\s+/);
-      const imagePath = pathParts.join(' ');
+    const imagePaths = imagePathAnswer
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (!imagePaths.length) {
+      console.log('Please enter at least one image path.');
+      continue;
+    }
+
+    for (const imagePath of imagePaths) {
+      // eslint-disable-next-line no-await-in-loop
       await queueImageFromPath(imagePath);
-      promptForNextMessage();
+    }
+
+    if (!queuedInputs.length) {
+      console.log('No valid images queued. Try again.');
+      continue;
+    }
+
+    const promptAnswer = await askQuestion('Enter a text prompt (or /exit to exit):\n> ');
+    if (promptAnswer === '/exit' || promptAnswer === '/quit') {
+      console.log('Goodbye.');
+      shutdown();
       return;
     }
 
-    if (trimmed) {
-      queuedInputs.push({ type: 'text', text: trimmed });
+    if (!promptAnswer) {
+      console.log('Please enter a text prompt.');
+      continue;
     }
 
-    await sendTurn();
-    promptForNextMessage();
-  });
+    queuedInputs.push({ type: 'text', text: promptAnswer });
+
+    const turnId = await sendTurn();
+    await waitForTurnCompletion(turnId);
+  }
 }
 
 main().catch((error) => {
