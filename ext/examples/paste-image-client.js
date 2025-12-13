@@ -5,7 +5,9 @@
  * Interactive client that mirrors Codex standalone's image paste flow.
  * Press Ctrl+V to choose an image file from the local machine; the client
  * encodes it as a data URL and sends it to the app server so the standard
- * paste logic can process it as a turn input.
+ * paste logic can process it as a turn input. When Ctrl+V isn't available
+ * (e.g., an SSH terminal), type "/paste /path/to/image" to attach the file
+ * instead.
  *
  * How to run (server inside Docker container)
  * -------------------------------------------
@@ -232,12 +234,9 @@ async function encodeImageAsDataUrl(filePath) {
   return { dataUrl: `data:${mime};base64,${base64}`, mime, size: contents.byteLength, absolutePath };
 }
 
-async function handlePasteShortcut() {
-  console.log('\nPaste detected (Ctrl+V).');
-  const filePath = await askQuestion('Enter the path to an image file to paste: ');
+async function queueImageFromPath(filePath) {
   if (!filePath) {
-    console.log('No file selected; paste cancelled.');
-    promptForNextMessage();
+    console.log('Usage: /paste <path-to-image>');
     return;
   }
 
@@ -248,6 +247,18 @@ async function handlePasteShortcut() {
   } catch (error) {
     console.error('Unable to read image:', error.message);
   }
+}
+
+async function handlePasteShortcut() {
+  console.log('\nPaste detected (Ctrl+V).');
+  const filePath = await askQuestion('Enter the path to an image file to paste: ');
+  if (!filePath) {
+    console.log('No file selected; paste cancelled.');
+    promptForNextMessage();
+    return;
+  }
+
+  await queueImageFromPath(filePath);
 
   promptForNextMessage();
 }
@@ -269,7 +280,7 @@ async function sendTurn() {
 }
 
 function promptForNextMessage() {
-  userInput.setPrompt('Enter a message (Ctrl+V to paste an image, /quit to exit): ');
+  userInput.setPrompt('Enter a message (Ctrl+V or /paste <path> to attach image, /quit to exit): ');
   userInput.prompt();
 }
 
@@ -307,6 +318,14 @@ async function main() {
     if (trimmed === '/quit' || trimmed === '/exit') {
       console.log('Goodbye.');
       shutdown();
+      return;
+    }
+
+    if (trimmed.startsWith('/paste')) {
+      const [, ...pathParts] = trimmed.split(/\s+/);
+      const imagePath = pathParts.join(' ');
+      await queueImageFromPath(imagePath);
+      promptForNextMessage();
       return;
     }
 
