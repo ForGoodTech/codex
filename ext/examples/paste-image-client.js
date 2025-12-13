@@ -69,6 +69,7 @@ const pending = new Map();
 let watchedTurnId = null;
 let threadId = null;
 const queuedInputs = [];
+const turnOutputs = new Map();
 
 const serverLines = readline.createInterface({ input: serverOutput });
 const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -111,47 +112,66 @@ function shutdown() {
   }
 }
 
-function logNotification(method, params) {
+function appendTurnOutput(turnId, text) {
+  if (!turnId || !text) {
+    return;
+  }
+
+  const existing = turnOutputs.get(turnId) ?? [];
+  existing.push(text);
+  turnOutputs.set(turnId, existing);
+}
+
+function emitTurnResult(turnId, status) {
+  const combined = turnOutputs.get(turnId)?.join('') ?? '';
+  if (combined) {
+    console.log(`\nTurn ${turnId ?? 'unknown'} completed (${status ?? 'unknown'}).`);
+    console.log(combined);
+  } else {
+    console.log(`\nTurn ${turnId ?? 'unknown'} completed with status: ${status ?? 'unknown'}.`);
+  }
+
+  turnOutputs.delete(turnId);
+}
+
+function handleNotification(method, params) {
   switch (method) {
-    case 'turn/started':
-      console.log(`Turn started: ${params.turn?.id ?? 'unknown'}`);
-      break;
-    case 'turn/completed':
-      console.log(`Turn completed with status: ${params.turn?.status}`);
-      if (watchedTurnId && params.turn?.id === watchedTurnId) {
-        watchedTurnId = null;
+    case 'turn/started': {
+      const turnId = params.turn?.id;
+      if (turnId) {
+        turnOutputs.set(turnId, []);
       }
       break;
-    case 'item/agentMessage/delta':
+    }
+    case 'item/agentMessage/delta': {
+      const turnId = params.turn?.id ?? params.item?.turnId ?? watchedTurnId;
       if (params.delta?.content?.length) {
-        console.log(params.delta.content.map((c) => c.text ?? '').join(''));
+        appendTurnOutput(turnId, params.delta.content.map((c) => c.text ?? '').join(''));
         break;
       }
 
       if (typeof params.delta?.text === 'string') {
-        console.log(params.delta.text);
+        appendTurnOutput(turnId, params.delta.text);
         break;
       }
 
       if (typeof params.delta === 'string') {
-        console.log(params.delta);
+        appendTurnOutput(turnId, params.delta);
         break;
       }
-
-      if (params.delta !== undefined) {
-        console.log(JSON.stringify(params.delta));
-        break;
-      }
-
-      console.log('Notification', method, params);
       break;
+    }
+    case 'turn/completed': {
+      const turnId = params.turn?.id ?? watchedTurnId;
+      emitTurnResult(turnId, params.turn?.status);
+      if (watchedTurnId && turnId === watchedTurnId) {
+        watchedTurnId = null;
+      }
+      break;
+    }
     default:
-      console.log('Notification', method, params);
+      break;
   }
-}
-
-function handleNotification(method, params) {
-  logNotification(method, params);
 }
 
 function request(method, params = {}) {
@@ -234,13 +254,6 @@ async function sendTurn() {
   console.log('Submitted turn', watchedTurnId ?? '(unknown)');
 }
 
-function printFlow() {
-  console.log('\nFlow:');
-  console.log('1) Enter one or more comma-separated image paths (or /exit to exit).');
-  console.log('2) Enter a text prompt.');
-  console.log('3) The turn is submitted with the images and prompt.');
-}
-
 async function main() {
   console.log('Connecting to codex app-server...');
 
@@ -267,8 +280,6 @@ async function main() {
     throw new Error('Server did not return a thread id');
   }
   console.log('Started thread', threadId);
-
-  printFlow();
 
   // Prompt loop: image paths first, then a text prompt. Type /exit at any prompt to exit.
   // eslint-disable-next-line no-constant-condition
