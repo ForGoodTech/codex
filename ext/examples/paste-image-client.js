@@ -2,9 +2,9 @@
 /**
  * Paste image client (ext/examples/paste-image-client.js)
  * -------------------------------------------------------
- * Interactive client for sending image files plus an optional text prompt.
+ * Interactive client for sending image files plus a text prompt.
  * Enter one or more comma-separated file paths when prompted, then enter a
- * text prompt. Type /exit at any prompt to quit.
+ * text prompt. Type /exit at any prompt to exit.
  *
  * How to run (server inside Docker container)
  * -------------------------------------------
@@ -261,12 +261,12 @@ async function main() {
   }
   console.log('Started thread', threadId);
 
-  // Prompt loop: image paths first, then a text prompt. Type /exit at any prompt to quit.
+  // Prompt loop: image paths first, then a text prompt. Type /exit at any prompt to exit.
   // eslint-disable-next-line no-constant-condition
   while (true) {
     queuedInputs.length = 0;
 
-    const imagePathAnswer = await askQuestion('Enter image file path(s) (comma-separated) or /exit to quit: ');
+    const imagePathAnswer = await askQuestion('Enter image file path(s) (comma-separated) or /exit to exit: ');
     if (imagePathAnswer === '/exit' || imagePathAnswer === '/quit') {
       console.log('Goodbye.');
       shutdown();
@@ -278,21 +278,34 @@ async function main() {
       .map((part) => part.trim())
       .filter(Boolean);
 
+    if (!imagePaths.length) {
+      console.log('Please enter at least one image path.');
+      continue;
+    }
+
     for (const imagePath of imagePaths) {
       // eslint-disable-next-line no-await-in-loop
       await queueImageFromPath(imagePath);
     }
 
-    const promptAnswer = await askQuestion('Enter a text prompt (or /exit to quit): ');
+    if (!queuedInputs.length) {
+      console.log('No valid images queued. Try again.');
+      continue;
+    }
+
+    const promptAnswer = await askQuestion('Enter a text prompt (or /exit to exit): ');
     if (promptAnswer === '/exit' || promptAnswer === '/quit') {
       console.log('Goodbye.');
       shutdown();
       return;
     }
 
-    if (promptAnswer) {
-      queuedInputs.push({ type: 'text', text: promptAnswer });
+    if (!promptAnswer) {
+      console.log('Please enter a text prompt.');
+      continue;
     }
+
+    queuedInputs.push({ type: 'text', text: promptAnswer });
 
     await sendTurn();
   }
