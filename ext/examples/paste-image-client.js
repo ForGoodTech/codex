@@ -234,6 +234,13 @@ async function sendTurn() {
   console.log('Submitted turn', watchedTurnId ?? '(unknown)');
 }
 
+function printFlow() {
+  console.log('\nFlow:');
+  console.log('1) Enter one or more comma-separated image paths (or /exit to exit).');
+  console.log('2) Enter a text prompt.');
+  console.log('3) The turn is submitted with the images and prompt.');
+}
+
 async function main() {
   console.log('Connecting to codex app-server...');
 
@@ -261,12 +268,14 @@ async function main() {
   }
   console.log('Started thread', threadId);
 
+  printFlow();
+
   // Prompt loop: image paths first, then a text prompt. Type /exit at any prompt to exit.
   // eslint-disable-next-line no-constant-condition
   while (true) {
     queuedInputs.length = 0;
 
-    const imagePathAnswer = await askQuestion('Enter image file path(s) (comma-separated) or /exit to exit: ');
+    const imagePathAnswer = await askQuestion('\nEnter image file path(s) (comma-separated) or /exit to exit:\n> ');
     if (imagePathAnswer === '/exit' || imagePathAnswer === '/quit') {
       console.log('Goodbye.');
       shutdown();
@@ -293,7 +302,7 @@ async function main() {
       continue;
     }
 
-    const promptAnswer = await askQuestion('Enter a text prompt (or /exit to exit): ');
+    const promptAnswer = await askQuestion('Enter a text prompt (or /exit to exit):\n> ');
     if (promptAnswer === '/exit' || promptAnswer === '/quit') {
       console.log('Goodbye.');
       shutdown();
