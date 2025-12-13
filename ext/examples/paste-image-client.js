@@ -2,12 +2,9 @@
 /**
  * Paste image client (ext/examples/paste-image-client.js)
  * -------------------------------------------------------
- * Interactive client that mirrors Codex standalone's image paste flow.
- * Press Ctrl+V to choose an image file from the local machine; the client
- * encodes it as a data URL and sends it to the app server so the standard
- * paste logic can process it as a turn input. When Ctrl+V isn't available
- * (e.g., an SSH terminal), type "/paste /path/to/image" to attach the file
- * instead.
+ * Interactive client for sending image files plus an optional text prompt.
+ * Enter one or more comma-separated file paths when prompted, then enter a
+ * text prompt. Type /exit at any prompt to quit.
  *
  * How to run (server inside Docker container)
  * -------------------------------------------
@@ -75,10 +72,6 @@ const queuedInputs = [];
 
 const serverLines = readline.createInterface({ input: serverOutput });
 const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
-readline.emitKeypressEvents(process.stdin, userInput);
-if (process.stdin.isTTY) {
-  process.stdin.setRawMode(true);
-}
 
 serverLines.on('line', (line) => {
   if (!line.trim()) {
@@ -109,33 +102,12 @@ serverLines.on('line', (line) => {
   }
 });
 
-process.stdin.on('keypress', (str, key) => {
-  if (key?.name === 'backspace') {
-    // Avoid treating backspace as a submit key when editing commands.
-    userInput.write(null, key);
-    return;
-  }
-
-  if (key?.ctrl && key.name === 'v') {
-    handlePasteShortcut();
-    return;
-  }
-
-  if (key?.ctrl && key.name === 'c') {
-    console.log('\nGoodbye.');
-    shutdown();
-  }
-});
-
 function shutdown() {
   serverLines.close();
   userInput.close();
   serverInput.end();
   if (socket) {
     socket.end();
-  }
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(false);
   }
 }
 
@@ -148,7 +120,6 @@ function logNotification(method, params) {
       console.log(`Turn completed with status: ${params.turn?.status}`);
       if (watchedTurnId && params.turn?.id === watchedTurnId) {
         watchedTurnId = null;
-        promptForNextMessage();
       }
       break;
     case 'item/agentMessage/delta':
@@ -198,19 +169,11 @@ function notify(method, params = {}) {
 }
 
 async function askQuestion(question) {
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(false);
-  }
-
   const answer = await new Promise((resolve) => {
     userInput.question(question, (response) => {
       resolve(response.trim());
     });
   });
-
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-  }
 
   return answer;
 }
@@ -242,31 +205,17 @@ async function encodeImageAsDataUrl(filePath) {
 
 async function queueImageFromPath(filePath) {
   if (!filePath) {
-    console.log('Usage: /paste <path-to-image[,additional-image]>');
+    console.log('Enter at least one image path.');
     return;
   }
 
   try {
     const { dataUrl, mime, size, absolutePath } = await encodeImageAsDataUrl(filePath);
     queuedInputs.push({ type: 'image', url: dataUrl });
-    console.log(`Queued image from ${absolutePath} (${mime}, ${size} bytes). Press Enter to send.`);
+    console.log(`Queued image from ${absolutePath} (${mime}, ${size} bytes).`);
   } catch (error) {
     console.error('Unable to read image:', error.message);
   }
-}
-
-async function handlePasteShortcut() {
-  console.log('\nPaste detected (Ctrl+V).');
-  const filePath = await askQuestion('Enter the path to an image file to paste: ');
-  if (!filePath) {
-    console.log('No file selected; paste cancelled.');
-    promptForNextMessage();
-    return;
-  }
-
-  await queueImageFromPath(filePath);
-
-  promptForNextMessage();
 }
 
 async function sendTurn() {
@@ -276,18 +225,13 @@ async function sendTurn() {
   }
 
   if (!queuedInputs.length) {
-    console.log('Nothing to send yet. Type a message or press Ctrl+V to paste an image.');
+    console.log('Nothing to send yet. Enter image paths and a prompt first.');
     return;
   }
 
   const turnResult = await request('turn/start', { threadId, input: queuedInputs.splice(0) });
   watchedTurnId = turnResult?.turn?.id;
   console.log('Submitted turn', watchedTurnId ?? '(unknown)');
-}
-
-function promptForNextMessage() {
-  userInput.setPrompt('Enter a message (Ctrl+V or /paste <path[,extra]> to attach image(s), /quit to exit): ');
-  userInput.prompt();
 }
 
 async function main() {
@@ -317,41 +261,41 @@ async function main() {
   }
   console.log('Started thread', threadId);
 
-  promptForNextMessage();
+  // Prompt loop: image paths first, then a text prompt. Type /exit at any prompt to quit.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    queuedInputs.length = 0;
 
-  userInput.on('line', async (line) => {
-    const trimmed = line.trim();
-    if (trimmed === '/quit' || trimmed === '/exit') {
+    const imagePathAnswer = await askQuestion('Enter image file path(s) (comma-separated) or /exit to quit: ');
+    if (imagePathAnswer === '/exit' || imagePathAnswer === '/quit') {
       console.log('Goodbye.');
       shutdown();
       return;
     }
 
-    if (trimmed.startsWith('/paste')) {
-      const [, ...pathParts] = trimmed.split(/\s+/);
-      const imagePaths = pathParts.join(' ').split(',').map((part) => part.trim()).filter(Boolean);
-      if (!imagePaths.length) {
-        console.log('Usage: /paste <path-to-image[,additional-image]>');
-        promptForNextMessage();
-        return;
-      }
+    const imagePaths = imagePathAnswer
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
 
-      for (const imagePath of imagePaths) {
-        // eslint-disable-next-line no-await-in-loop
-        await queueImageFromPath(imagePath);
-      }
+    for (const imagePath of imagePaths) {
+      // eslint-disable-next-line no-await-in-loop
+      await queueImageFromPath(imagePath);
+    }
 
-      promptForNextMessage();
+    const promptAnswer = await askQuestion('Enter a text prompt (or /exit to quit): ');
+    if (promptAnswer === '/exit' || promptAnswer === '/quit') {
+      console.log('Goodbye.');
+      shutdown();
       return;
     }
 
-    if (trimmed) {
-      queuedInputs.push({ type: 'text', text: trimmed });
+    if (promptAnswer) {
+      queuedInputs.push({ type: 'text', text: promptAnswer });
     }
 
     await sendTurn();
-    promptForNextMessage();
-  });
+  }
 }
 
 main().catch((error) => {
