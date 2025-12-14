@@ -51,6 +51,7 @@ const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
+const { connectSdkProxy, isSdkProxyEnabled } = require('./sdk-proxy-transport');
 
 const fifoInPath = process.env.APP_SERVER_IN;
 const fifoOutPath = process.env.APP_SERVER_OUT;
@@ -189,6 +190,11 @@ function notify(method, params = {}) {
 }
 
 async function main() {
+  if (isSdkProxyEnabled()) {
+    await runViaSdkProxy();
+    return;
+  }
+
   console.log('Connecting to codex app-server...');
 
   if (socket) {
@@ -228,3 +234,18 @@ main().catch((error) => {
   console.error('Example failed:', error);
   shutdown();
 });
+
+async function runViaSdkProxy() {
+  const sdk = connectSdkProxy();
+  await sdk.ready();
+  console.log(`Connected to codex-sdk-proxy at ${sdk.host}:${sdk.port}`);
+
+  const exit = await sdk.run({
+    input: 'Say hello back with one short sentence.',
+    onStdout: (line) => console.log(line),
+    onStderr: (line) => console.error('[codex stderr]', line),
+  });
+
+  console.log(`Codex exited (code=${exit.code}, signal=${exit.signal ?? 'none'})`);
+  sdk.close();
+}

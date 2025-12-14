@@ -57,7 +57,9 @@ RUN npm install -g codex.tgz \
 
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-proxy.js
+COPY --chown=node:node ext/docker/pi/sdk-proxy.js /home/node/sdk-proxy.js
 RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
+  ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy && \
   mkdir -p /home/node/.codex
 
 # Inside the container we consider the environment already sufficiently locked
