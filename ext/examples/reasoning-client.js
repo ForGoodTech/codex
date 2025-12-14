@@ -47,6 +47,7 @@ const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
+const { connectSdkProxy, isSdkProxyEnabled } = require('./sdk-proxy-transport');
 
 const fifoInPath = process.env.APP_SERVER_IN;
 const fifoOutPath = process.env.APP_SERVER_OUT;
@@ -257,6 +258,11 @@ async function startTurn(promptText) {
 let threadId = null;
 
 async function main() {
+  if (isSdkProxyEnabled()) {
+    await runViaSdkProxy();
+    return;
+  }
+
   console.log('Connecting to codex app-server...');
 
   if (socket) {
@@ -295,3 +301,29 @@ main().catch((error) => {
   console.error('Example failed:', error);
   shutdown();
 });
+
+async function runViaSdkProxy() {
+  const sdk = connectSdkProxy();
+  await sdk.ready();
+  console.log(`Connected to codex-sdk-proxy at ${sdk.host}:${sdk.port}`);
+
+  async function promptLoop() {
+    const prompt = await waitForUserPrompt(`\n${'-'.repeat(128)}\nEnter a prompt (or type "exit" to quit): `);
+    if (!prompt || prompt.toLowerCase() === 'exit') {
+      console.log('Goodbye.');
+      sdk.close();
+      userInput.close();
+      return;
+    }
+
+    await sdk.run({
+      input: prompt,
+      onStdout: (line) => console.log(line),
+      onStderr: (line) => console.error('[codex stderr]', line),
+    });
+
+    await promptLoop();
+  }
+
+  await promptLoop();
+}

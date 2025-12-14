@@ -36,6 +36,7 @@ const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
 const path = require('node:path');
+const { connectSdkProxy, isSdkProxyEnabled } = require('./sdk-proxy-transport');
 
 const fifoInPath = process.env.APP_SERVER_IN;
 const fifoOutPath = process.env.APP_SERVER_OUT;
@@ -285,6 +286,11 @@ function waitForTurnCompletion(turnId) {
 }
 
 async function main() {
+  if (isSdkProxyEnabled()) {
+    await runViaSdkProxy();
+    return;
+  }
+
   console.log('Connecting to codex app-server...');
 
   if (socket) {
@@ -358,3 +364,67 @@ main().catch((error) => {
   console.error('Example failed:', error);
   shutdown();
 });
+
+async function runViaSdkProxy() {
+  const sdk = connectSdkProxy();
+  await sdk.ready();
+  console.log(`Connected to codex-sdk-proxy at ${sdk.host}:${sdk.port}`);
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const imagePathAnswer = await askQuestion('\nEnter image file path(s) (comma-separated, optional) or /exit to exit:\n> ');
+    if (imagePathAnswer === '/exit' || imagePathAnswer === '/quit') {
+      console.log('Goodbye.');
+      sdk.close();
+      userInput.close();
+      return;
+    }
+
+    const imagePaths = imagePathAnswer
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const promptAnswer = await askQuestion('Enter a text prompt (or /exit to exit):\n> ');
+    if (promptAnswer === '/exit' || promptAnswer === '/quit') {
+      console.log('Goodbye.');
+      sdk.close();
+      userInput.close();
+      return;
+    }
+
+    const encodedImages = [];
+    // eslint-disable-next-line no-await-in-loop
+    for (const imagePath of imagePaths) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const content = await fsp.readFile(imagePath);
+        const ext = path.extname(imagePath).replace('.', '') || 'octet-stream';
+        const mime = ext ? `image/${ext}` : 'application/octet-stream';
+        const dataUrl = `data:${mime};base64,${content.toString('base64')}`;
+        encodedImages.push(`Image ${path.basename(imagePath)}:\n${dataUrl}`);
+      } catch (error) {
+        console.error(`Failed to read ${imagePath}:`, error.message);
+      }
+    }
+
+    const sections = [];
+    if (encodedImages.length) {
+      sections.push('Images:', ...encodedImages);
+    }
+    if (promptAnswer) {
+      sections.push('Prompt:', promptAnswer);
+    }
+
+    if (!sections.length) {
+      console.log('Nothing to send. Enter an image path or a text prompt.');
+      continue;
+    }
+
+    await sdk.run({
+      input: sections.join('\n\n'),
+      onStdout: (line) => console.log(line),
+      onStderr: (line) => console.error('[codex stderr]', line),
+    });
+  }
+}
