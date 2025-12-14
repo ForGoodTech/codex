@@ -1,15 +1,29 @@
 #!/bin/bash
 
-# Build a Codex Docker image for interactive use on Raspberry Pi/Ubuntu.
-# This script builds the Codex binary from the local repository and stages
-# vendor assets without relying on published npm artifacts.
+# Build a Codex Docker image for Raspberry Pi/Ubuntu.
+# This script builds the Codex binary from the local repository and stages vendor assets without
+# relying on published npm artifacts.
 set -euo pipefail
 
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
 RUST_ROOT="$REPO_ROOT/codex-rs"
-IMAGE_TAG=${CODEX_INTERACTIVE_IMAGE_TAG:-codex-interactive}
+IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
+BUILD_PROFILE=debug
+
+if [[ $# -gt 2 ]]; then
+  echo "Usage: $(basename "$0") [image-tag] [build-profile]" >&2
+  exit 1
+fi
+
+if [[ $# -ge 1 ]]; then
+  IMAGE_TAG=$1
+fi
+
+if [[ $# -ge 2 ]]; then
+  BUILD_PROFILE=$2
+fi
 VENDOR_DIR="$CLI_ROOT/vendor"
 
 if [[ ! -d "$CLI_ROOT" ]]; then
@@ -42,51 +56,46 @@ pushd "$CLI_ROOT" > /dev/null
 pnpm install
 
 # Build (or reuse) the native Codex binary from the local workspace.
-# CODEX_BUILD_PROFILE can be set to "release", "debug", or "auto" (default) to
-# control whether an existing binary is reused or a build is triggered.
-BUILD_PROFILE=${CODEX_BUILD_PROFILE:-auto}
+case "$BUILD_PROFILE" in
+  release)
+    CODEX_BIN_SRC="$RUST_ROOT/target/release/codex"
+    APP_SERVER_BIN_SRC="$RUST_ROOT/target/release/codex-app-server"
+    ;;
+  debug)
+    CODEX_BIN_SRC="$RUST_ROOT/target/debug/codex"
+    APP_SERVER_BIN_SRC="$RUST_ROOT/target/debug/codex-app-server"
+    ;;
+  *)
+    echo "Unknown build profile: $BUILD_PROFILE" >&2
+    exit 1
+    ;;
+esac
 
-function ensure_codex_binary() {
-  local profile="$1"
-  case "$profile" in
-    release)
-      echo "$RUST_ROOT/target/release/codex"
-      ;;
-    debug)
-      echo "$RUST_ROOT/target/debug/codex"
-      ;;
-    auto)
-      if [[ -x "$RUST_ROOT/target/release/codex" ]]; then
-        echo "$RUST_ROOT/target/release/codex"
-      elif [[ -x "$RUST_ROOT/target/debug/codex" ]]; then
-        echo "$RUST_ROOT/target/debug/codex"
-      else
-        echo "$RUST_ROOT/target/release/codex"
-      fi
-      ;;
-    *)
-      echo "Unknown build profile: $profile" >&2
-      exit 1
-      ;;
-  esac
-}
+function ensure_binary() {
+  local label=$1
+  local binary_path=$2
+  local cargo_args=(${@:3})
 
-CODEX_BIN_SRC=$(ensure_codex_binary "$BUILD_PROFILE")
+  if [[ -x "$binary_path" ]]; then
+    return
+  fi
 
-if [[ ! -x "$CODEX_BIN_SRC" ]]; then
   pushd "$RUST_ROOT" > /dev/null
   if [[ "$BUILD_PROFILE" == "debug" ]]; then
-    cargo build -p codex-cli --bin codex
+    cargo build "${cargo_args[@]}"
   else
-    cargo build --release -p codex-cli --bin codex
+    cargo build --release "${cargo_args[@]}"
   fi
   popd > /dev/null
-fi
 
-if [[ ! -x "$CODEX_BIN_SRC" ]]; then
-  echo "Built Codex binary not found at $CODEX_BIN_SRC" >&2
-  exit 1
-fi
+  if [[ ! -x "$binary_path" ]]; then
+    echo "Built $label binary not found at $binary_path" >&2
+    exit 1
+  fi
+}
+
+ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
+ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
 
 function ensure_rg_binary() {
   local rg_path
@@ -125,8 +134,9 @@ RG_BIN_SRC=$(ensure_rg_binary)
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
-mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/path"
+mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
 install -Dm755 "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
+install -Dm755 "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
 install -Dm755 "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
 mkdir -p dist
@@ -134,6 +144,6 @@ rm -f dist/openai-codex-*.tgz dist/codex.tgz
 pnpm pack --pack-destination dist
 mv dist/openai-codex-*.tgz dist/codex.tgz
 
-docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$CLI_ROOT"
+docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$REPO_ROOT"
 
 popd > /dev/null
