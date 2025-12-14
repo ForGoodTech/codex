@@ -59,10 +59,10 @@ codex "explain this repo"  # or any other prompt
 
 ```
 
-Clients outside the container (for example, `ext/examples/hello-app-server.js`) can connect using the published host port (`APP_SERVER_TCP_HOST=127.0.0.1`, `APP_SERVER_TCP_PORT=9395`). A simple host-side run looks like:
+Clients outside the container (for example, `ext/examples/hello-app-server.js`) default to the published host port (`127.0.0.1:9395`), so you can run them without extra environment variables:
 
 ```shell
-APP_SERVER_TCP_HOST=127.0.0.1 APP_SERVER_TCP_PORT=9395 node ext/examples/hello-app-server.js
+node ext/examples/hello-app-server.js
 ```
 
 The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior.

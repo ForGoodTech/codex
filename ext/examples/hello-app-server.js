@@ -26,19 +26,20 @@
  *      codex-app-server-proxy
  * - Publish the proxy port to the host when starting the container, e.g.:
  *      docker run -it --rm -p 9395:9395 my-codex-docker-image /bin/bash
- * - From the host, point this client at the forwarded TCP endpoint:
- *      APP_SERVER_TCP_HOST=127.0.0.1 APP_SERVER_TCP_PORT=9395 \\
+ * - From the host, connect to the forwarded TCP endpoint (defaults to 127.0.0.1:9395 so
+ *   no env vars are required):
  *      node ext/examples/hello-app-server.js
  *
  * Environment variables
  * ---------------------
- * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults to /tmp/codex-app-server.in.
- * - APP_SERVER_OUT (optional): path to the FIFO to read server responses/notifications from. Defaults to /tmp/codex-app-server.out.
- * - APP_SERVER_TCP_HOST (optional): connect over TCP instead of FIFOs. Defaults to undefined (FIFO mode).
- * - APP_SERVER_TCP_PORT (optional): port for TCP mode. Defaults to 9395 when APP_SERVER_TCP_HOST is set.
+ * - APP_SERVER_TCP_HOST (optional): TCP host for the proxy. Defaults to 127.0.0.1.
+ * - APP_SERVER_TCP_PORT (optional): TCP port for the proxy. Defaults to 9395.
+ * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults to /tmp/codex-app-server.in when set.
+ * - APP_SERVER_OUT (optional): path to the FIFO to read server responses/notifications from. Defaults to /tmp/codex-app-server.out when set.
  *
  * Notes
  * -----
+ * - TCP proxy mode is the default; set APP_SERVER_IN/APP_SERVER_OUT to use host FIFOs instead.
  * - Host FIFO mode: the script is a pure client and expects the server to be running already.
  * - Container TCP proxy mode: start the proxy separately in the container; this client connects over the
  *   forwarded TCP port and does not manage the server lifecycle.
@@ -51,16 +52,24 @@ const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
 
-const tcpHost = process.env.APP_SERVER_TCP_HOST;
-const tcpPort = process.env.APP_SERVER_TCP_PORT
-  ? Number.parseInt(process.env.APP_SERVER_TCP_PORT, 10)
-  : 9395;
+const fifoInPath = process.env.APP_SERVER_IN;
+const fifoOutPath = process.env.APP_SERVER_OUT;
+const tcpHost = process.env.APP_SERVER_TCP_HOST ?? '127.0.0.1';
+const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
+const tcpPort = (() => {
+  if (!tcpPortEnv) {
+    return 9395;
+  }
+
+  const parsed = Number.parseInt(tcpPortEnv, 10);
+  return Number.isNaN(parsed) ? 9395 : parsed;
+})();
 
 let serverInput;
 let serverOutput;
 let socket = null;
 
-if (tcpHost) {
+if (!fifoInPath && !fifoOutPath) {
   console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
   socket = net.connect({ host: tcpHost, port: tcpPort });
   socket.setKeepAlive(true);
@@ -72,8 +81,8 @@ if (tcpHost) {
     process.exitCode = 1;
   });
 } else {
-  const serverInPath = process.env.APP_SERVER_IN ?? '/tmp/codex-app-server.in';
-  const serverOutPath = process.env.APP_SERVER_OUT ?? '/tmp/codex-app-server.out';
+  const serverInPath = fifoInPath ?? '/tmp/codex-app-server.in';
+  const serverOutPath = fifoOutPath ?? '/tmp/codex-app-server.out';
   serverInput = fs.createWriteStream(serverInPath, { flags: 'a' });
   serverOutput = fs.createReadStream(serverOutPath, { encoding: 'utf8' });
 }
