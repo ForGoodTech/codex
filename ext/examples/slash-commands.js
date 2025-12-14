@@ -44,6 +44,7 @@ const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
 const path = require('node:path');
+const { connectSdkProxy, isSdkProxyEnabled } = require('./sdk-proxy-transport');
 
 const fifoInPath = process.env.APP_SERVER_IN;
 const fifoOutPath = process.env.APP_SERVER_OUT;
@@ -214,6 +215,11 @@ async function runCommandLoop(context) {
 }
 
 async function main() {
+  if (isSdkProxyEnabled()) {
+    await runViaSdkProxy();
+    return;
+  }
+
   console.log('Connecting to codex app-server...');
 
   if (socket) {
@@ -246,3 +252,49 @@ main().catch((error) => {
   console.error('Slash command client failed:', error);
   shutdown();
 });
+
+async function runViaSdkProxy() {
+  const sdk = connectSdkProxy();
+  await sdk.ready();
+  console.log(`Connected to codex-sdk-proxy at ${sdk.host}:${sdk.port}`);
+  printMenu();
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const command = await askInput('\nEnter a slash command or prompt: ');
+    if (!command) {
+      continue;
+    }
+
+    if (command === '/quit' || command === '/exit') {
+      console.log('Goodbye.');
+      sdk.close();
+      userInput.close();
+      return;
+    }
+
+    if (command === '/help') {
+      printMenu();
+      continue;
+    }
+
+    if (command === '/status') {
+      console.log('SDK proxy status:');
+      console.log(`  host: ${sdk.host}`);
+      console.log(`  port: ${sdk.port}`);
+      console.log(`  default args: ${sdk.defaultArgs.length ? sdk.defaultArgs.join(' ') : '(none)'}`);
+      continue;
+    }
+
+    if (command.startsWith('/')) {
+      console.log(`Unknown slash command for sdk-proxy mode: ${command}`);
+      continue;
+    }
+
+    await sdk.run({
+      input: command,
+      onStdout: (line) => console.log(line),
+      onStderr: (line) => console.error('[codex stderr]', line),
+    });
+  }
+}
