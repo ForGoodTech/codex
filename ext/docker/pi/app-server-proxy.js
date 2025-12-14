@@ -17,11 +17,9 @@
  * - Publish the proxy port to the host when starting the container, e.g.:
  *     docker run -it --rm -p 9395:9395 my-codex-docker-image /bin/bash
  * - Start the proxy inside the container (either path works):
- *     APP_SERVER_PORT=9395 \  # optional, defaults to 9395
- *     APP_SERVER_CMD=codex-app-server \  # optional, defaults to codex-app-server
  *     codex-app-server-proxy
  *   or
- *     APP_SERVER_PORT=9395 APP_SERVER_CMD=codex-app-server node ~/app-server-proxy.js
+ *     node ~/app-server-proxy.js
  * - On the host, point hello-app-server.js at the published port using APP_SERVER_TCP_HOST/PORT.
  *
  * Protocol
@@ -36,8 +34,24 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
-const port = Number.parseInt(process.env.APP_SERVER_PORT ?? '9395', 10);
-const appServerCmd = process.env.APP_SERVER_CMD ?? 'codex-app-server';
+const defaultPort = 9395;
+const port = (() => {
+  const raw = process.env.APP_SERVER_PORT;
+  if (!raw) {
+    return defaultPort;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) {
+    console.warn(`Ignoring invalid APP_SERVER_PORT value (${raw}); using ${defaultPort}.`);
+    return defaultPort;
+  }
+
+  return parsed;
+})();
+
+const defaultAppServerCmd = 'codex-app-server';
+const appServerCmd = process.env.APP_SERVER_CMD?.trim() || defaultAppServerCmd;
 const appServerArgs = process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? [];
 
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);

@@ -51,7 +51,7 @@ docker run -it --rm \
   my-codex-docker-image \
   bash
 
-# Inside the container, launch the proxy (spawns codex-app-server)
+# Inside the container, launch the proxy (spawns codex-app-server on port 9395 by default)
 codex-app-server-proxy
 
 # Or run Codex standalone inside the same container
