@@ -7,9 +7,10 @@
  * a single thread alive so multiple turns share context.
  */
 
+const fs = require("node:fs/promises");
 const net = require("node:net");
-const readline = require("node:readline");
 const path = require("node:path");
+const readline = require("node:readline");
 
 const host = process.env.CODEX_SDK_PROXY_HOST || "127.0.0.1";
 const port = (() => {
@@ -43,6 +44,46 @@ socket.on("close", () => {
 
 function send(payload) {
   socket.write(`${JSON.stringify(payload)}\n`);
+}
+
+function detectMime(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+async function encodeImageAsDataUrl(filePath) {
+  const absolutePath = path.resolve(filePath);
+  const mime = detectMime(absolutePath);
+  const contents = await fs.readFile(absolutePath);
+  const base64 = contents.toString("base64");
+  return { dataUrl: `data:${mime};base64,${base64}`, absolutePath, mime, size: contents.byteLength };
+}
+
+async function loadImages(imagePaths) {
+  const images = [];
+  for (const imagePath of imagePaths) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const { dataUrl, absolutePath, mime, size } = await encodeImageAsDataUrl(imagePath);
+      images.push({ url: dataUrl });
+      console.log(`Queued image from ${absolutePath} (${mime}, ${size} bytes).`);
+    } catch (error) {
+      console.error("Unable to read image:", error?.message ?? error);
+    }
+  }
+  return images;
 }
 
 function buildArgs(input, images) {
@@ -178,11 +219,13 @@ async function promptLoop() {
       return;
     }
 
-    const images = imageAnswer
+    const imagePaths = imageAnswer
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean)
       .map((part) => path.resolve(part));
+
+    const images = await loadImages(imagePaths);
 
     const promptText = await askQuestion("Enter a text prompt (or /exit to quit):\n> ");
     if (promptText === "/exit" || promptText === "/quit") {

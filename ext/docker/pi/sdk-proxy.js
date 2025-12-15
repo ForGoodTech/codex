@@ -104,8 +104,29 @@ function normalizeInput(args) {
   }
 
   const items = [{ type: "text", text: args.input }];
-  for (const imagePath of images) {
-    items.push({ type: "local_image", path: imagePath });
+  for (const imageEntry of images) {
+    if (typeof imageEntry === "string") {
+      items.push({ type: "local_image", path: imageEntry });
+      continue;
+    }
+
+    if (!imageEntry || typeof imageEntry !== "object") {
+      continue;
+    }
+
+    if (typeof imageEntry.url === "string") {
+      items.push({ type: "image", url: imageEntry.url });
+      continue;
+    }
+
+    if (typeof imageEntry.dataUrl === "string") {
+      items.push({ type: "image", url: imageEntry.dataUrl });
+      continue;
+    }
+
+    if (typeof imageEntry.path === "string") {
+      items.push({ type: "local_image", path: imageEntry.path });
+    }
   }
   return items;
 }
