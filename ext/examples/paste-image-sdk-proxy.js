@@ -24,6 +24,7 @@ const port = (() => {
 
 let threadId = process.env.CODEX_THREAD_ID || null;
 let activeRun = null;
+const queuedInputs = [];
 
 const socket = net.createConnection({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
@@ -71,25 +72,22 @@ async function encodeImageAsDataUrl(filePath) {
   return { dataUrl: `data:${mime};base64,${base64}`, absolutePath, mime, size: contents.byteLength };
 }
 
-async function loadImages(imagePaths) {
-  const images = [];
+async function queueImages(imagePaths) {
   for (const imagePath of imagePaths) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const { dataUrl, absolutePath, mime, size } = await encodeImageAsDataUrl(imagePath);
-      images.push({ url: dataUrl });
+      queuedInputs.push({ type: "image", url: dataUrl });
       console.log(`Queued image from ${absolutePath} (${mime}, ${size} bytes).`);
     } catch (error) {
       console.error("Unable to read image:", error?.message ?? error);
     }
   }
-  return images;
 }
 
-function buildArgs(input, images) {
+function buildArgs() {
   return {
-    input,
-    images,
+    input: queuedInputs,
     threadId: threadId || undefined,
     model: process.env.CODEX_MODEL,
     sandboxMode: process.env.CODEX_SANDBOX_MODE,
@@ -103,13 +101,13 @@ function buildArgs(input, images) {
   };
 }
 
-function startRun(input, images, onTurnDone) {
+function startRun(onTurnDone) {
   if (activeRun) {
     console.error("A turn is already running; wait for it to finish.");
     return;
   }
 
-  const args = buildArgs(input, images);
+  const args = buildArgs();
   activeRun = { latestMessage: "", onTurnDone };
   send({
     action: "exec",
@@ -225,7 +223,9 @@ async function promptLoop() {
       .filter(Boolean)
       .map((part) => path.resolve(part));
 
-    const images = await loadImages(imagePaths);
+    queuedInputs.length = 0;
+
+    await queueImages(imagePaths);
 
     const promptText = await askQuestion("Enter a text prompt (or /exit to quit):\n> ");
     if (promptText === "/exit" || promptText === "/quit") {
@@ -234,13 +234,17 @@ async function promptLoop() {
       return;
     }
 
-    if (!promptText) {
-      console.log("A text prompt is required to run.");
+    if (promptText) {
+      queuedInputs.push({ type: "text", text: promptText });
+    }
+
+    if (!queuedInputs.length) {
+      console.log("Nothing to send. Enter an image path or a text prompt.");
       continue;
     }
 
     await new Promise((resolve) => {
-      startRun(promptText, images, resolve);
+      startRun(resolve);
     });
   }
 }

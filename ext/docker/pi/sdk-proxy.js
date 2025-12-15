@@ -98,36 +98,99 @@ function buildThreadOptions(args) {
 }
 
 function normalizeInput(args) {
-  const images = Array.isArray(args.images) ? args.images : [];
-  if (images.length === 0) {
-    return args.input;
-  }
+  const items = [];
 
-  const items = [{ type: "text", text: args.input }];
-  for (const imageEntry of images) {
+  const addImage = (imageEntry) => {
     if (typeof imageEntry === "string") {
       items.push({ type: "local_image", path: imageEntry });
-      continue;
+      return;
     }
 
     if (!imageEntry || typeof imageEntry !== "object") {
-      continue;
+      return;
     }
 
     if (typeof imageEntry.url === "string") {
       items.push({ type: "image", url: imageEntry.url });
-      continue;
+      return;
     }
 
     if (typeof imageEntry.dataUrl === "string") {
       items.push({ type: "image", url: imageEntry.dataUrl });
-      continue;
+      return;
     }
 
     if (typeof imageEntry.path === "string") {
       items.push({ type: "local_image", path: imageEntry.path });
+      return;
     }
+
+    if (typeof imageEntry.text === "string") {
+      items.push({ type: "text", text: imageEntry.text });
+    }
+  };
+
+  const addInputEntry = (entry) => {
+    if (!entry) {
+      return;
+    }
+
+    if (typeof entry === "string") {
+      items.push({ type: "text", text: entry });
+      return;
+    }
+
+    if (entry.type === "text" && typeof entry.text === "string") {
+      items.push({ type: "text", text: entry.text });
+      return;
+    }
+
+    if (entry.type === "image" && typeof entry.url === "string") {
+      items.push({ type: "image", url: entry.url });
+      return;
+    }
+
+    if (entry.type === "local_image" && typeof entry.path === "string") {
+      items.push({ type: "local_image", path: entry.path });
+      return;
+    }
+
+    if (typeof entry.url === "string") {
+      items.push({ type: "image", url: entry.url });
+      return;
+    }
+
+    if (typeof entry.path === "string") {
+      items.push({ type: "local_image", path: entry.path });
+      return;
+    }
+
+    if (typeof entry.text === "string") {
+      items.push({ type: "text", text: entry.text });
+    }
+  };
+
+  if (Array.isArray(args.input)) {
+    for (const entry of args.input) {
+      addInputEntry(entry);
+    }
+  } else if (typeof args.input === "string" && args.input.trim()) {
+    items.push({ type: "text", text: args.input });
   }
+
+  const images = Array.isArray(args.images) ? args.images : [];
+  for (const imageEntry of images) {
+    addImage(imageEntry);
+  }
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  if (items.length === 1 && typeof args.input === "string" && images.length === 0) {
+    return args.input;
+  }
+
   return items;
 }
 
@@ -150,7 +213,7 @@ async function handleExec(socket, message) {
   }
 
   const { args, env } = message;
-  if (!args || typeof args.input !== "string") {
+  if (!args || (typeof args.input !== "string" && !Array.isArray(args.input))) {
     send(socket, { type: "error", message: "Missing or invalid args.input in exec request." });
     return;
   }
@@ -172,6 +235,10 @@ async function handleExec(socket, message) {
   }
 
   const input = normalizeInput(args);
+  if (!input) {
+    send(socket, { type: "error", message: "No input provided for exec request." });
+    return;
+  }
   activeAbortController = new AbortController();
 
   const codexOptions = {
