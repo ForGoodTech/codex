@@ -62,6 +62,9 @@ RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-
 
 # Stage the TypeScript SDK runtime so the SDK proxy can load it directly.
 COPY --chown=node:node sdk/typescript/dist /home/node/codex-sdk-dist
+COPY --chown=node:node sdk/typescript/package.json /home/node/codex-sdk-dist/package.json
+RUN mkdir -p /home/node/node_modules/@openai \
+  && ln -sf /home/node/codex-sdk-dist /home/node/node_modules/@openai/codex-sdk
 
 # Make the SDK proxy available alongside the app server proxy.
 COPY --chown=node:node ext/docker/pi/sdk-proxy.js /home/node/sdk-proxy.js
