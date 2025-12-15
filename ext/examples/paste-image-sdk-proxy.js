@@ -15,6 +15,8 @@ const readline = require('node:readline');
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 
+const { envOverrides, codexOptions } = buildConnectionOptions();
+
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
   promptForImages();
@@ -111,7 +113,7 @@ function promptForPrompt() {
 
 function sendTurn(prompt) {
   pending = true;
-  const payload = { type: 'run', prompt, images: queuedImages };
+  const payload = { type: 'run', prompt, images: queuedImages, options: codexOptions, env: envOverrides };
   if (threadId) {
     payload.threadId = threadId;
   }
@@ -147,5 +149,28 @@ function mimeFromPath(imagePath) {
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
   if (lower.endsWith('.gif')) return 'image/gif';
   return 'application/octet-stream';
+}
+
+function buildConnectionOptions() {
+  const env = {};
+  const options = {};
+
+  const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
+  if (apiKey) {
+    env.CODEX_API_KEY = apiKey;
+    env.OPENAI_API_KEY = apiKey;
+    options.apiKey = apiKey;
+  }
+
+  const baseUrl = process.env.CODEX_BASE_URL || process.env.OPENAI_BASE_URL;
+  if (baseUrl) {
+    env.OPENAI_BASE_URL = baseUrl;
+    options.baseUrl = baseUrl;
+  }
+
+  return {
+    envOverrides: Object.keys(env).length ? env : undefined,
+    codexOptions: options,
+  };
 }
 

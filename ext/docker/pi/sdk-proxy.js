@@ -16,6 +16,7 @@ const { randomUUID } = require('node:crypto');
 const HOST = process.env.SDK_PROXY_HOST ?? '0.0.0.0';
 const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 
+
 (async () => {
   const Codex = await loadCodexSdk();
 
@@ -23,7 +24,7 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
     socket.setKeepAlive(true);
     console.log(`SDK proxy client connected from ${socket.remoteAddress}:${socket.remotePort}`);
 
-  const codex = new Codex();
+  let codex = null;
   let thread = null;
   let activeRun = null;
   let abortController = null;
@@ -96,7 +97,12 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
       throw new Error('Missing prompt or images for run request');
     }
 
-    const threadOptions = buildThreadOptions(message.options ?? {});
+    const { codexOptions, threadOptions } = buildOptions(message.options ?? {}, message.env ?? {});
+
+    if (!codex) {
+      codex = new Codex(codexOptions);
+    }
+
     if (message.threadId) {
       thread = codex.resumeThread(message.threadId, threadOptions);
     } else if (!thread) {
@@ -140,6 +146,31 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
     console.log(`SDK proxy listening on ${HOST}:${PORT}`);
   });
 })();
+
+function buildOptions(options, envOverrides) {
+  const codexOptions = {};
+  const baseEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') {
+      baseEnv[key] = value;
+    }
+  }
+
+  const normalizedEnv = Object.fromEntries(
+    Object.entries(envOverrides || {}).filter(([, value]) => typeof value === 'string'),
+  );
+
+  const mergedEnv = { ...baseEnv, ...normalizedEnv };
+
+  if (Object.keys(mergedEnv).length) {
+    codexOptions.env = mergedEnv;
+  }
+
+  if (typeof options.baseUrl === 'string') codexOptions.baseUrl = options.baseUrl;
+  if (typeof options.apiKey === 'string') codexOptions.apiKey = options.apiKey;
+
+  return { codexOptions, threadOptions: buildThreadOptions(options) };
+}
 
 function buildThreadOptions(options) {
   const threadOptions = {};

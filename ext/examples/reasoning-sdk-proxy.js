@@ -13,6 +13,8 @@ const readline = require('node:readline');
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 
+const { envOverrides, codexOptions } = buildConnectionOptions();
+
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
   promptUser();
@@ -80,7 +82,7 @@ userInput.on('line', (line) => {
   }
 
   turnActive = true;
-  const payload = { type: 'run', prompt: trimmed };
+  const payload = { type: 'run', prompt: trimmed, options: codexOptions, env: envOverrides };
   if (threadId) {
     payload.threadId = threadId;
   }
@@ -114,4 +116,27 @@ function handleEvent(event) {
       process.stdout.write(delta.text);
     }
   }
+}
+
+function buildConnectionOptions() {
+  const env = {};
+  const options = {};
+
+  const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
+  if (apiKey) {
+    env.CODEX_API_KEY = apiKey;
+    env.OPENAI_API_KEY = apiKey;
+    options.apiKey = apiKey;
+  }
+
+  const baseUrl = process.env.CODEX_BASE_URL || process.env.OPENAI_BASE_URL;
+  if (baseUrl) {
+    env.OPENAI_BASE_URL = baseUrl;
+    options.baseUrl = baseUrl;
+  }
+
+  return {
+    envOverrides: Object.keys(env).length ? env : undefined,
+    codexOptions: options,
+  };
 }
