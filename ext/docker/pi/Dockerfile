@@ -66,6 +66,7 @@ RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-
 # Stage the Codex TypeScript SDK output alongside the proxies so sdk-proxy can import it.
 COPY --chown=node:node sdk/typescript/package.json /home/node/node_modules/@openai/codex-sdk/package.json
 COPY --chown=node:node sdk/typescript/dist /home/node/node_modules/@openai/codex-sdk/dist
+COPY --chown=node:node codex-cli/vendor /home/node/node_modules/@openai/codex-sdk/vendor
 
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.
