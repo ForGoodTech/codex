@@ -2,9 +2,9 @@
 /**
  * Paste image client via the Codex SDK proxy.
  * -------------------------------------------
- * Prompts for one or more image file paths plus an optional text prompt, then
- * streams the resulting agent response using the sdk-proxy TCP endpoint. The
- * script keeps a single thread alive so multiple turns share context.
+ * Prompts for one or more image file paths and a text prompt, then streams the
+ * resulting agent response using the sdk-proxy TCP endpoint. The script keeps
+ * a single thread alive so multiple turns share context.
  */
 
 const net = require("node:net");
@@ -45,9 +45,10 @@ function send(payload) {
   socket.write(`${JSON.stringify(payload)}\n`);
 }
 
-function buildArgs(input) {
+function buildArgs(input, images) {
   return {
     input,
+    images,
     threadId: threadId || undefined,
     model: process.env.CODEX_MODEL,
     sandboxMode: process.env.CODEX_SANDBOX_MODE,
@@ -61,13 +62,13 @@ function buildArgs(input) {
   };
 }
 
-function startRun(input, onTurnDone) {
+function startRun(input, images, onTurnDone) {
   if (activeRun) {
     console.error("A turn is already running; wait for it to finish.");
     return;
   }
 
-  const args = buildArgs(input);
+  const args = buildArgs(input, images);
   activeRun = { latestMessage: "", onTurnDone };
   send({
     action: "exec",
@@ -165,13 +166,6 @@ function askQuestion(promptText) {
   });
 }
 
-function normalizeImage(pathInput) {
-  if (!pathInput) {
-    return null;
-  }
-  return { type: "local_image", path: path.resolve(pathInput) };
-}
-
 async function promptLoop() {
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -188,8 +182,7 @@ async function promptLoop() {
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean)
-      .map(normalizeImage)
-      .filter(Boolean);
+      .map((part) => path.resolve(part));
 
     const promptText = await askQuestion("Enter a text prompt (or /exit to quit):\n> ");
     if (promptText === "/exit" || promptText === "/quit") {
@@ -198,18 +191,13 @@ async function promptLoop() {
       return;
     }
 
-    const inputs = [...images];
-    if (promptText) {
-      inputs.push({ type: "text", text: promptText });
-    }
-
-    if (inputs.length === 0) {
-      console.log("Nothing to send. Enter an image path or a prompt.");
+    if (!promptText) {
+      console.log("A text prompt is required to run.");
       continue;
     }
 
     await new Promise((resolve) => {
-      startRun(inputs, resolve);
+      startRun(promptText, images, resolve);
     });
   }
 }
