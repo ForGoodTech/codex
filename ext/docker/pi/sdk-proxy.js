@@ -243,7 +243,12 @@ async function handleExec(socket, message) {
 
   const codexOptions = {
     baseUrl: args.baseUrl ?? env?.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
-    apiKey: args.apiKey ?? env?.CODEX_API_KEY ?? process.env.CODEX_API_KEY,
+    apiKey:
+      args.apiKey ??
+      env?.OPENAI_API_KEY ??
+      env?.CODEX_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      process.env.CODEX_API_KEY,
     env: env ?? undefined,
   };
 
