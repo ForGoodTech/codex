@@ -13,21 +13,15 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
-let Codex;
-try {
-  // eslint-disable-next-line global-require
-  ({ Codex } = require('@openai/codex-sdk'));
-} catch (error) {
-  console.error('Failed to load @openai/codex-sdk:', error);
-  process.exit(1);
-}
-
 const HOST = process.env.SDK_PROXY_HOST ?? '0.0.0.0';
 const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 
-const server = net.createServer((socket) => {
-  socket.setKeepAlive(true);
-  console.log(`SDK proxy client connected from ${socket.remoteAddress}:${socket.remotePort}`);
+(async () => {
+  const Codex = await loadCodexSdk();
+
+  const server = net.createServer((socket) => {
+    socket.setKeepAlive(true);
+    console.log(`SDK proxy client connected from ${socket.remoteAddress}:${socket.remotePort}`);
 
   const codex = new Codex();
   let thread = null;
@@ -136,15 +130,16 @@ const server = net.createServer((socket) => {
       await Promise.allSettled(cleanupFns.map((fn) => fn()));
     }
   }
-});
+  });
 
-server.on('error', (error) => {
-  console.error('SDK proxy server error:', error);
-});
+  server.on('error', (error) => {
+    console.error('SDK proxy server error:', error);
+  });
 
-server.listen(PORT, HOST, () => {
-  console.log(`SDK proxy listening on ${HOST}:${PORT}`);
-});
+  server.listen(PORT, HOST, () => {
+    console.log(`SDK proxy listening on ${HOST}:${PORT}`);
+  });
+})();
 
 function buildThreadOptions(options) {
   const threadOptions = {};
@@ -211,5 +206,18 @@ function extensionFromMime(mime) {
       return '.gif';
     default:
       return '.bin';
+  }
+}
+
+async function loadCodexSdk() {
+  try {
+    const sdk = await import('@openai/codex-sdk');
+    if (!sdk?.Codex) {
+      throw new Error('Codex class missing from @openai/codex-sdk');
+    }
+    return sdk.Codex;
+  } catch (error) {
+    console.error('Failed to load @openai/codex-sdk:', error);
+    process.exit(1);
   }
 }
