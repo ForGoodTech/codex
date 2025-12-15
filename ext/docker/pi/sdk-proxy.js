@@ -29,6 +29,8 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
   let activeRun = null;
   let abortController = null;
   let buffer = '';
+  let authHome = null;
+  let authCleanup = null;
 
   socket.on('data', (chunk) => {
     buffer += chunk.toString('utf8');
@@ -46,6 +48,10 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
   socket.on('close', () => {
     if (abortController) {
       abortController.abort();
+    }
+    if (authCleanup) {
+      authCleanup().catch(() => {});
+      authCleanup = null;
     }
     console.log('SDK proxy client disconnected');
   });
@@ -90,6 +96,15 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
       : null;
     const images = Array.isArray(message.images) ? message.images : [];
 
+    if (typeof message.authJson === 'string' && message.authJson.trim().length) {
+      if (authCleanup) {
+        await authCleanup().catch(() => {});
+      }
+      const auth = await writeAuthJson(message.authJson);
+      authHome = auth.home;
+      authCleanup = auth.cleanup;
+    }
+
     const normalizedImages = await materializeImages(images);
     const userInput = buildUserInput(prompt, normalizedImages);
 
@@ -97,7 +112,11 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
       throw new Error('Missing prompt or images for run request');
     }
 
-    const { codexOptions, threadOptions } = buildOptions(message.options ?? {}, message.env ?? {});
+    const { codexOptions, threadOptions } = buildOptions(
+      message.options ?? {},
+      message.env ?? {},
+      authHome,
+    );
 
     if (!codex) {
       codex = new Codex(codexOptions);
@@ -147,7 +166,7 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
   });
 })();
 
-function buildOptions(options, envOverrides) {
+function buildOptions(options, envOverrides, authHome) {
   const codexOptions = {};
   const baseEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -161,6 +180,11 @@ function buildOptions(options, envOverrides) {
   );
 
   const mergedEnv = { ...baseEnv, ...normalizedEnv };
+
+  if (authHome) {
+    mergedEnv.CODEX_HOME = path.join(authHome, '.codex');
+    mergedEnv.HOME = authHome;
+  }
 
   if (Object.keys(mergedEnv).length) {
     codexOptions.env = mergedEnv;
@@ -238,6 +262,24 @@ function extensionFromMime(mime) {
     default:
       return '.bin';
   }
+}
+
+async function writeAuthJson(contents) {
+  const trimmed = contents.trim();
+  if (!trimmed.length) {
+    throw new Error('authJson provided but empty');
+  }
+
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'codex-sdk-proxy-auth-'));
+  const codexDir = path.join(home, '.codex');
+  await fsp.mkdir(codexDir, { recursive: true });
+  const authPath = path.join(codexDir, 'auth.json');
+  await fsp.writeFile(authPath, trimmed, 'utf8');
+
+  return {
+    home,
+    cleanup: async () => fsp.rm(home, { recursive: true, force: true }),
+  };
 }
 
 async function loadCodexSdk() {

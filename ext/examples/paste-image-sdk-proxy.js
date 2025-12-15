@@ -10,12 +10,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
+const os = require('node:os');
 const readline = require('node:readline');
 
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 
-const { envOverrides, codexOptions } = buildConnectionOptions();
+const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
@@ -113,7 +114,14 @@ function promptForPrompt() {
 
 function sendTurn(prompt) {
   pending = true;
-  const payload = { type: 'run', prompt, images: queuedImages, options: codexOptions, env: envOverrides };
+  const payload = {
+    type: 'run',
+    prompt,
+    images: queuedImages,
+    options: codexOptions,
+    env: envOverrides,
+    authJson,
+  };
   if (threadId) {
     payload.threadId = threadId;
   }
@@ -154,6 +162,7 @@ function mimeFromPath(imagePath) {
 function buildConnectionOptions() {
   const env = {};
   const options = {};
+  const authJson = loadAuthJson();
 
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
@@ -171,6 +180,16 @@ function buildConnectionOptions() {
   return {
     envOverrides: Object.keys(env).length ? env : undefined,
     codexOptions: options,
+    authJson,
   };
+}
+
+function loadAuthJson() {
+  const authPath = process.env.CODEX_AUTH_PATH || path.join(os.homedir(), '.codex/auth.json');
+  try {
+    return fs.readFileSync(authPath, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 

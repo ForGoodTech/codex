@@ -7,13 +7,16 @@
  * targets the SDK proxy instead of the app server proxy.
  */
 
+const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
 const readline = require('node:readline');
 
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 
-const { envOverrides, codexOptions } = buildConnectionOptions();
+const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
@@ -62,7 +65,7 @@ socket.on('error', (error) => {
 function sendRun(prompt) {
   activeTurn = { prompt };
   socket.write(
-    `${JSON.stringify({ type: 'run', prompt, options: codexOptions, env: envOverrides })}\n`,
+    `${JSON.stringify({ type: 'run', prompt, options: codexOptions, env: envOverrides, authJson })}\n`,
   );
 }
 
@@ -80,6 +83,7 @@ function handleEvent(event) {
 function buildConnectionOptions() {
   const env = {};
   const options = {};
+  const authJson = loadAuthJson();
 
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
@@ -97,5 +101,15 @@ function buildConnectionOptions() {
   return {
     envOverrides: Object.keys(env).length ? env : undefined,
     codexOptions: options,
+    authJson,
   };
+}
+
+function loadAuthJson() {
+  const authPath = process.env.CODEX_AUTH_PATH || path.join(os.homedir(), '.codex/auth.json');
+  try {
+    return fs.readFileSync(authPath, 'utf8');
+  } catch {
+    return undefined;
+  }
 }

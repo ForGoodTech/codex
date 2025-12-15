@@ -78,9 +78,10 @@ node ext/examples/reasoning-sdk-proxy.js
 node ext/examples/paste-image-sdk-proxy.js
 ```
 
-When using the SDK proxy, provide credentials from the host (for example `CODEX_API_KEY` or `OPENAI_API_KEY`, and optionally
-`OPENAI_BASE_URL`/`CODEX_BASE_URL`). The scripts forward those environment variables to the proxy so the Codex CLI inside the
-container can authenticate even if no `auth.json` is present there.
+When using the SDK proxy, the sample clients first try to read your local `~/.codex/auth.json` (override the path with
+`CODEX_AUTH_PATH`) and send its contents to the proxy. If that file is absent, they fall back to forwarding host environment
+variables such as `CODEX_API_KEY`, `OPENAI_API_KEY`, and optionally `OPENAI_BASE_URL`/`CODEX_BASE_URL` so the Codex CLI inside
+the container can authenticate.
 
 The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior.
 
