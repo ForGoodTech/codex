@@ -94,6 +94,7 @@ The Docker image also bundles `codex-sdk-proxy`, which lets the official TypeScr
    You can override the proxy location with `CODEX_SDK_PROXY_HOST`/`CODEX_SDK_PROXY_PORT` if you are not using the defaults (127.0.0.1:9400). The script accepts the usual Codex environment variables (`CODEX_API_KEY`, `OPENAI_BASE_URL`, `CODEX_MODEL`, etc.) and forwards them to the proxy.
 
 The SDK proxy streams JSONL messages back to the client exactly as it would from a local Codex binary, so external callers can live outside the container while keeping all Codex execution inside it.
+The proxy reuses the Codex CLI binaries shipped in the image (symlinked under the SDK's `vendor/` directory), so it will run with the same architecture-specific build that was baked into the Docker image.
 
 ## Other assets
 
