@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+/**
+ * Paste Image SDK Proxy Client
+ * ----------------------------
+ * Mirrors the paste-image app-server example but sends local image data to the
+ * SDK proxy over TCP. Images are converted to data URLs on the host and written
+ * to temporary files by the proxy so the Codex CLI can consume them.
+ */
+
+const fs = require('node:fs');
+const path = require('node:path');
+const net = require('node:net');
+const readline = require('node:readline');
+
+const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
+const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
+
+const socket = net.connect({ host, port }, () => {
+  console.log(`Connected to sdk-proxy at ${host}:${port}`);
+  promptForImages();
+});
+
+const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
+const serverLines = readline.createInterface({ input: socket });
+
+let threadId = null;
+let pending = false;
+let queuedImages = [];
+
+serverLines.on('line', (line) => {
+  if (!line.trim()) return;
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch (error) {
+    console.error('proxy -> non-JSON line', line);
+    return;
+  }
+
+  switch (message.type) {
+    case 'event':
+      handleEvent(message.event);
+      break;
+    case 'done':
+      threadId = message.threadId ?? threadId;
+      pending = false;
+      promptForImages();
+      break;
+    case 'aborted':
+      console.log('\nTurn aborted.');
+      pending = false;
+      promptForImages();
+      break;
+    case 'error':
+      console.error('Proxy error:', message.message);
+      pending = false;
+      promptForImages();
+      break;
+    default:
+      break;
+  }
+});
+
+socket.on('error', (error) => {
+  console.error('Socket error:', error);
+});
+
+userInput.on('close', () => {
+  socket.end();
+});
+
+function promptForImages() {
+  if (pending) return;
+  userInput.question('\nEnter image file path(s) (comma-separated, optional) or /exit to quit:\n> ', async (line) => {
+    const trimmed = line.trim();
+    if (trimmed === '/exit') {
+      userInput.close();
+      return;
+    }
+
+    queuedImages = [];
+    if (trimmed.length) {
+      const paths = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+      for (const imagePath of paths) {
+        try {
+          const data = await loadImageAsDataUrl(imagePath);
+          const stats = fs.statSync(imagePath);
+          console.log(`Queued image from ${imagePath} (${mimeFromPath(imagePath)}, ${stats.size} bytes).`);
+          queuedImages.push({ name: path.basename(imagePath), data });
+        } catch (error) {
+          console.error(`Failed to read ${imagePath}:`, error.message);
+        }
+      }
+    }
+
+    promptForPrompt();
+  });
+}
+
+function promptForPrompt() {
+  if (pending) return;
+  userInput.question('Enter a text prompt (or /exit to quit):\n> ', (line) => {
+    const prompt = line.trim();
+    if (prompt === '/exit') {
+      userInput.close();
+      return;
+    }
+    sendTurn(prompt);
+  });
+}
+
+function sendTurn(prompt) {
+  pending = true;
+  const payload = { type: 'run', prompt, images: queuedImages };
+  if (threadId) {
+    payload.threadId = threadId;
+  }
+  socket.write(`${JSON.stringify(payload)}\n`);
+}
+
+function handleEvent(event) {
+  if (event?.type === 'thread.started') {
+    threadId = event.thread_id;
+  }
+
+  if (event?.type === 'item.updated' && event.item?.type === 'agent_message') {
+    const delta = event.item.delta;
+    if (Array.isArray(delta?.content)) {
+      const text = delta.content.map((part) => part.text ?? '').join('');
+      if (text) process.stdout.write(text);
+    } else if (typeof delta?.text === 'string') {
+      process.stdout.write(delta.text);
+    }
+  }
+}
+
+async function loadImageAsDataUrl(imagePath) {
+  const data = await fs.promises.readFile(imagePath);
+  const mime = mimeFromPath(imagePath);
+  const base64 = data.toString('base64');
+  return `data:${mime};base64,${base64}`;
+}
+
+function mimeFromPath(imagePath) {
+  const lower = imagePath.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return 'application/octet-stream';
+}
+

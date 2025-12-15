@@ -57,8 +57,15 @@ RUN npm install -g codex.tgz \
 
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-proxy.js
+COPY --chown=node:node ext/docker/pi/sdk-proxy.js /home/node/sdk-proxy.js
 RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
-  mkdir -p /home/node/.codex
+  ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy && \
+  mkdir -p /home/node/.codex && \
+  mkdir -p /home/node/node_modules/@openai/codex-sdk
+
+# Stage the Codex TypeScript SDK output alongside the proxies so sdk-proxy can import it.
+COPY --chown=node:node sdk/typescript/package.json /home/node/node_modules/@openai/codex-sdk/package.json
+COPY --chown=node:node sdk/typescript/dist /home/node/node_modules/@openai/codex-sdk/dist
 
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.

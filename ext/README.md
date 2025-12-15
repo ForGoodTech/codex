@@ -1,6 +1,6 @@
 # Codex Extensions
 
-This directory contains helper assets for running Codex outside the main workspace. The current focus is on the Docker workflow that packages the standalone Codex binary, `codex-app-server`, and a TCP proxy for the app server into a single image.
+This directory contains helper assets for running Codex outside the main workspace. The current focus is on the Docker workflow that packages the standalone Codex binary, `codex-app-server`, and TCP proxies for both the app server and the Codex SDK into a single image.
 
 ## Docker image contents
 
@@ -9,6 +9,7 @@ The image built from `ext/docker/pi` includes:
 - **Codex CLI** – the standalone codex binary staged under the npm installation so it is available on `PATH`.
 - **codex-app-server** – the stdio app server packaged alongside the CLI.
 - **codex-app-server-proxy** – a Node-based TCP bridge that spawns `codex-app-server` inside the container and exposes it over a single TCP port so you can forward it to the host.
+- **codex-sdk-proxy** – a Node-based TCP bridge that uses the Codex TypeScript SDK (which shells out to the CLI) to run turns and stream JSONL events back to a single TCP client.
 - Common CLI dependencies (ripgrep, firewall helper, etc.) preinstalled for convenience.
 
 ## Building Docker images
@@ -47,12 +48,16 @@ Assume you want the app server ready; publishing the proxy port is safe even if 
 docker run -it --rm \
   --name my-codex-docker-container \
   -p 9395:9395 \
+  -p 9400:9400 \
   -v "$PWD:/home/node/workdir" \
   my-codex-docker-image \
   bash
 
 # Inside the container, launch the proxy (spawns codex-app-server on port 9395 by default)
 codex-app-server-proxy
+
+# Or start the SDK proxy (listens on port 9400 by default)
+codex-sdk-proxy
 
 # Or run Codex standalone inside the same container
 codex "explain this repo"  # or any other prompt
@@ -65,9 +70,17 @@ Clients outside the container (for example, `ext/examples/hello-app-server.js`) 
 node ext/examples/hello-app-server.js
 ```
 
+For the SDK proxy, the sample scripts connect to `127.0.0.1:9400` by default:
+
+```shell
+node ext/examples/hello-sdk-proxy.js
+node ext/examples/reasoning-sdk-proxy.js
+node ext/examples/paste-image-sdk-proxy.js
+```
+
 The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior.
 
 ## Other assets
 
 - `app-server-protocol-export/` – Generated TypeScript bindings and JSON Schemas for the Codex app-server protocol.
-- `examples/` – Standalone scripts that demonstrate talking to the app server; point them at the proxy host/port described above.
+- `examples/` – Standalone scripts that demonstrate talking to the app server and the SDK proxy; point them at the proxy host/port described above.
