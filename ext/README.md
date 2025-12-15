@@ -9,7 +9,6 @@ The image built from `ext/docker/pi` includes:
 - **Codex CLI** – the standalone codex binary staged under the npm installation so it is available on `PATH`.
 - **codex-app-server** – the stdio app server packaged alongside the CLI.
 - **codex-app-server-proxy** – a Node-based TCP bridge that spawns `codex-app-server` inside the container and exposes it over a single TCP port so you can forward it to the host.
-- **codex-sdk-proxy** – a Node-based TCP bridge, patterned after the app-server proxy, that exposes a single TCP port for SDK clients outside the container. It uses the Codex TypeScript SDK inside the container to talk to the Codex core and streams turn events back to the client over JSONL.
 - Common CLI dependencies (ripgrep, firewall helper, etc.) preinstalled for convenience.
 
 ## Building Docker images
@@ -67,34 +66,6 @@ node ext/examples/hello-app-server.js
 ```
 
 The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior.
-
-## Running the TypeScript SDK outside the container
-
-The Docker image also bundles `codex-sdk-proxy`, which lets the official TypeScript SDK run on the host while the Codex core stays inside the container. The proxy handles one client connection at a time (mirroring the app server proxy) and relays streamed Codex events over a TCP socket.
-
-1. Start the proxy inside the container (publish a port such as 9400 when running `docker run`):
-
-   ```shell
-   codex-sdk-proxy
-   ```
-
-2. On the host, use the provided sample clients to talk to the proxy over TCP without changing any SDK code:
-
-   ```shell
-   # From the repo root, with the container port forwarded to the host
-   node ext/examples/hello-sdk-proxy.js "explain this repo"
-
-   # Keep a running thread alive while you iterate on prompts
-   node ext/examples/reasoning-sdk-proxy.js
-
-   # Send local images alongside a text prompt
-   node ext/examples/paste-image-sdk-proxy.js
-   ```
-
-   You can override the proxy location with `CODEX_SDK_PROXY_HOST`/`CODEX_SDK_PROXY_PORT` if you are not using the defaults (127.0.0.1:9400). The script accepts the usual Codex environment variables (`CODEX_API_KEY`, `OPENAI_BASE_URL`, `CODEX_MODEL`, etc.) and forwards them to the proxy.
-
-The SDK proxy streams JSONL messages back to the client exactly as it would from a local Codex binary, so external callers can live outside the container while keeping all Codex execution inside it.
-The proxy reuses the Codex CLI binaries shipped in the image (symlinked under the SDK's `vendor/` directory), so it will run with the same architecture-specific build that was baked into the Docker image.
 
 ## Other assets
 

@@ -60,18 +60,6 @@ COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-p
 RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
   mkdir -p /home/node/.codex
 
-# Stage the TypeScript SDK runtime so the SDK proxy can load it directly.
-COPY --chown=node:node sdk/typescript/dist /home/node/codex-sdk/dist
-COPY --chown=node:node sdk/typescript/package.json /home/node/codex-sdk/package.json
-RUN ln -sf /usr/local/share/npm-global/lib/node_modules/@openai/codex/vendor /home/node/codex-sdk/vendor \
-  && chown -h node:node /home/node/codex-sdk/vendor
-RUN mkdir -p /home/node/node_modules/@openai \
-  && ln -sf /home/node/codex-sdk /home/node/node_modules/@openai/codex-sdk
-
-# Make the SDK proxy available alongside the app server proxy.
-COPY --chown=node:node ext/docker/pi/sdk-proxy.js /home/node/sdk-proxy.js
-RUN ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy
-
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.
 ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
