@@ -29,6 +29,7 @@ const serverLines = readline.createInterface({ input: socket });
 let threadId = null;
 let pending = false;
 let queuedImages = [];
+let agentMessage = '';
 
 serverLines.on('line', (line) => {
   if (!line.trim()) return;
@@ -46,6 +47,7 @@ serverLines.on('line', (line) => {
       break;
     case 'done':
       threadId = message.threadId ?? threadId;
+      flushAgentMessage();
       pending = false;
       promptForImages();
       break;
@@ -114,6 +116,7 @@ function promptForPrompt() {
 
 function sendTurn(prompt) {
   pending = true;
+  agentMessage = '';
   const payload = {
     type: 'run',
     prompt,
@@ -133,15 +136,56 @@ function handleEvent(event) {
     threadId = event.thread_id;
   }
 
-  if (event?.type === 'item.updated' && event.item?.type === 'agent_message') {
-    const delta = event.item.delta;
-    if (Array.isArray(delta?.content)) {
-      const text = delta.content.map((part) => part.text ?? '').join('');
-      if (text) process.stdout.write(text);
-    } else if (typeof delta?.text === 'string') {
-      process.stdout.write(delta.text);
-    }
+  switch (event?.type) {
+    case 'turn.started':
+      agentMessage = '';
+      break;
+    case 'item.updated':
+      handleAgentDelta(event.item);
+      break;
+    case 'item.completed':
+      handleAgentCompleted(event.item);
+      break;
+    case 'turn.failed':
+      console.error(`Turn failed: ${event.error?.message ?? 'unknown error'}`);
+      break;
+    default:
+      break;
   }
+}
+
+function flushAgentMessage() {
+  if (agentMessage.trim().length) {
+    process.stdout.write('\n');
+  }
+}
+
+function handleAgentDelta(item) {
+  if (item?.type !== 'agent_message') return;
+  const text = extractDeltaText(item.delta);
+  if (text) {
+    agentMessage += text;
+    process.stdout.write(text);
+  }
+}
+
+function handleAgentCompleted(item) {
+  if (item?.type !== 'agent_message' || typeof item.text !== 'string') return;
+  const remaining = item.text.startsWith(agentMessage) ? item.text.slice(agentMessage.length) : item.text;
+  if (remaining) {
+    agentMessage += remaining;
+    process.stdout.write(remaining);
+  }
+}
+
+function extractDeltaText(delta) {
+  if (Array.isArray(delta?.content)) {
+    return delta.content.map((part) => part.text ?? '').join('');
+  }
+  if (typeof delta?.text === 'string') {
+    return delta.text;
+  }
+  return '';
 }
 
 async function loadImageAsDataUrl(imagePath) {

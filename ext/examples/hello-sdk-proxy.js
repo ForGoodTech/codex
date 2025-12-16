@@ -25,6 +25,7 @@ const socket = net.connect({ host, port }, () => {
 
 const rl = readline.createInterface({ input: socket });
 let activeTurn = null;
+let agentText = '';
 
 rl.on('line', (line) => {
   if (!line.trim()) return;
@@ -64,20 +65,57 @@ socket.on('error', (error) => {
 
 function sendRun(prompt) {
   activeTurn = { prompt };
+  agentText = '';
   socket.write(
     `${JSON.stringify({ type: 'run', prompt, options: codexOptions, env: envOverrides, authJson })}\n`,
   );
 }
 
 function handleEvent(event) {
-  if (event?.type === 'item.updated' && event.item?.type === 'agent_message') {
-    if (Array.isArray(event.item.delta?.content)) {
-      const text = event.item.delta.content.map((c) => c.text ?? '').join('');
-      if (text) process.stdout.write(text);
-    } else if (typeof event.item.delta?.text === 'string') {
-      process.stdout.write(event.item.delta.text);
-    }
+  switch (event?.type) {
+    case 'turn.started':
+      agentText = '';
+      break;
+    case 'item.updated':
+      handleAgentDelta(event.item);
+      break;
+    case 'item.completed':
+      handleAgentCompleted(event.item);
+      break;
+    case 'turn.failed':
+      console.error(`Turn failed: ${event.error?.message ?? 'unknown error'}`);
+      break;
+    default:
+      break;
   }
+}
+
+function handleAgentDelta(item) {
+  if (item?.type !== 'agent_message') return;
+  const text = extractDeltaText(item.delta);
+  if (text) {
+    agentText += text;
+    process.stdout.write(text);
+  }
+}
+
+function handleAgentCompleted(item) {
+  if (item?.type !== 'agent_message' || typeof item.text !== 'string') return;
+  const remaining = item.text.startsWith(agentText) ? item.text.slice(agentText.length) : item.text;
+  if (remaining) {
+    agentText += remaining;
+    process.stdout.write(remaining);
+  }
+}
+
+function extractDeltaText(delta) {
+  if (Array.isArray(delta?.content)) {
+    return delta.content.map((part) => part.text ?? '').join('');
+  }
+  if (typeof delta?.text === 'string') {
+    return delta.text;
+  }
+  return '';
 }
 
 function buildConnectionOptions() {

@@ -28,6 +28,7 @@ const serverLines = readline.createInterface({ input: socket });
 
 let threadId = null;
 let turnActive = false;
+let agentMessage = '';
 
 serverLines.on('line', (line) => {
   if (!line.trim()) return;
@@ -45,6 +46,7 @@ serverLines.on('line', (line) => {
       break;
     case 'done':
       threadId = message.threadId ?? threadId;
+      flushAgentMessage();
       turnActive = false;
       promptUser();
       break;
@@ -109,22 +111,62 @@ function promptUser() {
 }
 
 function handleEvent(event) {
-  if (event?.type === 'thread.started') {
-    threadId = event.thread_id;
+  switch (event?.type) {
+    case 'thread.started':
+      threadId = event.thread_id;
+      break;
+    case 'turn.started':
+      agentMessage = '';
+      break;
+    case 'item.updated':
+      handleAgentDelta(event.item);
+      break;
+    case 'item.completed':
+      handleAgentCompleted(event.item);
+      break;
+    case 'turn.failed':
+      console.error(`Turn failed: ${event.error?.message ?? 'unknown error'}`);
+      break;
+    default:
+      break;
   }
+}
 
-  if (event?.type === 'item.updated' && event.item?.type === 'agent_message') {
-    const delta = event.item.delta;
-    if (Array.isArray(delta?.content)) {
-      const text = delta.content
-        .filter((part) => part.type !== 'reasoning')
-        .map((part) => part.text ?? '')
-        .join('');
-      if (text) process.stdout.write(text);
-    } else if (typeof delta?.text === 'string') {
-      process.stdout.write(delta.text);
-    }
+function handleAgentDelta(item) {
+  if (item?.type !== 'agent_message') return;
+  const text = extractDeltaText(item.delta);
+  if (text) {
+    agentMessage += text;
+    process.stdout.write(text);
   }
+}
+
+function handleAgentCompleted(item) {
+  if (item?.type !== 'agent_message' || typeof item.text !== 'string') return;
+  const remaining = item.text.startsWith(agentMessage) ? item.text.slice(agentMessage.length) : item.text;
+  if (remaining) {
+    agentMessage += remaining;
+    process.stdout.write(remaining);
+  }
+}
+
+function flushAgentMessage() {
+  if (agentMessage.trim().length) {
+    process.stdout.write('\n');
+  }
+}
+
+function extractDeltaText(delta) {
+  if (Array.isArray(delta?.content)) {
+    return delta.content
+      .filter((part) => part.type !== 'reasoning')
+      .map((part) => part.text ?? '')
+      .join('');
+  }
+  if (typeof delta?.text === 'string') {
+    return delta.text;
+  }
+  return '';
 }
 
 function buildConnectionOptions() {
