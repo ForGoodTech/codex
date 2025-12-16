@@ -7,6 +7,7 @@
  * Codex thread alive across turns for the lifetime of the TCP connection.
  */
 
+const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const net = require('node:net');
 const os = require('node:os');
@@ -203,6 +204,16 @@ function buildOptions(options, envOverrides, authHome) {
 
   const mergedEnv = { ...baseEnv, ...normalizedEnv };
 
+  if (!authHome && !('CODEX_HOME' in mergedEnv)) {
+    const authEnv = resolveLocalAuthEnv();
+    if (authEnv?.CODEX_HOME) {
+      mergedEnv.CODEX_HOME = authEnv.CODEX_HOME;
+      if (!('HOME' in mergedEnv) && authEnv.HOME) {
+        mergedEnv.HOME = authEnv.HOME;
+      }
+    }
+  }
+
   if (!('CODEX_AUTO_APPROVE' in mergedEnv)) {
     mergedEnv.CODEX_AUTO_APPROVE = '1';
   }
@@ -315,8 +326,45 @@ async function writeAuthJson(contents) {
   };
 }
 
+function resolveLocalAuthEnv() {
+  const homeDir = process.env.HOME || os.homedir();
+  const explicitAuthPath = process.env.CODEX_AUTH_PATH;
+  const candidatePaths = [];
+
+  if (explicitAuthPath) {
+    candidatePaths.push(explicitAuthPath);
+  }
+
+  const defaultCodexHome = process.env.CODEX_HOME || path.join(homeDir, '.codex');
+  candidatePaths.push(path.join(defaultCodexHome, 'auth.json'));
+
+  for (const candidate of candidatePaths) {
+    if (candidate && fs.existsSync(candidate)) {
+      const codexHome = path.dirname(candidate);
+      return {
+        authPath: candidate,
+        CODEX_HOME: codexHome,
+        HOME: homeDir,
+      };
+    }
+  }
+
+  return null;
+}
+
 async function runSelfTest(CodexClass) {
-  const { codexOptions, threadOptions } = buildOptions({}, {}, null);
+  const localAuth = resolveLocalAuthEnv();
+  if (!localAuth) {
+    throw new Error('auth.json not found in CODEX_AUTH_PATH or default .codex directory inside the container');
+  }
+
+  const envOverrides = {};
+  if (localAuth.CODEX_HOME) envOverrides.CODEX_HOME = localAuth.CODEX_HOME;
+  if (localAuth.HOME) envOverrides.HOME = localAuth.HOME;
+
+  console.log(`Using auth from ${localAuth.authPath}`);
+
+  const { codexOptions, threadOptions } = buildOptions({}, envOverrides, null);
   const codex = new CodexClass(codexOptions);
   const thread = codex.startThread(threadOptions);
   const input = [{ type: 'text', text: 'Say hello from the sdk proxy self-test.' }];

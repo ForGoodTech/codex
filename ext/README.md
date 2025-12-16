@@ -80,7 +80,9 @@ node ext/examples/paste-image-sdk-proxy.js
 ```
 
 You can also ask the SDK proxy itself to run a one-off self-test prompt when it
-starts (without any client) to confirm the Codex SDK path is working:
+starts (without any client) to confirm the Codex SDK path is working. The
+self-test expects a usable `auth.json` inside the container (for example at
+`/home/node/.codex/auth.json` or a path provided via `CODEX_AUTH_PATH`):
 
 ```shell
 SDK_PROXY_SELF_TEST=1 codex-sdk-proxy   # or pass --self-test
