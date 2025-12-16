@@ -231,15 +231,15 @@ function buildThreadOptions(options) {
   threadOptions.workingDirectory = typeof options.workingDirectory === 'string'
     ? options.workingDirectory
     : process.cwd();
-  threadOptions.approvalPolicy = typeof options.approvalPolicy === 'string'
+  const approvalPolicy = typeof options.approvalPolicy === 'string'
     ? options.approvalPolicy
-    : 'auto';
+    : 'on-request';
+  threadOptions.approvalPolicy = approvalPolicy === 'auto' ? 'on-request' : approvalPolicy;
   if (Array.isArray(options.additionalDirectories)) threadOptions.additionalDirectories = options.additionalDirectories;
   if (typeof options.skipGitRepoCheck === 'boolean') threadOptions.skipGitRepoCheck = options.skipGitRepoCheck;
   if (typeof options.modelReasoningEffort === 'string') threadOptions.modelReasoningEffort = options.modelReasoningEffort;
   if (typeof options.networkAccessEnabled === 'boolean') threadOptions.networkAccessEnabled = options.networkAccessEnabled;
   if (typeof options.webSearchEnabled === 'boolean') threadOptions.webSearchEnabled = options.webSearchEnabled;
-  if (typeof options.approvalPolicy === 'string') threadOptions.approvalPolicy = options.approvalPolicy;
   return threadOptions;
 }
 

@@ -122,7 +122,7 @@ function buildConnectionOptions() {
   const codexOptions = {
     sandboxMode: process.env.CODEX_SANDBOX || 'danger-full-access',
     workingDirectory: process.env.CODEX_WORKDIR || process.cwd(),
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'auto',
+    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'on-request',
   };
 
   return { envOverrides, codexOptions, authJson };
