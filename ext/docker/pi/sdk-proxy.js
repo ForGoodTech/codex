@@ -361,6 +361,8 @@ async function runSelfTest(CodexClass) {
   const envOverrides = {};
   if (localAuth.CODEX_HOME) envOverrides.CODEX_HOME = localAuth.CODEX_HOME;
   if (localAuth.HOME) envOverrides.HOME = localAuth.HOME;
+  envOverrides.CODEX_AUTO_APPROVE = envOverrides.CODEX_AUTO_APPROVE ?? '1';
+  envOverrides.CODEX_APPROVAL_POLICY = envOverrides.CODEX_APPROVAL_POLICY ?? 'on-request';
 
   console.log(`Using auth from ${localAuth.authPath}`);
 
@@ -370,10 +372,14 @@ async function runSelfTest(CodexClass) {
   const input = [{ type: 'text', text: 'Say hello from the sdk proxy self-test.' }];
   let output = '';
   let failedEvent = null;
+  const seenEvents = [];
 
   try {
     const { events } = await thread.runStreamed(input);
     for await (const event of events) {
+      if (seenEvents.length < 5) {
+        seenEvents.push(event?.type ?? 'unknown');
+      }
       if (event?.type === 'message.delta') {
         const deltaText = event.delta?.text || '';
         output += deltaText;
@@ -414,7 +420,8 @@ async function runSelfTest(CodexClass) {
   }
 
   if (!output.length) {
-    console.error('\nSDK proxy self-test failed: no response produced — verify credentials and proxy options.');
+    const eventSummary = seenEvents.length ? ` Seen events: ${seenEvents.join(', ')}` : ' No events observed.';
+    console.error(`\nSDK proxy self-test failed: no response produced — verify credentials and proxy options.${eventSummary}`);
     process.exitCode = 1;
     return;
   }
