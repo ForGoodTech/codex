@@ -15,10 +15,17 @@ const { randomUUID } = require('node:crypto');
 
 const HOST = process.env.SDK_PROXY_HOST ?? '0.0.0.0';
 const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
+const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_SELF_TEST === '1';
 
 
 (async () => {
   const Codex = await loadCodexSdk();
+
+  if (SELF_TEST) {
+    runSelfTest(Codex).catch((error) => {
+      console.error('SDK proxy self-test failed:', error);
+    });
+  }
 
   const server = net.createServer((socket) => {
     socket.setKeepAlive(true);
@@ -80,6 +87,11 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
       if (abortController) {
         abortController.abort();
       }
+      return;
+    }
+
+    if (message.type === 'ping') {
+      emit({ type: 'pong', at: new Date().toISOString() });
       return;
     }
 
@@ -301,6 +313,39 @@ async function writeAuthJson(contents) {
     home,
     cleanup: async () => fsp.rm(home, { recursive: true, force: true }),
   };
+}
+
+async function runSelfTest(CodexClass) {
+  const { codexOptions, threadOptions } = buildOptions({}, {}, null);
+  const codex = new CodexClass(codexOptions);
+  const thread = codex.startThread(threadOptions);
+  const input = [{ type: 'text', text: 'Say hello from the sdk proxy self-test.' }];
+  const { events } = await thread.runStreamed(input);
+  let output = '';
+
+  for await (const event of events) {
+    if (event?.type === 'message.delta') {
+      const deltaText = event.delta?.text || '';
+      output += deltaText;
+      process.stdout.write(deltaText);
+    }
+
+    if (event?.type === 'message.completed' && event.message?.content?.length) {
+      const text = event.message.content
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('');
+      if (text) {
+        output += text;
+      }
+    }
+
+    if (event?.type === 'turn.completed' || event?.type === 'turn.failed') {
+      break;
+    }
+  }
+
+  console.log(`\nSDK proxy self-test completed with ${output.length ? 'response' : 'no response'}.`);
 }
 
 async function loadCodexSdk() {

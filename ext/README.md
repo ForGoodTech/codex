@@ -73,9 +73,17 @@ node ext/examples/hello-app-server.js
 For the SDK proxy, the sample scripts connect to `127.0.0.1:9400` by default:
 
 ```shell
+node ext/examples/sdk-proxy-ping.js              # quick connectivity + run smoke test
 node ext/examples/hello-sdk-proxy.js
 node ext/examples/reasoning-sdk-proxy.js
 node ext/examples/paste-image-sdk-proxy.js
+```
+
+You can also ask the SDK proxy itself to run a one-off self-test prompt when it
+starts (without any client) to confirm the Codex SDK path is working:
+
+```shell
+SDK_PROXY_SELF_TEST=1 codex-sdk-proxy   # or pass --self-test
 ```
 
 When using the SDK proxy, the sample clients first try to read your local `~/.codex/auth.json` (override the path with
