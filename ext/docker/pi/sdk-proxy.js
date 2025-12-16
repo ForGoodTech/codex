@@ -141,9 +141,19 @@ const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
   async function runTurn(threadInstance, userInput, signal, cleanupFns) {
     try {
       const { events } = await threadInstance.runStreamed(userInput, { signal });
+      let turnFinished = false;
       for await (const event of events) {
         emit({ type: 'event', event });
+        if (event?.type === 'turn.completed' || event?.type === 'turn.failed') {
+          turnFinished = true;
+          break;
+        }
       }
+
+      if (!turnFinished && !signal?.aborted) {
+        abortController?.abort();
+      }
+
       emit({ type: 'done', threadId: threadInstance.id });
     } catch (error) {
       if (signal?.aborted) {
@@ -180,6 +190,10 @@ function buildOptions(options, envOverrides, authHome) {
   );
 
   const mergedEnv = { ...baseEnv, ...normalizedEnv };
+
+  if (!('CODEX_AUTO_APPROVE' in mergedEnv)) {
+    mergedEnv.CODEX_AUTO_APPROVE = '1';
+  }
 
   if (authHome) {
     mergedEnv.CODEX_HOME = path.join(authHome, '.codex');
