@@ -205,6 +205,9 @@ function buildThreadOptions(options) {
   threadOptions.workingDirectory = typeof options.workingDirectory === 'string'
     ? options.workingDirectory
     : process.cwd();
+  threadOptions.approvalPolicy = typeof options.approvalPolicy === 'string'
+    ? options.approvalPolicy
+    : 'auto';
   if (Array.isArray(options.additionalDirectories)) threadOptions.additionalDirectories = options.additionalDirectories;
   if (typeof options.skipGitRepoCheck === 'boolean') threadOptions.skipGitRepoCheck = options.skipGitRepoCheck;
   if (typeof options.modelReasoningEffort === 'string') threadOptions.modelReasoningEffort = options.modelReasoningEffort;

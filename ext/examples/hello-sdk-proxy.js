@@ -123,6 +123,7 @@ function buildConnectionOptions() {
   const options = {
     sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
     workingDirectory: process.env.CODEX_WORKDIR || '/home/node/workdir',
+    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'auto',
   };
   const authJson = loadAuthJson();
 
