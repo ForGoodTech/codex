@@ -171,7 +171,10 @@ function extractDeltaText(delta) {
 
 function buildConnectionOptions() {
   const env = {};
-  const options = {};
+  const options = {
+    sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
+    workingDirectory: process.env.CODEX_WORKDIR || '/home/node/workdir',
+  };
   const authJson = loadAuthJson();
 
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;

@@ -199,8 +199,12 @@ function buildOptions(options, envOverrides, authHome) {
 function buildThreadOptions(options) {
   const threadOptions = {};
   if (typeof options.model === 'string') threadOptions.model = options.model;
-  if (typeof options.sandboxMode === 'string') threadOptions.sandboxMode = options.sandboxMode;
-  if (typeof options.workingDirectory === 'string') threadOptions.workingDirectory = options.workingDirectory;
+  threadOptions.sandboxMode = typeof options.sandboxMode === 'string'
+    ? options.sandboxMode
+    : 'danger-full-access';
+  threadOptions.workingDirectory = typeof options.workingDirectory === 'string'
+    ? options.workingDirectory
+    : process.cwd();
   if (Array.isArray(options.additionalDirectories)) threadOptions.additionalDirectories = options.additionalDirectories;
   if (typeof options.skipGitRepoCheck === 'boolean') threadOptions.skipGitRepoCheck = options.skipGitRepoCheck;
   if (typeof options.modelReasoningEffort === 'string') threadOptions.modelReasoningEffort = options.modelReasoningEffort;
