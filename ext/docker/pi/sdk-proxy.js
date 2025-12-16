@@ -320,32 +320,58 @@ async function runSelfTest(CodexClass) {
   const codex = new CodexClass(codexOptions);
   const thread = codex.startThread(threadOptions);
   const input = [{ type: 'text', text: 'Say hello from the sdk proxy self-test.' }];
-  const { events } = await thread.runStreamed(input);
   let output = '';
+  let failedEvent = null;
 
-  for await (const event of events) {
-    if (event?.type === 'message.delta') {
-      const deltaText = event.delta?.text || '';
-      output += deltaText;
-      process.stdout.write(deltaText);
-    }
+  try {
+    const { events } = await thread.runStreamed(input);
+    for await (const event of events) {
+      if (event?.type === 'message.delta') {
+        const deltaText = event.delta?.text || '';
+        output += deltaText;
+        process.stdout.write(deltaText);
+      }
 
-    if (event?.type === 'message.completed' && event.message?.content?.length) {
-      const text = event.message.content
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join('');
-      if (text) {
-        output += text;
+      if (event?.type === 'message.completed' && event.message?.content?.length) {
+        const text = event.message.content
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join('');
+        if (text) {
+          output += text;
+        }
+      }
+
+      if (event?.type === 'turn.failed') {
+        failedEvent = event;
+        break;
+      }
+
+      if (event?.type === 'turn.completed') {
+        break;
       }
     }
-
-    if (event?.type === 'turn.completed' || event?.type === 'turn.failed') {
-      break;
-    }
+  } catch (error) {
+    console.error('\nSDK proxy self-test failed:', error);
+    process.exitCode = 1;
+    return;
   }
 
-  console.log(`\nSDK proxy self-test completed with ${output.length ? 'response' : 'no response'}.`);
+  if (failedEvent) {
+    const reason = failedEvent.error?.message || failedEvent.error?.type || 'unknown failure';
+    const status = failedEvent.status ? ` (status: ${failedEvent.status})` : '';
+    console.error(`\nSDK proxy self-test failed: ${reason}${status}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!output.length) {
+    console.error('\nSDK proxy self-test failed: no response produced — verify credentials and proxy options.');
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log('\nSDK proxy self-test completed successfully.');
 }
 
 async function loadCodexSdk() {
