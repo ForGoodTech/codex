@@ -21,6 +21,7 @@ const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
   console.log('Debug: connection options', { envOverrides, codexOptions });
+  socket.write(`${JSON.stringify({ type: 'ping', at: new Date().toISOString() })}\n`);
   promptForImages();
 });
 
@@ -44,6 +45,9 @@ serverLines.on('line', (line) => {
   }
 
   switch (message.type) {
+    case 'ready':
+      console.log('Debug: proxy ready payload', message);
+      break;
     case 'event':
       console.log('Debug: proxy event type', message.event?.type);
       handleEvent(message.event);

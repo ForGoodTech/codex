@@ -28,9 +28,13 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
     });
   }
 
-  const server = net.createServer((socket) => {
-    socket.setKeepAlive(true);
-    console.log(`SDK proxy client connected from ${socket.remoteAddress}:${socket.remotePort}`);
+const server = net.createServer((socket) => {
+  socket.setKeepAlive(true);
+  console.log(`SDK proxy client connected from ${socket.remoteAddress}:${socket.remotePort}`);
+
+  // Immediately tell the client we are ready and listening; this also proves
+  // the connection can flow from server -> client.
+  socket.write(`${JSON.stringify({ type: 'ready', at: new Date().toISOString() })}\n`);
 
   let codex = null;
   let thread = null;
@@ -56,6 +60,14 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
         }
         newlineIndex = buffer.indexOf('\n');
       }
+    });
+
+    socket.on('error', (error) => {
+      console.error('[server] socket error', error);
+    });
+
+    socket.on('end', () => {
+      console.log('[server] socket ended by client');
     });
 
   socket.on('close', () => {
@@ -87,6 +99,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
       try {
         message = JSON.parse(line);
       } catch (error) {
+        console.error('[server] failed to parse JSON', error);
         throw new Error(`Invalid JSON from client: ${line}`);
       }
 
@@ -284,6 +297,10 @@ function buildThreadOptions(options) {
 }
 
 function buildUserInput(prompt, images) {
+  if (prompt && images.length === 0) {
+    return prompt;
+  }
+
   const input = [];
   if (prompt) {
     input.push({ type: 'text', text: prompt });
