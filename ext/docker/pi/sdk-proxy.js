@@ -396,6 +396,13 @@ async function runSelfTest(CodexClass) {
         }
       }
 
+      if (event?.type === 'item.completed' && event.item?.type === 'agent_message') {
+        if (event.item.text) {
+          output += event.item.text;
+          process.stdout.write(event.item.text);
+        }
+      }
+
       if (event?.type === 'turn.failed') {
         failedEvent = event;
         break;
