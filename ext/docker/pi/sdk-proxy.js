@@ -40,20 +40,23 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
   let authHome = null;
   let authCleanup = null;
 
-  socket.on('data', (chunk) => {
-    console.log(`[server] received raw chunk (${chunk.length} bytes)`);
-    buffer += chunk.toString('utf8');
-    let newlineIndex = buffer.indexOf('\n');
-    while (newlineIndex !== -1) {
-      const line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line.trim().length) {
-        console.log(`[server] processing line: ${line}`);
-        handleLine(line).catch((error) => emitError(error));
+    socket.on('data', (chunk) => {
+      console.log(`[server] received raw chunk (${chunk.length} bytes)`);
+      buffer += chunk.toString('utf8');
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        if (line.trim().length) {
+          console.log(`[server] processing line: ${line}`);
+          handleLine(line).catch((error) => {
+            console.error('[server] handleLine error', error);
+            emitError(error);
+          });
+        }
+        newlineIndex = buffer.indexOf('\n');
       }
-      newlineIndex = buffer.indexOf('\n');
-    }
-  });
+    });
 
   socket.on('close', () => {
     if (abortController) {
@@ -79,13 +82,15 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
     emit({ type: 'error', message: error?.message ?? String(error) });
   }
 
-  async function handleLine(line) {
-    let message;
-    try {
-      message = JSON.parse(line);
-    } catch (error) {
-      throw new Error(`Invalid JSON from client: ${line}`);
-    }
+    async function handleLine(line) {
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch (error) {
+        throw new Error(`Invalid JSON from client: ${line}`);
+      }
+
+      console.log('[server] parsed message type:', message.type);
 
     if (message.type === 'abort') {
       console.log('[server] abort requested by client');
@@ -238,7 +243,7 @@ function buildOptions(options, envOverrides, authHome) {
   }
 
   if (!('CODEX_APPROVAL_POLICY' in mergedEnv)) {
-    mergedEnv.CODEX_APPROVAL_POLICY = 'on-request';
+    mergedEnv.CODEX_APPROVAL_POLICY = 'never';
   }
 
   if (authHome) {
@@ -267,8 +272,8 @@ function buildThreadOptions(options) {
     : process.cwd();
   const requestedApproval = typeof options.approvalPolicy === 'string'
     ? options.approvalPolicy
-    : 'on-request';
-  const approvalPolicy = requestedApproval === 'auto' ? 'on-request' : requestedApproval;
+    : 'never';
+  const approvalPolicy = requestedApproval === 'auto' ? 'never' : requestedApproval;
   threadOptions.approvalPolicy = approvalPolicy;
   if (Array.isArray(options.additionalDirectories)) threadOptions.additionalDirectories = options.additionalDirectories;
   if (typeof options.skipGitRepoCheck === 'boolean') threadOptions.skipGitRepoCheck = options.skipGitRepoCheck;
