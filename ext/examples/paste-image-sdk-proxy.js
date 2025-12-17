@@ -208,7 +208,7 @@ function buildConnectionOptions() {
   const options = {
     sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
     workingDirectory: process.env.CODEX_WORKDIR || '/home/node/workdir',
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'on-request',
+    approvalPolicy: process.env.CODEX_APPROVAL_POLICY,
   };
   const authJson = loadAuthJson();
 
@@ -223,6 +223,10 @@ function buildConnectionOptions() {
   if (baseUrl) {
     env.OPENAI_BASE_URL = baseUrl;
     options.baseUrl = baseUrl;
+  }
+
+  if (options.approvalPolicy) {
+    env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
   }
 
   return {

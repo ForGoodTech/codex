@@ -122,8 +122,12 @@ function buildConnectionOptions() {
   const codexOptions = {
     sandboxMode: process.env.CODEX_SANDBOX || 'danger-full-access',
     workingDirectory: process.env.CODEX_WORKDIR || process.cwd(),
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'on-request',
+    approvalPolicy: process.env.CODEX_APPROVAL_POLICY,
   };
+
+  if (codexOptions.approvalPolicy) {
+    envOverrides.CODEX_APPROVAL_POLICY = codexOptions.approvalPolicy;
+  }
 
   return { envOverrides, codexOptions, authJson };
 }

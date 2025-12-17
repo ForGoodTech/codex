@@ -218,6 +218,10 @@ function buildOptions(options, envOverrides, authHome) {
     mergedEnv.CODEX_AUTO_APPROVE = '1';
   }
 
+  if (!('CODEX_APPROVAL_POLICY' in mergedEnv)) {
+    mergedEnv.CODEX_APPROVAL_POLICY = 'never';
+  }
+
   if (authHome) {
     mergedEnv.CODEX_HOME = path.join(authHome, '.codex');
     mergedEnv.HOME = authHome;
@@ -242,10 +246,10 @@ function buildThreadOptions(options) {
   threadOptions.workingDirectory = typeof options.workingDirectory === 'string'
     ? options.workingDirectory
     : process.cwd();
-  const approvalPolicy = typeof options.approvalPolicy === 'string'
-    ? options.approvalPolicy
-    : 'on-request';
-  threadOptions.approvalPolicy = approvalPolicy === 'auto' ? 'on-request' : approvalPolicy;
+  if (typeof options.approvalPolicy === 'string') {
+    const approvalPolicy = options.approvalPolicy === 'auto' ? 'never' : options.approvalPolicy;
+    threadOptions.approvalPolicy = approvalPolicy;
+  }
   if (Array.isArray(options.additionalDirectories)) threadOptions.additionalDirectories = options.additionalDirectories;
   if (typeof options.skipGitRepoCheck === 'boolean') threadOptions.skipGitRepoCheck = options.skipGitRepoCheck;
   if (typeof options.modelReasoningEffort === 'string') threadOptions.modelReasoningEffort = options.modelReasoningEffort;
