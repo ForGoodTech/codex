@@ -111,7 +111,7 @@ function handleEvent(event) {
 function buildConnectionOptions() {
   const envOverrides = {};
   envOverrides.CODEX_AUTO_APPROVE = process.env.CODEX_AUTO_APPROVE || '1';
-  envOverrides.CODEX_APPROVAL_POLICY = process.env.CODEX_APPROVAL_POLICY || 'never';
+  envOverrides.CODEX_APPROVAL_POLICY = process.env.CODEX_APPROVAL_POLICY || 'on-request';
   if (process.env.CODEX_BASE_URL) envOverrides.CODEX_BASE_URL = process.env.CODEX_BASE_URL;
   if (process.env.OPENAI_BASE_URL) envOverrides.OPENAI_BASE_URL = process.env.OPENAI_BASE_URL;
   if (process.env.CODEX_API_KEY) envOverrides.CODEX_API_KEY = process.env.CODEX_API_KEY;
@@ -130,7 +130,7 @@ function buildConnectionOptions() {
   const codexOptions = {
     sandboxMode: process.env.CODEX_SANDBOX || 'danger-full-access',
     workingDirectory: process.env.CODEX_WORKDIR || process.cwd(),
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'never',
+    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'on-request',
   };
 
   return { envOverrides, codexOptions, authJson };

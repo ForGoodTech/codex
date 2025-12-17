@@ -172,7 +172,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
       const { events } = await threadInstance.runStreamed(userInput, { signal });
       let turnFinished = false;
       for await (const event of events) {
-        console.log('[server] event from SDK:', event?.type ?? 'unknown');
+        console.log('[server] event from SDK:', event?.type ?? 'unknown', JSON.stringify(event));
         emit({ type: 'event', event });
         if (event?.type === 'turn.completed' || event?.type === 'turn.failed') {
           turnFinished = true;
@@ -184,6 +184,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
         abortController?.abort();
       }
 
+      console.log('[server] emitting done for thread', threadInstance.id);
       emit({ type: 'done', threadId: threadInstance.id });
     } catch (error) {
       console.error('[server] runTurn error', error);
@@ -237,7 +238,7 @@ function buildOptions(options, envOverrides, authHome) {
   }
 
   if (!('CODEX_APPROVAL_POLICY' in mergedEnv)) {
-    mergedEnv.CODEX_APPROVAL_POLICY = 'never';
+    mergedEnv.CODEX_APPROVAL_POLICY = 'on-request';
   }
 
   if (authHome) {
@@ -266,8 +267,8 @@ function buildThreadOptions(options) {
     : process.cwd();
   const requestedApproval = typeof options.approvalPolicy === 'string'
     ? options.approvalPolicy
-    : 'never';
-  const approvalPolicy = requestedApproval === 'auto' ? 'never' : requestedApproval;
+    : 'on-request';
+  const approvalPolicy = requestedApproval === 'auto' ? 'on-request' : requestedApproval;
   threadOptions.approvalPolicy = approvalPolicy;
   if (Array.isArray(options.additionalDirectories)) threadOptions.additionalDirectories = options.additionalDirectories;
   if (typeof options.skipGitRepoCheck === 'boolean') threadOptions.skipGitRepoCheck = options.skipGitRepoCheck;
