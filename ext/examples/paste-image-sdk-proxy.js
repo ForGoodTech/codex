@@ -20,6 +20,7 @@ const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
+  console.log('Debug: connection options', { envOverrides, codexOptions });
   promptForImages();
 });
 
@@ -32,6 +33,7 @@ let queuedImages = [];
 let agentMessage = '';
 
 serverLines.on('line', (line) => {
+  console.log('Debug: raw line from proxy', line);
   if (!line.trim()) return;
   let message;
   try {
@@ -43,20 +45,24 @@ serverLines.on('line', (line) => {
 
   switch (message.type) {
     case 'event':
+      console.log('Debug: proxy event type', message.event?.type);
       handleEvent(message.event);
       break;
     case 'done':
+      console.log('Debug: done received', message);
       threadId = message.threadId ?? threadId;
       flushAgentMessage();
       pending = false;
       promptForImages();
       break;
     case 'aborted':
+      console.log('Debug: aborted message received');
       console.log('\nTurn aborted.');
       pending = false;
       promptForImages();
       break;
     case 'error':
+      console.log('Debug: proxy error payload', message);
       console.error('Proxy error:', message.message);
       pending = false;
       promptForImages();
@@ -128,6 +134,7 @@ function sendTurn(prompt) {
   if (threadId) {
     payload.threadId = threadId;
   }
+  console.log('Debug: sending run payload', payload);
   socket.write(`${JSON.stringify(payload)}\n`);
 }
 

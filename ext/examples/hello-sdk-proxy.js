@@ -20,6 +20,7 @@ const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
+  console.log('Debug: connection options', { envOverrides, codexOptions });
   sendRun('Say hello and describe what this proxy does.');
 });
 
@@ -28,6 +29,7 @@ let activeTurn = null;
 let agentText = '';
 
 rl.on('line', (line) => {
+  console.log('Debug: raw line from proxy', line);
   if (!line.trim()) return;
   let message;
   try {
@@ -39,10 +41,12 @@ rl.on('line', (line) => {
 
   switch (message.type) {
     case 'event': {
+      console.log('Debug: proxy event type', message.event?.type);
       handleEvent(message.event);
       break;
     }
     case 'done': {
+      console.log('Debug: done received', message);
       if (activeTurn) {
         console.log(`\nTurn completed. Thread id: ${message.threadId ?? 'unknown'}`);
         activeTurn = null;
@@ -51,6 +55,7 @@ rl.on('line', (line) => {
       break;
     }
     case 'error':
+      console.log('Debug: proxy error payload', message);
       console.error('proxy -> error', message.message);
       socket.end();
       break;
@@ -66,6 +71,7 @@ socket.on('error', (error) => {
 function sendRun(prompt) {
   activeTurn = { prompt };
   agentText = '';
+  console.log('Debug: sending run payload', { type: 'run', prompt, options: codexOptions, env: envOverrides });
   socket.write(
     `${JSON.stringify({ type: 'run', prompt, options: codexOptions, env: envOverrides, authJson })}\n`,
   );

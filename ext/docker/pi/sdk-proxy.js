@@ -41,12 +41,14 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
   let authCleanup = null;
 
   socket.on('data', (chunk) => {
+    console.log(`[server] received raw chunk (${chunk.length} bytes)`);
     buffer += chunk.toString('utf8');
     let newlineIndex = buffer.indexOf('\n');
     while (newlineIndex !== -1) {
       const line = buffer.slice(0, newlineIndex);
       buffer = buffer.slice(newlineIndex + 1);
       if (line.trim().length) {
+        console.log(`[server] processing line: ${line}`);
         handleLine(line).catch((error) => emitError(error));
       }
       newlineIndex = buffer.indexOf('\n');
@@ -66,6 +68,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
 
   function emit(json) {
     try {
+      console.log(`[server] emitting: ${JSON.stringify(json)}`);
       socket.write(`${JSON.stringify(json)}\n`);
     } catch (error) {
       console.error('Failed to emit to client', error);
@@ -85,6 +88,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
     }
 
     if (message.type === 'abort') {
+      console.log('[server] abort requested by client');
       if (abortController) {
         abortController.abort();
       }
@@ -92,6 +96,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
     }
 
     if (message.type === 'ping') {
+      console.log('[server] received ping');
       emit({ type: 'pong', at: new Date().toISOString() });
       return;
     }
@@ -109,6 +114,8 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
       : null;
     const images = Array.isArray(message.images) ? message.images : [];
 
+    console.log(`[server] run requested: promptLength=${prompt ? prompt.length : 0}, images=${images.length}`);
+
     if (typeof message.authJson === 'string' && message.authJson.trim().length) {
       if (authCleanup) {
         await authCleanup().catch(() => {});
@@ -116,9 +123,11 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
       const auth = await writeAuthJson(message.authJson);
       authHome = auth.home;
       authCleanup = auth.cleanup;
+      console.log(`[server] wrote auth.json to ${authHome}`);
     }
 
     const normalizedImages = await materializeImages(images);
+    console.log(`[server] materialized ${normalizedImages.length} images`);
     const userInput = buildUserInput(prompt, normalizedImages);
 
     if (!userInput.length) {
@@ -131,19 +140,26 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
       authHome,
     );
 
+    console.log('[server] codex options:', codexOptions);
+    console.log('[server] thread options:', threadOptions);
+
     if (!codex) {
       codex = new Codex(codexOptions);
+      console.log('[server] instantiated Codex SDK');
     }
 
     if (message.threadId) {
       thread = codex.resumeThread(message.threadId, threadOptions);
+      console.log(`[server] resumed thread ${message.threadId}`);
     } else if (!thread) {
       thread = codex.startThread(threadOptions);
+      console.log('[server] started new thread');
     }
 
     abortController = new AbortController();
     const cleanupFns = normalizedImages.map((entry) => entry.cleanup);
     const signal = abortController.signal;
+    console.log('[server] starting runStreamed');
     activeRun = runTurn(thread, userInput, signal, cleanupFns).finally(() => {
       activeRun = null;
       abortController = null;
@@ -156,6 +172,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
       const { events } = await threadInstance.runStreamed(userInput, { signal });
       let turnFinished = false;
       for await (const event of events) {
+        console.log('[server] event from SDK:', event?.type ?? 'unknown');
         emit({ type: 'event', event });
         if (event?.type === 'turn.completed' || event?.type === 'turn.failed') {
           turnFinished = true;
@@ -169,6 +186,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
 
       emit({ type: 'done', threadId: threadInstance.id });
     } catch (error) {
+      console.error('[server] runTurn error', error);
       if (signal?.aborted) {
         emit({ type: 'aborted' });
       } else {

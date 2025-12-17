@@ -21,6 +21,7 @@ const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
+  console.log('Debug: connection options', { envOverrides, codexOptions });
   socket.write(`${JSON.stringify({ type: 'ping' })}\n`);
 });
 
@@ -29,6 +30,7 @@ let pendingRun = false;
 let output = '';
 
 rl.on('line', (line) => {
+  console.log('Debug: raw line from proxy', line);
   if (!line.trim()) return;
   let message;
   try {
@@ -48,13 +50,16 @@ rl.on('line', (line) => {
       break;
     }
     case 'event':
+      console.log('Debug: proxy event type', message.event?.type);
       handleEvent(message.event);
       break;
     case 'done':
+      console.log('Debug: done received', message);
       console.log(`\nRun completed. Thread id: ${message.threadId ?? 'unknown'}`);
       socket.end();
       break;
     case 'error':
+      console.log('Debug: proxy error payload', message);
       console.error('proxy -> error', message.message);
       socket.end();
       break;
@@ -69,6 +74,7 @@ socket.on('error', (error) => {
 
 function sendRun(text) {
   output = '';
+  console.log('Debug: sending run payload', { type: 'run', prompt: text, options: codexOptions, env: envOverrides });
   socket.write(
     `${JSON.stringify({ type: 'run', prompt: text, options: codexOptions, env: envOverrides, authJson })}\n`,
   );
