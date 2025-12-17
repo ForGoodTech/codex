@@ -123,9 +123,12 @@ function buildConnectionOptions() {
   const options = {
     sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
     workingDirectory: process.env.CODEX_WORKDIR || '/home/node/workdir',
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY,
+    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'never',
   };
   const authJson = loadAuthJson();
+
+  env.CODEX_AUTO_APPROVE = process.env.CODEX_AUTO_APPROVE || '1';
+  env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
 
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
@@ -138,10 +141,6 @@ function buildConnectionOptions() {
   if (baseUrl) {
     env.OPENAI_BASE_URL = baseUrl;
     options.baseUrl = baseUrl;
-  }
-
-  if (options.approvalPolicy) {
-    env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
   }
 
   return {

@@ -246,10 +246,11 @@ function buildThreadOptions(options) {
   threadOptions.workingDirectory = typeof options.workingDirectory === 'string'
     ? options.workingDirectory
     : process.cwd();
-  if (typeof options.approvalPolicy === 'string') {
-    const approvalPolicy = options.approvalPolicy === 'auto' ? 'never' : options.approvalPolicy;
-    threadOptions.approvalPolicy = approvalPolicy;
-  }
+  const requestedApproval = typeof options.approvalPolicy === 'string'
+    ? options.approvalPolicy
+    : 'never';
+  const approvalPolicy = requestedApproval === 'auto' ? 'never' : requestedApproval;
+  threadOptions.approvalPolicy = approvalPolicy;
   if (Array.isArray(options.additionalDirectories)) threadOptions.additionalDirectories = options.additionalDirectories;
   if (typeof options.skipGitRepoCheck === 'boolean') threadOptions.skipGitRepoCheck = options.skipGitRepoCheck;
   if (typeof options.modelReasoningEffort === 'string') threadOptions.modelReasoningEffort = options.modelReasoningEffort;
@@ -366,7 +367,7 @@ async function runSelfTest(CodexClass) {
   if (localAuth.CODEX_HOME) envOverrides.CODEX_HOME = localAuth.CODEX_HOME;
   if (localAuth.HOME) envOverrides.HOME = localAuth.HOME;
   envOverrides.CODEX_AUTO_APPROVE = envOverrides.CODEX_AUTO_APPROVE ?? '1';
-  envOverrides.CODEX_APPROVAL_POLICY = envOverrides.CODEX_APPROVAL_POLICY ?? 'on-request';
+  envOverrides.CODEX_APPROVAL_POLICY = envOverrides.CODEX_APPROVAL_POLICY ?? 'never';
 
   console.log(`Using auth from ${localAuth.authPath}`);
 
