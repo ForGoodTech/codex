@@ -25,7 +25,11 @@ const socket = net.connect({ host, port }, () => {
   promptUser();
 });
 
-const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
+const userInput = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+  terminal: true,
+});
 const serverLines = readline.createInterface({ input: socket });
 
 let threadId = null;
@@ -86,6 +90,7 @@ userInput.on('line', (line) => {
   }
 
   const trimmed = line.trim();
+  console.log('Debug: user input line', trimmed);
   if (!trimmed) {
     promptUser();
     return;
@@ -108,7 +113,12 @@ userInput.on('line', (line) => {
     payload.threadId = threadId;
   }
   console.log('Debug: sending run payload', payload);
-  socket.write(`${JSON.stringify(payload)}\n`);
+  const serialized = `${JSON.stringify(payload)}\n`;
+  console.log('Debug: payload bytes', Buffer.byteLength(serialized, 'utf8'));
+  const wrote = socket.write(serialized);
+  if (!wrote) {
+    console.log('Debug: socket write returned false (backpressure)');
+  }
 });
 
 userInput.on('close', () => {
@@ -116,9 +126,9 @@ userInput.on('close', () => {
 });
 
 function promptUser() {
-  if (!turnActive) {
-    userInput.question('\nEnter a prompt (or /exit to quit):\n> ', () => {});
-  }
+  if (turnActive) return;
+  userInput.setPrompt('\nEnter a prompt (or /exit to quit):\n> ');
+  userInput.prompt();
 }
 
 function handleEvent(event) {
