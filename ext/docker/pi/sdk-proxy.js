@@ -13,6 +13,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { exec } = require('node:child_process');
 
 const HOST = process.env.SDK_PROXY_HOST ?? '0.0.0.0';
 const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
@@ -192,6 +193,17 @@ const server = net.createServer((socket) => {
       for await (const event of events) {
         console.log('[server] event from SDK:', event?.type ?? 'unknown', JSON.stringify(event));
         emit({ type: 'event', event });
+
+        const handledToolRequest = await maybeHandleToolRequest({
+          event,
+          threadInstance,
+          signal,
+          emit,
+        });
+
+        if (handledToolRequest) {
+          continue;
+        }
         if (event?.type === 'turn.completed' || event?.type === 'turn.failed') {
           turnFinished = true;
           break;
@@ -215,6 +227,39 @@ const server = net.createServer((socket) => {
       await Promise.allSettled(cleanupFns.map((fn) => fn()));
     }
   }
+
+  async function maybeHandleToolRequest({ event, threadInstance, signal, emit: emitFn }) {
+    const extraction = extractToolCalls(event);
+    if (!extraction) {
+      return false;
+    }
+
+    const { responseId, toolCalls } = extraction;
+    console.log('[server] requires_action detected with tool calls:', toolCalls.length);
+    try {
+      const toolOutputs = [];
+      for (const call of toolCalls) {
+        if (signal?.aborted) {
+          console.warn('[server] abort requested while handling tool calls');
+          return true;
+        }
+        const output = await executeToolCall(call);
+        toolOutputs.push(output);
+      }
+
+      await submitToolOutputs(threadInstance, responseId, toolOutputs);
+      emitFn({
+        type: 'tool_outputs.submitted',
+        responseId,
+        count: toolOutputs.length,
+      });
+    } catch (error) {
+      console.error('[server] tool handling error', error);
+      emitError(error);
+    }
+
+    return true;
+  }
   });
 
   server.on('error', (error) => {
@@ -225,6 +270,100 @@ const server = net.createServer((socket) => {
     console.log(`SDK proxy listening on ${HOST}:${PORT}`);
   });
 })();
+
+function extractToolCalls(event) {
+  const requiredAction = event?.required_action || event?.data?.required_action || event?.response?.required_action;
+  if (!requiredAction) {
+    return null;
+  }
+
+  const submitAction = requiredAction?.submit_tool_outputs || (requiredAction?.type === 'submit_tool_outputs' ? requiredAction : null);
+  const toolCalls = submitAction?.tool_calls;
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    return null;
+  }
+
+  const responseId = event?.response?.id || event?.id || submitAction?.response_id || requiredAction?.response_id;
+  return { responseId, toolCalls };
+}
+
+async function executeToolCall(toolCall) {
+  const callId = toolCall?.id || toolCall?.tool_call_id || toolCall?.function?.id || randomUUID();
+  const name = toolCall?.function?.name || toolCall?.name || 'unknown';
+  const parsedArgs = parseToolArguments(toolCall?.function?.arguments ?? toolCall?.arguments ?? {});
+
+  if (['shell', 'bash', 'sh', 'execute_shell'].includes(name)) {
+    const output = await runShellTool(parsedArgs);
+    return { tool_call_id: callId, output };
+  }
+
+  const output = `Unsupported tool '${name}' requested`;
+  return { tool_call_id: callId, output };
+}
+
+function parseToolArguments(rawArgs) {
+  if (typeof rawArgs === 'string') {
+    const trimmed = rawArgs.trim();
+    if (!trimmed.length) {
+      return {};
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch (error) {
+      console.warn('[server] failed to parse tool arguments as JSON, using raw string', error);
+      return trimmed;
+    }
+  }
+  if (rawArgs && typeof rawArgs === 'object') {
+    return rawArgs;
+  }
+  return {};
+}
+
+async function runShellTool(args) {
+  const command = typeof args === 'string'
+    ? args
+    : args.command || args.cmd || args.input || '';
+  if (!command || !command.toString().trim().length) {
+    throw new Error('Shell tool call missing command');
+  }
+
+  return new Promise((resolve, reject) => {
+    exec(command, { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        const message = `${stdout ?? ''}${stderr ?? ''}${error.message ? `\n${error.message}` : ''}`.trim();
+        resolve(message.length ? message : 'Command failed without output');
+        return;
+      }
+      const combined = `${stdout ?? ''}${stderr ?? ''}`.trim();
+      resolve(combined.length ? combined : '(no output)');
+    });
+  });
+}
+
+async function submitToolOutputs(threadInstance, responseId, toolOutputs) {
+  const submit = threadInstance?.submitToolOutputs || threadInstance?.submit_tool_outputs;
+  if (typeof submit === 'function') {
+    if (responseId !== undefined && submit.length >= 2) {
+      await submit.call(threadInstance, responseId, toolOutputs);
+    } else {
+      await submit.call(threadInstance, toolOutputs);
+    }
+    return;
+  }
+
+  const client = threadInstance?.codex || threadInstance?.client || threadInstance?._client;
+  if (client?.responses?.submitToolOutputs) {
+    const targetId = responseId || threadInstance?.id;
+    if (!targetId) {
+      throw new Error('Unable to determine response ID for tool submission');
+    }
+    await client.responses.submitToolOutputs(targetId, { tool_outputs: toolOutputs });
+    return;
+  }
+
+  throw new Error('Codex SDK does not expose submitToolOutputs; upgrade the SDK or proxy.');
+}
 
 function buildOptions(options, envOverrides, authHome) {
   const codexOptions = {};
