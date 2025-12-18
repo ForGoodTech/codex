@@ -195,13 +195,19 @@ function buildConnectionOptions() {
   const env = {};
   const options = {
     sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
-    workingDirectory: process.env.CODEX_WORKDIR || '/home/node/workdir',
+    workingDirectory: ensureDirectory(
+      process.env.CODEX_WORKDIR || path.join(os.homedir(), 'workdir'),
+    ),
     approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'never',
   };
+  const codexHome = ensureDirectory(
+    process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
+  );
   const authJson = loadAuthJson();
 
   env.CODEX_AUTO_APPROVE = process.env.CODEX_AUTO_APPROVE || '1';
   env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
+  env.CODEX_HOME = codexHome;
 
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
@@ -230,4 +236,10 @@ function loadAuthJson() {
   } catch {
     return undefined;
   }
+}
+
+function ensureDirectory(directoryPath) {
+  const resolvedPath = path.resolve(directoryPath);
+  fs.mkdirSync(resolvedPath, { recursive: true });
+  return resolvedPath;
 }
