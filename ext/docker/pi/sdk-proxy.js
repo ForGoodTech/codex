@@ -416,12 +416,15 @@ function buildOptions(options, envOverrides, authHome) {
 function buildThreadOptions(options) {
   const threadOptions = {};
   if (typeof options.model === 'string') threadOptions.model = options.model;
+  const envSandboxMode = typeof process.env.SDK_PROXY_SANDBOX_MODE === 'string'
+    ? process.env.SDK_PROXY_SANDBOX_MODE.trim()
+    : '';
   threadOptions.sandboxMode = typeof options.sandboxMode === 'string'
     ? options.sandboxMode
-    : 'danger-full-access';
-  threadOptions.workingDirectory = typeof options.workingDirectory === 'string'
-    ? options.workingDirectory
-    : process.cwd();
+    : (envSandboxMode.length ? envSandboxMode : 'restricted');
+
+  const allowedWorkingDirectories = getWhitelistedWorkingDirectories();
+  threadOptions.workingDirectory = resolveWorkingDirectory(options, allowedWorkingDirectories);
   const requestedApproval = typeof options.approvalPolicy === 'string'
     ? options.approvalPolicy
     : 'never';
@@ -433,6 +436,45 @@ function buildThreadOptions(options) {
   if (typeof options.networkAccessEnabled === 'boolean') threadOptions.networkAccessEnabled = options.networkAccessEnabled;
   if (typeof options.webSearchEnabled === 'boolean') threadOptions.webSearchEnabled = options.webSearchEnabled;
   return threadOptions;
+}
+
+function getWhitelistedWorkingDirectories() {
+  const rawWhitelist = typeof process.env.SDK_PROXY_WORKDIR_WHITELIST === 'string'
+    ? process.env.SDK_PROXY_WORKDIR_WHITELIST
+    : '';
+  const entries = rawWhitelist
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => path.resolve(entry));
+  if (entries.length > 0) {
+    return entries;
+  }
+
+  // Default to the container's intended workspace.
+  return [path.resolve('/home/node/workdir')];
+}
+
+function resolveWorkingDirectory(options, whitelistedDirectories) {
+  const envWorkingDirectory = typeof process.env.SDK_PROXY_WORKDIR === 'string'
+    ? process.env.SDK_PROXY_WORKDIR
+    : '';
+  const requestedWorkingDirectory = typeof options.workingDirectory === 'string'
+    ? options.workingDirectory
+    : (envWorkingDirectory.length ? envWorkingDirectory : whitelistedDirectories[0]);
+  const resolvedWorkingDirectory = path.resolve(requestedWorkingDirectory);
+
+  const matchesWhitelist = whitelistedDirectories.some((entry) =>
+    resolvedWorkingDirectory === entry
+    || resolvedWorkingDirectory.startsWith(`${entry}${path.sep}`),
+  );
+
+  if (!matchesWhitelist) {
+    console.warn(`Working directory ${resolvedWorkingDirectory} is not in the whitelist; using ${whitelistedDirectories[0]} instead.`);
+    return whitelistedDirectories[0];
+  }
+
+  return resolvedWorkingDirectory;
 }
 
 function buildUserInput(prompt, images) {
