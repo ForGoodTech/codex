@@ -198,20 +198,23 @@ function extractDeltaText(delta) {
 
 function buildConnectionOptions() {
   const env = {};
+  const defaultWorkdir = '/home/node/workdir';
+  const defaultCodexHome = '/home/node/.codex';
   const options = {
     sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
     workingDirectory: ensureDirectory(
-      process.env.CODEX_WORKDIR || path.join(os.homedir(), 'workdir'),
+      process.env.CODEX_WORKDIR || defaultWorkdir,
     ),
     approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'never',
   };
   const codexHome = ensureDirectory(
-    process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
+    process.env.CODEX_HOME || defaultCodexHome,
   );
   const authJson = loadAuthJson();
 
   env.CODEX_AUTO_APPROVE = process.env.CODEX_AUTO_APPROVE || '1';
   env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
+  env.CODEX_WORKDIR = options.workingDirectory;
   env.CODEX_HOME = codexHome;
 
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
