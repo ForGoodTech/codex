@@ -7,10 +7,7 @@
  * SDK proxy over TCP instead of the app server proxy.
  */
 
-const fs = require('node:fs');
 const net = require('node:net');
-const os = require('node:os');
-const path = require('node:path');
 const readline = require('node:readline');
 
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
@@ -84,11 +81,6 @@ socket.on('error', (error) => {
 });
 
 userInput.on('line', (line) => {
-  if (turnActive) {
-    console.log('Wait for the current turn to finish.');
-    return;
-  }
-
   const trimmed = line.trim();
   console.log('Debug: user input line', trimmed);
   if (!trimmed) {
@@ -101,10 +93,31 @@ userInput.on('line', (line) => {
     return;
   }
 
+  sendPrompt(trimmed);
+});
+
+userInput.on('close', () => {
+  socket.end();
+});
+
+function promptUser() {
+  if (turnActive) return;
+  console.log('\nEnter a prompt (or /exit to quit):');
+  userInput.setPrompt('> ');
+  userInput.prompt();
+}
+
+function sendPrompt(prompt) {
+  if (turnActive) {
+    console.log('Wait for the current turn to finish.');
+    return;
+  }
+
+  agentMessage = '';
   turnActive = true;
   const payload = {
     type: 'run',
-    prompt: trimmed,
+    prompt,
     options: codexOptions,
     env: envOverrides,
     authJson,
@@ -119,16 +132,6 @@ userInput.on('line', (line) => {
   if (!wrote) {
     console.log('Debug: socket write returned false (backpressure)');
   }
-});
-
-userInput.on('close', () => {
-  socket.end();
-});
-
-function promptUser() {
-  if (turnActive) return;
-  userInput.setPrompt('\nEnter a prompt (or /exit to quit):\n> ');
-  userInput.prompt();
 }
 
 function handleEvent(event) {
@@ -192,16 +195,15 @@ function extractDeltaText(delta) {
 
 function buildConnectionOptions() {
   const env = {};
-  const options = {
-    sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
-    workingDirectory: process.env.CODEX_WORKDIR || '/home/node/workdir',
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'never',
-  };
-  const authJson = loadAuthJson();
-
-  env.CODEX_AUTO_APPROVE = process.env.CODEX_AUTO_APPROVE || '1';
-  env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
-
+  const options = {};
+  const allowedSandboxModes = new Set(['read-only', 'workspace-write', 'danger-full-access']);
+  const requestedSandboxMode = process.env.CODEX_SANDBOX_MODE;
+  let sandboxMode = requestedSandboxMode;
+  if (requestedSandboxMode && !allowedSandboxModes.has(requestedSandboxMode)) {
+    console.warn(`Ignoring unsupported CODEX_SANDBOX_MODE=${requestedSandboxMode}`);
+    sandboxMode = undefined;
+  }
+  options.sandboxMode = sandboxMode ?? 'danger-full-access';
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
     env.CODEX_API_KEY = apiKey;
@@ -217,16 +219,7 @@ function buildConnectionOptions() {
 
   return {
     envOverrides: Object.keys(env).length ? env : undefined,
-    codexOptions: options,
-    authJson,
+    codexOptions: Object.keys(options).length ? options : undefined,
+    authJson: undefined,
   };
-}
-
-function loadAuthJson() {
-  const authPath = process.env.CODEX_AUTH_PATH || path.join(os.homedir(), '.codex/auth.json');
-  try {
-    return fs.readFileSync(authPath, 'utf8');
-  } catch {
-    return undefined;
-  }
 }
