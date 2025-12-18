@@ -127,7 +127,8 @@ userInput.on('close', () => {
 
 function promptUser() {
   if (turnActive) return;
-  userInput.setPrompt('\nEnter a prompt (or /exit to quit):\n> ');
+  console.log('\nEnter a prompt (or /exit to quit):');
+  userInput.setPrompt('> ');
   userInput.prompt();
 }
 
