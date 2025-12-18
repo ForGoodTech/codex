@@ -7,10 +7,7 @@
  * SDK proxy over TCP instead of the app server proxy.
  */
 
-const fs = require('node:fs');
 const net = require('node:net');
-const os = require('node:os');
-const path = require('node:path');
 const readline = require('node:readline');
 
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
@@ -198,18 +195,7 @@ function extractDeltaText(delta) {
 
 function buildConnectionOptions() {
   const env = {};
-  const resolvedWorkdir = path.resolve(process.env.CODEX_WORKDIR || process.cwd());
-  const options = {
-    sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
-    workingDirectory: resolvedWorkdir,
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'never',
-  };
-  const authJson = loadAuthJson();
-
-  env.CODEX_AUTO_APPROVE = process.env.CODEX_AUTO_APPROVE || '1';
-  env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
-  env.CODEX_WORKDIR = options.workingDirectory;
-
+  const options = {};
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
     env.CODEX_API_KEY = apiKey;
@@ -225,16 +211,7 @@ function buildConnectionOptions() {
 
   return {
     envOverrides: Object.keys(env).length ? env : undefined,
-    codexOptions: options,
-    authJson,
+    codexOptions: Object.keys(options).length ? options : undefined,
+    authJson: undefined,
   };
-}
-
-function loadAuthJson() {
-  const authPath = process.env.CODEX_AUTH_PATH || path.join(os.homedir(), '.codex/auth.json');
-  try {
-    return fs.readFileSync(authPath, 'utf8');
-  } catch {
-    return undefined;
-  }
 }
