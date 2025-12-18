@@ -196,6 +196,14 @@ function extractDeltaText(delta) {
 function buildConnectionOptions() {
   const env = {};
   const options = {};
+  const allowedSandboxModes = new Set(['read-only', 'workspace-write', 'danger-full-access']);
+  const requestedSandboxMode = process.env.CODEX_SANDBOX_MODE;
+  let sandboxMode = requestedSandboxMode;
+  if (requestedSandboxMode && !allowedSandboxModes.has(requestedSandboxMode)) {
+    console.warn(`Ignoring unsupported CODEX_SANDBOX_MODE=${requestedSandboxMode}`);
+    sandboxMode = undefined;
+  }
+  options.sandboxMode = sandboxMode ?? 'danger-full-access';
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
     env.CODEX_API_KEY = apiKey;
