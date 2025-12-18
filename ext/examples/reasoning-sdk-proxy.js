@@ -84,11 +84,6 @@ socket.on('error', (error) => {
 });
 
 userInput.on('line', (line) => {
-  if (turnActive) {
-    console.log('Wait for the current turn to finish.');
-    return;
-  }
-
   const trimmed = line.trim();
   console.log('Debug: user input line', trimmed);
   if (!trimmed) {
@@ -101,10 +96,31 @@ userInput.on('line', (line) => {
     return;
   }
 
+  sendPrompt(trimmed);
+});
+
+userInput.on('close', () => {
+  socket.end();
+});
+
+function promptUser() {
+  if (turnActive) return;
+  console.log('\nEnter a prompt (or /exit to quit):');
+  userInput.setPrompt('> ');
+  userInput.prompt();
+}
+
+function sendPrompt(prompt) {
+  if (turnActive) {
+    console.log('Wait for the current turn to finish.');
+    return;
+  }
+
+  agentMessage = '';
   turnActive = true;
   const payload = {
     type: 'run',
-    prompt: trimmed,
+    prompt,
     options: codexOptions,
     env: envOverrides,
     authJson,
@@ -119,17 +135,6 @@ userInput.on('line', (line) => {
   if (!wrote) {
     console.log('Debug: socket write returned false (backpressure)');
   }
-});
-
-userInput.on('close', () => {
-  socket.end();
-});
-
-function promptUser() {
-  if (turnActive) return;
-  console.log('\nEnter a prompt (or /exit to quit):');
-  userInput.setPrompt('> ');
-  userInput.prompt();
 }
 
 function handleEvent(event) {
