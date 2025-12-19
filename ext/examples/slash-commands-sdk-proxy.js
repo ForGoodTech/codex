@@ -47,6 +47,8 @@ const userInput = readline.createInterface({ input: process.stdin, output: proce
 let activeRun = false;
 let activeThreadId = null;
 let agentText = '';
+let nextId = 1;
+const pending = new Map();
 
 socket.on('connect', () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
@@ -75,6 +77,13 @@ socketLines.on('line', (line) => {
   switch (message.type) {
     case 'ready':
       console.log('SDK proxy ready.');
+      if (message.proxyVersion || message.sdkVersion || message.cliVersion) {
+        console.log(
+          `Versions: proxy ${message.proxyVersion ?? 'unknown'}, sdk ${message.sdkVersion ?? 'unknown'}, cli ${
+            message.cliVersion ?? 'unknown'
+          }`,
+        );
+      }
       break;
     case 'pong':
       console.log(`Pong received at ${message.at ?? '(unknown time)'}.`);
@@ -134,6 +143,16 @@ function sendRun(prompt) {
       threadId: activeThreadId,
     })}\n`,
   );
+}
+
+function requestStatus() {
+  const id = nextId++;
+  const payload = { type: 'status', id };
+  socket.write(`${JSON.stringify(payload)}\n`);
+
+  return new Promise((resolve) => {
+    pending.set(id, { resolve });
+  });
 }
 
 function sendAbort() {
@@ -235,9 +254,20 @@ async function askInput(question) {
 }
 
 async function runStatus() {
+  const proxyStatus = await requestStatus();
   const lines = [];
   lines.push(' >_ OpenAI Codex (SDK proxy example)');
   lines.push('');
+  lines.push(labelLine('Proxy version:', toDisplayString(proxyStatus?.proxyVersion, '(unknown)')));
+  lines.push(labelLine('SDK version:', toDisplayString(proxyStatus?.sdkVersion, '(unknown)')));
+  lines.push(labelLine('CLI version:', toDisplayString(proxyStatus?.cliVersion, '(unknown)')));
+  lines.push(labelLine('Node:', toDisplayString(proxyStatus?.nodeVersion, '(unknown)')));
+  lines.push(
+    labelLine(
+      'Proxy host:',
+      toDisplayString(proxyStatus?.host ? `${proxyStatus.host}:${proxyStatus.port}` : null, '(unknown)'),
+    ),
+  );
   lines.push(labelLine('Model:', toDisplayString(codexOptions.model, '(default)')));
   lines.push(
     labelLine(
@@ -262,7 +292,7 @@ async function runStatus() {
   console.log(`\n/status\n\n${renderBox(lines)}\n`);
 }
 
-async function runModel() {
+async function runModel(initialModel) {
   console.log(`\n/model\n`);
   console.log(`Active model: ${toDisplayString(codexOptions.model, '(default)')}`);
   console.log(
@@ -270,7 +300,8 @@ async function runModel() {
   );
   console.log('');
 
-  const newModel = await askInput('Enter the model name to use (blank to cancel): ');
+  const newModel =
+    initialModel ?? (await askInput('Enter the model name to use (blank to cancel): '));
   if (!newModel) {
     console.log('No model change made.');
     return;
@@ -315,6 +346,12 @@ async function runCommandLoop() {
 
     if (input === '/model') {
       await runModel();
+      continue;
+    }
+
+    if (input.startsWith('/model ')) {
+      const modelName = input.slice('/model '.length).trim();
+      await runModel(modelName || undefined);
       continue;
     }
 
@@ -383,3 +420,11 @@ function loadAuthJson() {
     return undefined;
   }
 }
+    case 'status': {
+      const resolver = pending.get(message.id);
+      if (resolver) {
+        pending.delete(message.id);
+        resolver.resolve(message);
+      }
+      break;
+    }

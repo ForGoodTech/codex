@@ -18,6 +18,7 @@ const { exec } = require('node:child_process');
 const HOST = process.env.SDK_PROXY_HOST ?? '0.0.0.0';
 const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_SELF_TEST === '1';
+const VERSION_INFO = loadVersionInfo();
 
 
 (async () => {
@@ -35,7 +36,15 @@ const server = net.createServer((socket) => {
 
   // Immediately tell the client we are ready and listening; this also proves
   // the connection can flow from server -> client.
-  socket.write(`${JSON.stringify({ type: 'ready', at: new Date().toISOString() })}\n`);
+  socket.write(
+    `${JSON.stringify({
+      type: 'ready',
+      at: new Date().toISOString(),
+      proxyVersion: VERSION_INFO.proxyVersion,
+      sdkVersion: VERSION_INFO.sdkVersion,
+      cliVersion: VERSION_INFO.cliVersion,
+    })}\n`,
+  );
 
   let codex = null;
   let thread = null;
@@ -117,6 +126,21 @@ const server = net.createServer((socket) => {
     if (message.type === 'ping') {
       console.log('[server] received ping');
       emit({ type: 'pong', at: new Date().toISOString() });
+      return;
+    }
+
+    if (message.type === 'status') {
+      emit({
+        type: 'status',
+        id: message.id ?? null,
+        proxyVersion: VERSION_INFO.proxyVersion,
+        sdkVersion: VERSION_INFO.sdkVersion,
+        cliVersion: VERSION_INFO.cliVersion,
+        nodeVersion: process.version,
+        platform: process.platform,
+        host: HOST,
+        port: PORT,
+      });
       return;
     }
 
@@ -270,6 +294,43 @@ const server = net.createServer((socket) => {
     console.log(`SDK proxy listening on ${HOST}:${PORT}`);
   });
 })();
+
+function loadVersionInfo() {
+  const sdkVersion = readPackageVersion([
+    path.resolve(__dirname, '..', '..', 'sdk', 'typescript', 'package.json'),
+    '/home/node/node_modules/@openai/codex-sdk/package.json',
+    path.resolve(__dirname, 'node_modules', '@openai', 'codex-sdk', 'package.json'),
+  ]);
+  const cliVersion = readPackageVersion([
+    path.resolve(__dirname, '..', '..', 'codex-cli', 'package.json'),
+    '/usr/local/share/npm-global/lib/node_modules/@openai/codex/package.json',
+    path.resolve(__dirname, 'node_modules', '@openai', 'codex', 'package.json'),
+  ]);
+  const proxyVersion = sdkVersion ?? cliVersion ?? 'unknown';
+
+  return {
+    proxyVersion,
+    sdkVersion: sdkVersion ?? 'unknown',
+    cliVersion: cliVersion ?? 'unknown',
+  };
+}
+
+function readPackageVersion(paths) {
+  for (const candidate of paths) {
+    try {
+      if (!fs.existsSync(candidate)) {
+        continue;
+      }
+      const payload = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+      if (payload?.version) {
+        return payload.version;
+      }
+    } catch (error) {
+      console.warn(`Failed to read package version from ${candidate}:`, error);
+    }
+  }
+  return null;
+}
 
 function extractToolCalls(event) {
   const requiredAction = event?.required_action || event?.data?.required_action || event?.response?.required_action;
