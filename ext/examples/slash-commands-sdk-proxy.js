@@ -88,6 +88,14 @@ socketLines.on('line', (line) => {
     case 'pong':
       console.log(`Pong received at ${message.at ?? '(unknown time)'}.`);
       break;
+    case 'status': {
+      const resolver = pending.get(message.id);
+      if (resolver) {
+        pending.delete(message.id);
+        resolver.resolve(message);
+      }
+      break;
+    }
     case 'event':
       handleEvent(message.event);
       break;
@@ -420,11 +428,3 @@ function loadAuthJson() {
     return undefined;
   }
 }
-    case 'status': {
-      const resolver = pending.get(message.id);
-      if (resolver) {
-        pending.delete(message.id);
-        resolver.resolve(message);
-      }
-      break;
-    }
