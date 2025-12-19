@@ -21,7 +21,7 @@
  * - SDK_PROXY_HOST (optional): TCP host for the proxy. Defaults to 127.0.0.1.
  * - SDK_PROXY_PORT (optional): TCP port for the proxy. Defaults to 9400.
  * - APP_SERVER_TCP_HOST / APP_SERVER_TCP_PORT (optional): host/port for the
- *   app-server proxy used by /status and /model (defaults to 127.0.0.1:9395).
+ *   app-server proxy used by /status and /model (defaults to 127.0.0.1:9400).
  * - APP_SERVER_IN / APP_SERVER_OUT (optional): FIFO paths for app-server I/O.
  * - CODEX_AUTH_PATH (optional): override ~/.codex/auth.json for auth.
  * - CODEX_API_KEY / OPENAI_API_KEY (optional): API key to forward.
@@ -307,10 +307,10 @@ async function ensureAppServer() {
   const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
   const tcpPort = (() => {
     if (!tcpPortEnv) {
-      return 9395;
+      return 9400;
     }
     const parsed = Number.parseInt(tcpPortEnv, 10);
-    return Number.isNaN(parsed) ? 9395 : parsed;
+    return Number.isNaN(parsed) ? 9400 : parsed;
   })();
 
   let serverInput;
