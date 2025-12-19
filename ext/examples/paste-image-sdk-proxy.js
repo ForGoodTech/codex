@@ -263,7 +263,7 @@ function trackProgress(event) {
   if (!event?.type) {
     return;
   }
-  if (event.type.endsWith('.delta') || event.type === 'item.updated' || event.type === 'message.delta') {
+  if (event.type !== 'turn.completed' && event.type !== 'turn.failed') {
     process.stdout.write('.');
     sawProgress = true;
   }
