@@ -10,28 +10,31 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
-const os = require('node:os');
 const readline = require('node:readline');
 
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 
-const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
+const { envOverrides, codexOptions } = buildConnectionOptions();
 
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
   console.log('Debug: connection options', { envOverrides, codexOptions });
   socket.write(`${JSON.stringify({ type: 'ping', at: new Date().toISOString() })}\n`);
-  promptForImages();
+  promptUser();
 });
 
-const userInput = readline.createInterface({ input: process.stdin, output: process.stdout });
+const userInput = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+  terminal: true,
+});
 const serverLines = readline.createInterface({ input: socket });
 
 let threadId = null;
-let pending = false;
-let queuedImages = [];
+let turnActive = false;
 let agentMessage = '';
+let queuedImages = [];
 
 serverLines.on('line', (line) => {
   console.log('Debug: raw line from proxy', line);
@@ -56,20 +59,20 @@ serverLines.on('line', (line) => {
       console.log('Debug: done received', message);
       threadId = message.threadId ?? threadId;
       flushAgentMessage();
-      pending = false;
-      promptForImages();
+      turnActive = false;
+      promptUser();
       break;
     case 'aborted':
       console.log('Debug: aborted message received');
       console.log('\nTurn aborted.');
-      pending = false;
-      promptForImages();
+      turnActive = false;
+      promptUser();
       break;
     case 'error':
       console.log('Debug: proxy error payload', message);
       console.error('Proxy error:', message.message);
-      pending = false;
-      promptForImages();
+      turnActive = false;
+      promptUser();
       break;
     default:
       break;
@@ -80,52 +83,86 @@ socket.on('error', (error) => {
   console.error('Socket error:', error);
 });
 
+userInput.on('line', (line) => {
+  const trimmed = line.trim();
+  console.log('Debug: user input line', trimmed);
+  if (!trimmed) {
+    promptUser();
+    return;
+  }
+  if (trimmed === '/exit') {
+    userInput.close();
+    socket.end();
+    return;
+  }
+
+  if (awaitingImages) {
+    queueImages(trimmed)
+      .then(() => {
+        awaitingImages = false;
+        promptForPrompt();
+      })
+      .catch((error) => {
+        console.error('Failed to load images:', error.message);
+        awaitingImages = false;
+        promptUser();
+      });
+    return;
+  }
+
+  sendTurn(trimmed);
+});
+
 userInput.on('close', () => {
   socket.end();
 });
 
-function promptForImages() {
-  if (pending) return;
-  userInput.question('\nEnter image file path(s) (comma-separated, optional) or /exit to quit:\n> ', async (line) => {
-    const trimmed = line.trim();
-    if (trimmed === '/exit') {
-      userInput.close();
-      return;
-    }
+let awaitingImages = false;
 
-    queuedImages = [];
-    if (trimmed.length) {
-      const paths = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
-      for (const imagePath of paths) {
-        try {
-          const data = await loadImageAsDataUrl(imagePath);
-          const stats = fs.statSync(imagePath);
-          console.log(`Queued image from ${imagePath} (${mimeFromPath(imagePath)}, ${stats.size} bytes).`);
-          queuedImages.push({ name: path.basename(imagePath), data });
-        } catch (error) {
-          console.error(`Failed to read ${imagePath}:`, error.message);
-        }
-      }
-    }
-
-    promptForPrompt();
-  });
+function promptUser() {
+  if (turnActive) return;
+  queuedImages = [];
+  awaitingImages = true;
+  console.log('\nEnter image file path(s) (comma-separated, optional) or /exit to quit:');
+  userInput.setPrompt('> ');
+  userInput.prompt();
 }
 
 function promptForPrompt() {
-  if (pending) return;
-  userInput.question('Enter a text prompt (or /exit to quit):\n> ', (line) => {
-    const prompt = line.trim();
-    if (prompt === '/exit') {
-      userInput.close();
-      return;
+  if (turnActive) return;
+  console.log('Enter a text prompt (or /exit to quit):');
+  userInput.setPrompt('> ');
+  userInput.prompt();
+}
+
+async function queueImages(input) {
+  queuedImages = [];
+  const trimmed = input.trim();
+  if (!trimmed.length) return;
+  const paths = trimmed.split(',').map((entry) => entry.trim()).filter(Boolean);
+  for (const imagePath of paths) {
+    try {
+      const data = await loadImageAsDataUrl(imagePath);
+      const stats = fs.statSync(imagePath);
+      console.log(`Queued image from ${imagePath} (${mimeFromPath(imagePath)}, ${stats.size} bytes).`);
+      queuedImages.push({ name: path.basename(imagePath), data });
+    } catch (error) {
+      console.error(`Failed to read ${imagePath}:`, error.message);
     }
-    sendTurn(prompt);
-  });
+  }
 }
 
 function sendTurn(prompt) {
-  pending = true;
+  if (turnActive) {
+    console.log('Wait for the current turn to finish.');
+    return;
+  }
+  if (!prompt) {
+    promptUser();
+    return;
+  }
+
+  turnActive = true;
   agentMessage = '';
   const payload = {
     type: 'run',
@@ -133,21 +170,24 @@ function sendTurn(prompt) {
     images: queuedImages,
     options: codexOptions,
     env: envOverrides,
-    authJson,
   };
   if (threadId) {
     payload.threadId = threadId;
   }
   console.log('Debug: sending run payload', payload);
-  socket.write(`${JSON.stringify(payload)}\n`);
+  const serialized = `${JSON.stringify(payload)}\n`;
+  console.log('Debug: payload bytes', Buffer.byteLength(serialized, 'utf8'));
+  const wrote = socket.write(serialized);
+  if (!wrote) {
+    console.log('Debug: socket write returned false (backpressure)');
+  }
 }
 
 function handleEvent(event) {
-  if (event?.type === 'thread.started') {
-    threadId = event.thread_id;
-  }
-
   switch (event?.type) {
+    case 'thread.started':
+      threadId = event.thread_id;
+      break;
     case 'turn.started':
       agentMessage = '';
       break;
@@ -191,7 +231,10 @@ function handleAgentCompleted(item) {
 
 function extractDeltaText(delta) {
   if (Array.isArray(delta?.content)) {
-    return delta.content.map((part) => part.text ?? '').join('');
+    return delta.content
+      .filter((part) => part.type !== 'reasoning')
+      .map((part) => part.text ?? '')
+      .join('');
   }
   if (typeof delta?.text === 'string') {
     return delta.text;
@@ -216,15 +259,15 @@ function mimeFromPath(imagePath) {
 
 function buildConnectionOptions() {
   const env = {};
-  const options = {
-    sandboxMode: process.env.CODEX_SANDBOX_MODE || 'danger-full-access',
-    workingDirectory: process.env.CODEX_WORKDIR || '/home/node/workdir',
-    approvalPolicy: process.env.CODEX_APPROVAL_POLICY || 'never',
-  };
-  const authJson = loadAuthJson();
-
-  env.CODEX_AUTO_APPROVE = process.env.CODEX_AUTO_APPROVE || '1';
-  env.CODEX_APPROVAL_POLICY = options.approvalPolicy;
+  const options = {};
+  const allowedSandboxModes = new Set(['read-only', 'workspace-write', 'danger-full-access']);
+  const requestedSandboxMode = process.env.CODEX_SANDBOX_MODE;
+  let sandboxMode = requestedSandboxMode;
+  if (requestedSandboxMode && !allowedSandboxModes.has(requestedSandboxMode)) {
+    console.warn(`Ignoring unsupported CODEX_SANDBOX_MODE=${requestedSandboxMode}`);
+    sandboxMode = undefined;
+  }
+  options.sandboxMode = sandboxMode ?? 'danger-full-access';
 
   const apiKey = process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   if (apiKey) {
@@ -241,17 +284,6 @@ function buildConnectionOptions() {
 
   return {
     envOverrides: Object.keys(env).length ? env : undefined,
-    codexOptions: options,
-    authJson,
+    codexOptions: Object.keys(options).length ? options : undefined,
   };
 }
-
-function loadAuthJson() {
-  const authPath = process.env.CODEX_AUTH_PATH || path.join(os.homedir(), '.codex/auth.json');
-  try {
-    return fs.readFileSync(authPath, 'utf8');
-  } catch {
-    return undefined;
-  }
-}
-
