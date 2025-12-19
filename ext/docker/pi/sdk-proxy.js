@@ -18,6 +18,17 @@ const { exec } = require('node:child_process');
 const HOST = process.env.SDK_PROXY_HOST ?? '0.0.0.0';
 const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_SELF_TEST === '1';
+const VERBOSE = process.argv.includes('--verbose') || process.env.SDK_PROXY_VERBOSE === '1';
+
+function logInfo(message, ...args) {
+  console.log(message, ...args);
+}
+
+function logDebug(message, ...args) {
+  if (VERBOSE) {
+    console.log(message, ...args);
+  }
+}
 
 
 (async () => {
@@ -31,7 +42,7 @@ const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_
 
 const server = net.createServer((socket) => {
   socket.setKeepAlive(true);
-  console.log(`SDK proxy client connected from ${socket.remoteAddress}:${socket.remotePort}`);
+  logInfo(`SDK proxy client connected from ${socket.remoteAddress}:${socket.remotePort}`);
 
   // Immediately tell the client we are ready and listening; this also proves
   // the connection can flow from server -> client.
@@ -46,14 +57,14 @@ const server = net.createServer((socket) => {
   let authCleanup = null;
 
     socket.on('data', (chunk) => {
-      console.log(`[server] received raw chunk (${chunk.length} bytes)`);
+      logDebug(`[server] received raw chunk (${chunk.length} bytes)`);
       buffer += chunk.toString('utf8');
       let newlineIndex = buffer.indexOf('\n');
       while (newlineIndex !== -1) {
         const line = buffer.slice(0, newlineIndex);
         buffer = buffer.slice(newlineIndex + 1);
         if (line.trim().length) {
-          console.log(`[server] processing line: ${line}`);
+          logDebug(`[server] processing line: ${line}`);
           handleLine(line).catch((error) => {
             console.error('[server] handleLine error', error);
             emitError(error);
@@ -68,7 +79,7 @@ const server = net.createServer((socket) => {
     });
 
     socket.on('end', () => {
-      console.log('[server] socket ended by client');
+      logDebug('[server] socket ended by client');
     });
 
   socket.on('close', () => {
@@ -79,12 +90,12 @@ const server = net.createServer((socket) => {
       authCleanup().catch(() => {});
       authCleanup = null;
     }
-    console.log('SDK proxy client disconnected');
+    logInfo('SDK proxy client disconnected');
   });
 
   function emit(json) {
     try {
-      console.log(`[server] emitting: ${JSON.stringify(json)}`);
+      logDebug(`[server] emitting: ${JSON.stringify(json)}`);
       socket.write(`${JSON.stringify(json)}\n`);
     } catch (error) {
       console.error('Failed to emit to client', error);
@@ -104,10 +115,10 @@ const server = net.createServer((socket) => {
         throw new Error(`Invalid JSON from client: ${line}`);
       }
 
-      console.log('[server] parsed message type:', message.type);
+      logDebug('[server] parsed message type:', message.type);
 
     if (message.type === 'abort') {
-      console.log('[server] abort requested by client');
+      logInfo('[server] abort requested by client');
       if (abortController) {
         abortController.abort();
       }
@@ -115,7 +126,7 @@ const server = net.createServer((socket) => {
     }
 
     if (message.type === 'ping') {
-      console.log('[server] received ping');
+      logDebug('[server] received ping');
       emit({ type: 'pong', at: new Date().toISOString() });
       return;
     }
@@ -133,7 +144,7 @@ const server = net.createServer((socket) => {
       : null;
     const images = Array.isArray(message.images) ? message.images : [];
 
-    console.log(`[server] run requested: promptLength=${prompt ? prompt.length : 0}, images=${images.length}`);
+    logInfo(`[server] run requested: promptLength=${prompt ? prompt.length : 0}, images=${images.length}`);
 
     if (typeof message.authJson === 'string' && message.authJson.trim().length) {
       if (authCleanup) {
@@ -142,11 +153,11 @@ const server = net.createServer((socket) => {
       const auth = await writeAuthJson(message.authJson);
       authHome = auth.home;
       authCleanup = auth.cleanup;
-      console.log(`[server] wrote auth.json to ${authHome}`);
+      logDebug(`[server] wrote auth.json to ${authHome}`);
     }
 
     const normalizedImages = await materializeImages(images);
-    console.log(`[server] materialized ${normalizedImages.length} images`);
+    logDebug(`[server] materialized ${normalizedImages.length} images`);
     const userInput = buildUserInput(prompt, normalizedImages);
 
     if (!userInput.length) {
@@ -159,26 +170,26 @@ const server = net.createServer((socket) => {
       authHome,
     );
 
-    console.log('[server] codex options:', codexOptions);
-    console.log('[server] thread options:', threadOptions);
+    logDebug('[server] codex options:', codexOptions);
+    logDebug('[server] thread options:', threadOptions);
 
     if (!codex) {
       codex = new Codex(codexOptions);
-      console.log('[server] instantiated Codex SDK');
+      logInfo('[server] instantiated Codex SDK');
     }
 
     if (message.threadId) {
       thread = codex.resumeThread(message.threadId, threadOptions);
-      console.log(`[server] resumed thread ${message.threadId}`);
+      logInfo(`[server] resumed thread ${message.threadId}`);
     } else if (!thread) {
       thread = codex.startThread(threadOptions);
-      console.log('[server] started new thread');
+      logInfo('[server] started new thread');
     }
 
     abortController = new AbortController();
     const cleanupFns = normalizedImages.map((entry) => entry.cleanup);
     const signal = abortController.signal;
-    console.log('[server] starting runStreamed');
+    logDebug('[server] starting runStreamed');
     activeRun = runTurn(thread, userInput, signal, cleanupFns).finally(() => {
       activeRun = null;
       abortController = null;
@@ -191,7 +202,7 @@ const server = net.createServer((socket) => {
       const { events } = await threadInstance.runStreamed(userInput, { signal });
       let turnFinished = false;
       for await (const event of events) {
-        console.log('[server] event from SDK:', event?.type ?? 'unknown', JSON.stringify(event));
+        logDebug('[server] event from SDK:', event?.type ?? 'unknown', JSON.stringify(event));
         emit({ type: 'event', event });
 
         const handledToolRequest = await maybeHandleToolRequest({
@@ -214,7 +225,7 @@ const server = net.createServer((socket) => {
         abortController?.abort();
       }
 
-      console.log('[server] emitting done for thread', threadInstance.id);
+      logInfo('[server] emitting done for thread', threadInstance.id);
       emit({ type: 'done', threadId: threadInstance.id });
     } catch (error) {
       console.error('[server] runTurn error', error);
@@ -235,12 +246,12 @@ const server = net.createServer((socket) => {
     }
 
     const { responseId, toolCalls } = extraction;
-    console.log('[server] requires_action detected with tool calls:', toolCalls.length);
+    logInfo('[server] requires_action detected with tool calls:', toolCalls.length);
     try {
       const toolOutputs = [];
       for (const call of toolCalls) {
         if (signal?.aborted) {
-          console.warn('[server] abort requested while handling tool calls');
+          logInfo('[server] abort requested while handling tool calls');
           return true;
         }
         const output = await executeToolCall(call);
@@ -267,7 +278,7 @@ const server = net.createServer((socket) => {
   });
 
   server.listen(PORT, HOST, () => {
-    console.log(`SDK proxy listening on ${HOST}:${PORT}`);
+    logInfo(`SDK proxy listening on ${HOST}:${PORT}`);
   });
 })();
 

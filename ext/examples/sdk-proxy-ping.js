@@ -14,23 +14,31 @@ const readline = require('node:readline');
 
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
+const verbose = process.argv.includes('--verbose') || process.env.SDK_PROXY_VERBOSE === '1';
 const prompt = process.argv.slice(2).join(' ').trim()
   || 'Say hello from the sdk-proxy ping test.';
 
 const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 
+function logDebug(message, ...args) {
+  if (verbose) {
+    console.log(message, ...args);
+  }
+}
+
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
-  console.log('Debug: connection options', { envOverrides, codexOptions });
+  logDebug('Debug: connection options', { envOverrides, codexOptions });
   socket.write(`${JSON.stringify({ type: 'ping' })}\n`);
 });
 
 const rl = readline.createInterface({ input: socket });
 let pendingRun = false;
 let output = '';
+let sawProgress = false;
 
 rl.on('line', (line) => {
-  console.log('Debug: raw line from proxy', line);
+  logDebug('Debug: raw line from proxy', line);
   if (!line.trim()) return;
   let message;
   try {
@@ -50,16 +58,23 @@ rl.on('line', (line) => {
       break;
     }
     case 'event':
-      console.log('Debug: proxy event type', message.event?.type);
+      logDebug('Debug: proxy event type', message.event?.type);
       handleEvent(message.event);
       break;
     case 'done':
-      console.log('Debug: done received', message);
+      logDebug('Debug: done received', message);
+      flushProgress();
       console.log(`\nRun completed. Thread id: ${message.threadId ?? 'unknown'}`);
+      if (output.trim()) {
+        console.log(output.trim());
+      } else {
+        console.log('(no response content)');
+      }
       socket.end();
       break;
     case 'error':
-      console.log('Debug: proxy error payload', message);
+      logDebug('Debug: proxy error payload', message);
+      flushProgress();
       console.error('proxy -> error', message.message);
       socket.end();
       break;
@@ -74,18 +89,19 @@ socket.on('error', (error) => {
 
 function sendRun(text) {
   output = '';
-  console.log('Debug: sending run payload', { type: 'run', prompt: text, options: codexOptions, env: envOverrides });
+  sawProgress = false;
+  logDebug('Debug: sending run payload', { type: 'run', prompt: text, options: codexOptions, env: envOverrides });
   socket.write(
     `${JSON.stringify({ type: 'run', prompt: text, options: codexOptions, env: envOverrides, authJson })}\n`,
   );
 }
 
 function handleEvent(event) {
+  trackProgress(event);
   switch (event?.type) {
     case 'message.delta':
       if (event.delta?.text) {
         output += event.delta.text;
-        process.stdout.write(event.delta.text);
       }
       break;
     case 'message.completed': {
@@ -95,7 +111,6 @@ function handleEvent(event) {
         .join('');
       if (text) {
         output += text;
-        process.stdout.write(text);
       }
       break;
     }
@@ -105,6 +120,26 @@ function handleEvent(event) {
       break;
     default:
       break;
+  }
+}
+
+function trackProgress(event) {
+  if (verbose) {
+    return;
+  }
+  if (!event?.type) {
+    return;
+  }
+  if (event.type.endsWith('.delta') || event.type === 'item.updated' || event.type === 'message.delta') {
+    process.stdout.write('.');
+    sawProgress = true;
+  }
+}
+
+function flushProgress() {
+  if (sawProgress) {
+    process.stdout.write('\n');
+    sawProgress = false;
   }
 }
 

@@ -12,12 +12,19 @@ const readline = require('node:readline');
 
 const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
+const verbose = process.argv.includes('--verbose') || process.env.SDK_PROXY_VERBOSE === '1';
 
 const { envOverrides, codexOptions, authJson } = buildConnectionOptions();
 
+function logDebug(message, ...args) {
+  if (verbose) {
+    console.log(message, ...args);
+  }
+}
+
 const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
-  console.log('Debug: connection options', { envOverrides, codexOptions, threadId });
+  logDebug('Debug: connection options', { envOverrides, codexOptions, threadId });
   socket.write(`${JSON.stringify({ type: 'ping', at: new Date().toISOString() })}\n`);
   promptUser();
 });
@@ -32,9 +39,10 @@ const serverLines = readline.createInterface({ input: socket });
 let threadId = null;
 let turnActive = false;
 let agentMessage = '';
+let sawProgress = false;
 
 serverLines.on('line', (line) => {
-  console.log('Debug: raw line from proxy', line);
+  logDebug('Debug: raw line from proxy', line);
   if (!line.trim()) return;
   let message;
   try {
@@ -46,27 +54,30 @@ serverLines.on('line', (line) => {
 
   switch (message.type) {
     case 'ready':
-      console.log('Debug: proxy ready payload', message);
+      logDebug('Debug: proxy ready payload', message);
       break;
     case 'event':
-      console.log('Debug: proxy event type', message.event?.type);
+      logDebug('Debug: proxy event type', message.event?.type);
       handleEvent(message.event);
       break;
     case 'done':
-      console.log('Debug: done received', message);
+      logDebug('Debug: done received', message);
       threadId = message.threadId ?? threadId;
+      flushProgress();
       flushAgentMessage();
       turnActive = false;
       promptUser();
       break;
     case 'aborted':
-      console.log('Debug: aborted message received');
+      logDebug('Debug: aborted message received');
+      flushProgress();
       console.log('\nTurn aborted.');
       turnActive = false;
       promptUser();
       break;
     case 'error':
-      console.log('Debug: proxy error payload', message);
+      logDebug('Debug: proxy error payload', message);
+      flushProgress();
       console.error('proxy -> error', message.message);
       turnActive = false;
       promptUser();
@@ -82,7 +93,7 @@ socket.on('error', (error) => {
 
 userInput.on('line', (line) => {
   const trimmed = line.trim();
-  console.log('Debug: user input line', trimmed);
+  logDebug('Debug: user input line', trimmed);
   if (!trimmed) {
     promptUser();
     return;
@@ -115,6 +126,7 @@ function sendPrompt(prompt) {
 
   agentMessage = '';
   turnActive = true;
+  sawProgress = false;
   const payload = {
     type: 'run',
     prompt,
@@ -125,16 +137,17 @@ function sendPrompt(prompt) {
   if (threadId) {
     payload.threadId = threadId;
   }
-  console.log('Debug: sending run payload', payload);
+  logDebug('Debug: sending run payload', payload);
   const serialized = `${JSON.stringify(payload)}\n`;
-  console.log('Debug: payload bytes', Buffer.byteLength(serialized, 'utf8'));
+  logDebug('Debug: payload bytes', Buffer.byteLength(serialized, 'utf8'));
   const wrote = socket.write(serialized);
   if (!wrote) {
-    console.log('Debug: socket write returned false (backpressure)');
+    logDebug('Debug: socket write returned false (backpressure)');
   }
 }
 
 function handleEvent(event) {
+  trackProgress(event);
   switch (event?.type) {
     case 'thread.started':
       threadId = event.thread_id;
@@ -161,7 +174,6 @@ function handleAgentDelta(item) {
   const text = extractDeltaText(item.delta);
   if (text) {
     agentMessage += text;
-    process.stdout.write(text);
   }
 }
 
@@ -170,13 +182,15 @@ function handleAgentCompleted(item) {
   const remaining = item.text.startsWith(agentMessage) ? item.text.slice(agentMessage.length) : item.text;
   if (remaining) {
     agentMessage += remaining;
-    process.stdout.write(remaining);
   }
 }
 
 function flushAgentMessage() {
-  if (agentMessage.trim().length) {
-    process.stdout.write('\n');
+  const output = agentMessage.trim();
+  if (output.length) {
+    console.log(`\n${output}`);
+  } else if (!verbose) {
+    console.log('\n(no response content)');
   }
 }
 
@@ -191,6 +205,26 @@ function extractDeltaText(delta) {
     return delta.text;
   }
   return '';
+}
+
+function trackProgress(event) {
+  if (verbose) {
+    return;
+  }
+  if (!event?.type) {
+    return;
+  }
+  if (event.type.endsWith('.delta') || event.type === 'item.updated' || event.type === 'message.delta') {
+    process.stdout.write('.');
+    sawProgress = true;
+  }
+}
+
+function flushProgress() {
+  if (sawProgress) {
+    process.stdout.write('\n');
+    sawProgress = false;
+  }
 }
 
 function buildConnectionOptions() {
