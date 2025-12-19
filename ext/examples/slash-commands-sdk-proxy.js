@@ -21,7 +21,8 @@
  * - SDK_PROXY_HOST (optional): TCP host for the proxy. Defaults to 127.0.0.1.
  * - SDK_PROXY_PORT (optional): TCP port for the proxy. Defaults to 9400.
  * - APP_SERVER_TCP_HOST / APP_SERVER_TCP_PORT (optional): host/port for the
- *   app-server proxy used by /status and /model (defaults to 127.0.0.1:9395).
+ *   app-server proxy used by /status and /model. Set these when the app-server
+ *   proxy is running; otherwise /status and /model will prompt for setup.
  * - APP_SERVER_IN / APP_SERVER_OUT (optional): FIFO paths for app-server I/O.
  * - CODEX_AUTH_PATH (optional): override ~/.codex/auth.json for auth.
  * - CODEX_API_KEY / OPENAI_API_KEY (optional): API key to forward.
@@ -231,11 +232,17 @@ async function askInput(question) {
 
 async function runStatus() {
   const appServer = await ensureAppServer();
+  if (!appServer) {
+    return;
+  }
   await statusCommand.run({ request: appServer.request, connectionMode: appServer.connectionMode });
 }
 
 async function runModel() {
   const appServer = await ensureAppServer();
+  if (!appServer) {
+    return;
+  }
   await modelCommand.run({
     request: appServer.request,
     askYesNo,
@@ -303,8 +310,17 @@ async function ensureAppServer() {
 
   const fifoInPath = process.env.APP_SERVER_IN;
   const fifoOutPath = process.env.APP_SERVER_OUT;
+  const tcpHostEnv = process.env.APP_SERVER_TCP_HOST;
   const tcpHost = process.env.APP_SERVER_TCP_HOST ?? '127.0.0.1';
   const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
+  if (!fifoInPath && !fifoOutPath && !tcpHostEnv && !tcpPortEnv) {
+    console.log('');
+    console.log('App-server proxy is required for /status and /model.');
+    console.log('Start codex-app-server-proxy and set APP_SERVER_TCP_HOST/PORT,');
+    console.log('or set APP_SERVER_IN/APP_SERVER_OUT for FIFO mode.');
+    console.log('');
+    return null;
+  }
   const tcpPort = (() => {
     if (!tcpPortEnv) {
       return 9395;
