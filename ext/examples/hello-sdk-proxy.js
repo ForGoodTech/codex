@@ -22,7 +22,7 @@ const socket = net.connect({ host, port }, () => {
   console.log(`Connected to sdk-proxy at ${host}:${port}`);
   console.log('Debug: connection options', { envOverrides, codexOptions });
   socket.write(`${JSON.stringify({ type: 'ping', at: new Date().toISOString() })}\n`);
-  sendRun('Say hello and describe what this proxy does.');
+  sendRun('Say hello.');
 });
 
 const rl = readline.createInterface({ input: socket });
