@@ -77,6 +77,7 @@ node ext/examples/sdk-proxy-ping.js              # quick connectivity + run smok
 node ext/examples/hello-sdk-proxy.js
 node ext/examples/reasoning-sdk-proxy.js
 node ext/examples/paste-image-sdk-proxy.js
+node ext/examples/slash-commands-sdk-proxy.js    # interactive slash-command client
 ```
 
 You can also ask the SDK proxy itself to run a one-off self-test prompt when it
