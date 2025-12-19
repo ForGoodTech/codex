@@ -217,6 +217,29 @@ function extractDeltaText(delta) {
   return '';
 }
 
+function toDisplayString(value, fallback = '(unknown)') {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    return value || fallback;
+  }
+  return String(value);
+}
+
+function labelLine(label, value) {
+  return `${label.padEnd(17, ' ')} ${value}`;
+}
+
+function renderBox(lines) {
+  const innerWidth = Math.max(...lines.map((line) => line.length));
+  const horizontal = '─'.repeat(innerWidth + 2);
+  const top = `╭${horizontal}╮`;
+  const bottom = `╰${horizontal}╯`;
+  const body = lines.map((line) => `│ ${line.padEnd(innerWidth, ' ')} │`);
+  return [top, ...body, bottom].join('\n');
+}
+
 function printMenu() {
   console.log('\nAvailable commands:');
   console.log('  /status  - show current SDK proxy status and client config');
