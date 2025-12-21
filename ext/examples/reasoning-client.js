@@ -216,7 +216,9 @@ function waitForUserPrompt(question) {
 }
 
 async function promptForNextTurn() {
-  const prompt = await waitForUserPrompt(`\n${'-'.repeat(128)}\nEnter a prompt (or type "exit" to quit): `);
+  const prompt = await waitForUserPrompt(
+    `\n${'-'.repeat(97)}\nEnter a prompt (or type "exit" to quit): `
+  );
   if (!prompt || prompt.toLowerCase() === 'exit') {
     console.log('Goodbye.');
     shutdown();
