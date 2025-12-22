@@ -9,6 +9,7 @@ SCRIPT_DIR=$(realpath "$(dirname "$0")")
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
 RUST_ROOT="$REPO_ROOT/codex-rs"
+SDK_ROOT="$REPO_ROOT/sdk/typescript"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 
@@ -28,6 +29,11 @@ VENDOR_DIR="$CLI_ROOT/vendor"
 
 if [[ ! -d "$CLI_ROOT" ]]; then
   echo "Codex CLI directory not found at: $CLI_ROOT" >&2
+  exit 1
+fi
+
+if [[ ! -d "$SDK_ROOT" ]]; then
+  echo "Codex SDK directory not found at: $SDK_ROOT" >&2
   exit 1
 fi
 
@@ -54,6 +60,11 @@ esac
 pushd "$CLI_ROOT" > /dev/null
 
 pnpm install
+
+pushd "$SDK_ROOT" > /dev/null
+pnpm install
+pnpm run build
+popd > /dev/null
 
 # Build (or reuse) the native Codex binary from the local workspace.
 case "$BUILD_PROFILE" in
