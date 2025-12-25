@@ -318,6 +318,70 @@ function printExistingMessages(resumedThread) {
   }
 }
 
+async function fetchInitialMessages(conversationId) {
+  const response = await request('resumeConversation', { conversationId });
+  const events = Array.isArray(response?.initialMessages) ? response.initialMessages : [];
+  const rolloutPath = typeof response?.rolloutPath === 'string' ? response.rolloutPath : null;
+  return { events, rolloutPath };
+}
+
+function buildTranscriptFromEvents(events) {
+  const transcript = [];
+  let lastAssistant = null;
+
+  const appendAssistant = (text) => {
+    if (!text) {
+      return;
+    }
+    if (lastAssistant) {
+      lastAssistant.text += text;
+    } else {
+      lastAssistant = { role: 'assistant', text };
+      transcript.push(lastAssistant);
+    }
+  };
+
+  for (const event of events) {
+    switch (event.type) {
+      case 'user_message':
+        transcript.push({ role: 'user', text: event.message ?? '(no content)' });
+        lastAssistant = null;
+        break;
+      case 'agent_message':
+        appendAssistant(event.message ?? '');
+        break;
+      case 'agent_message_delta':
+      case 'agent_message_content_delta':
+        appendAssistant(event.delta ?? '');
+        break;
+      default:
+        break;
+    }
+  }
+
+  return transcript;
+}
+
+function printTranscript(transcript, rolloutPath) {
+  if (!transcript.length) {
+    console.log('No prior messages found for this session.');
+    return;
+  }
+
+  console.log('\nExisting conversation (oldest first):');
+  if (rolloutPath) {
+    console.log(`Rollout path: ${rolloutPath}`);
+  }
+  for (const entry of transcript) {
+    const text = entry.text?.trim?.() ?? '(no content)';
+    if (entry.role === 'user') {
+      console.log(`- User: ${text}`);
+    } else if (entry.role === 'assistant') {
+      console.log(`  Assistant: ${text}`);
+    }
+  }
+}
+
 async function main() {
   console.log('Connecting to codex app-server...');
 
@@ -358,6 +422,7 @@ async function main() {
   }
 
   console.log('Resuming thread', selected.id);
+  const { events: initialMessages, rolloutPath } = await fetchInitialMessages(selected.id);
   const resumeResult = await request('thread/resume', { threadId: selected.id });
   const resumedThread = resumeResult?.thread;
   threadId = resumedThread?.id ?? selected.id;
@@ -365,7 +430,10 @@ async function main() {
     throw new Error('Server did not return a thread id while resuming');
   }
 
-  if (resumedThread) {
+  const transcript = buildTranscriptFromEvents(initialMessages);
+  if (transcript.length) {
+    printTranscript(transcript, rolloutPath);
+  } else if (resumedThread) {
     printExistingMessages(resumedThread);
   }
 
