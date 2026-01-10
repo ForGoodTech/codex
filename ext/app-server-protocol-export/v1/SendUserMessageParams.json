@@ -1,9 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
-    "ConversationId": {
-      "type": "string"
-    },
     "InputItem": {
       "oneOf": [
         {
@@ -91,11 +88,14 @@
           "type": "object"
         }
       ]
+    },
+    "ThreadId": {
+      "type": "string"
     }
   },
   "properties": {
     "conversationId": {
-      "$ref": "#/definitions/ConversationId"
+      "$ref": "#/definitions/ThreadId"
     },
     "items": {
       "items": {

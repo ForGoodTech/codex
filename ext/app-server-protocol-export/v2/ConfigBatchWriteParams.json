@@ -40,12 +40,15 @@
       ]
     },
     "filePath": {
-      "type": "string"
+      "description": "Path to the config file to write; defaults to the user's `config.toml` when omitted.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "required": [
-    "edits",
-    "filePath"
+    "edits"
   ],
   "title": "ConfigBatchWriteParams",
   "type": "object"

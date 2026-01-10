@@ -1,6 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "AbsolutePathBuf": {
+      "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
+      "type": "string"
+    },
     "Annotations": {
       "description": "Optional annotations for the client. The client can use annotations to inform how objects are used or displayed",
       "properties": {
@@ -31,9 +35,9 @@
     },
     "AskForApproval": {
       "enum": [
-        "unlessTrusted",
-        "onFailure",
-        "onRequest",
+        "untrusted",
+        "on-failure",
+        "on-request",
         "never"
       ],
       "type": "string"
@@ -99,6 +103,7 @@
             "internalServerError",
             "unauthorized",
             "badRequest",
+            "threadRollbackFailed",
             "sandboxError",
             "other"
           ],
@@ -481,6 +486,13 @@
       ],
       "type": "string"
     },
+    "NetworkAccess": {
+      "enum": [
+        "restricted",
+        "enabled"
+      ],
+      "type": "string"
+    },
     "PatchApplyStatus": {
       "enum": [
         "inProgress",
@@ -659,6 +671,30 @@
         },
         {
           "properties": {
+            "networkAccess": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NetworkAccess"
+                }
+              ],
+              "default": "restricted"
+            },
+            "type": {
+              "enum": [
+                "externalSandbox"
+              ],
+              "title": "ExternalSandboxSandboxPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "ExternalSandboxSandboxPolicy",
+          "type": "object"
+        },
+        {
+          "properties": {
             "excludeSlashTmp": {
               "default": false,
               "type": "boolean"
@@ -681,7 +717,7 @@
             "writableRoots": {
               "default": [],
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/AbsolutePathBuf"
               },
               "type": "array"
             }
@@ -801,7 +837,7 @@
           "description": "Origin of the thread (CLI, VSCode, codex exec, codex app-server, etc.)."
         },
         "turns": {
-          "description": "Only populated on a `thread/resume` response. For all other responses and notifications returning a Thread, the turns field will be an empty list.",
+          "description": "Only populated on `thread/resume`, `thread/rollback`, `thread/fork` responses. For all other responses and notifications returning a Thread, the turns field will be an empty list.",
           "items": {
             "$ref": "#/definitions/Turn"
           },
@@ -1014,6 +1050,14 @@
         {
           "properties": {
             "arguments": true,
+            "durationMs": {
+              "description": "The duration of the MCP tool call in milliseconds.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "error": {
               "anyOf": [
                 {
@@ -1094,33 +1138,6 @@
             "id": {
               "type": "string"
             },
-            "items": {
-              "items": {
-                "$ref": "#/definitions/TodoItem"
-              },
-              "type": "array"
-            },
-            "type": {
-              "enum": [
-                "todoList"
-              ],
-              "title": "TodoListThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "items",
-            "type"
-          ],
-          "title": "TodoListThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
             "path": {
               "type": "string"
             },
@@ -1190,114 +1207,49 @@
         }
       ]
     },
-    "TodoItem": {
-      "properties": {
-        "completed": {
-          "type": "boolean"
-        },
-        "id": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "completed",
-        "id",
-        "text"
-      ],
-      "type": "object"
-    },
     "Turn": {
-      "oneOf": [
-        {
-          "properties": {
-            "status": {
-              "enum": [
-                "completed"
-              ],
-              "title": "StatusTurnStatus",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "title": "StatusTurn",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "status": {
-              "enum": [
-                "interrupted"
-              ],
-              "title": "StatusTurn2Status",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "title": "StatusTurn2",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "error": {
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
               "$ref": "#/definitions/TurnError"
             },
-            "status": {
-              "enum": [
-                "failed"
-              ],
-              "type": "string"
+            {
+              "type": "null"
             }
-          },
-          "required": [
-            "error",
-            "status"
           ],
-          "type": "object"
+          "description": "Only populated when the Turn's status is failed."
         },
-        {
-          "properties": {
-            "status": {
-              "enum": [
-                "inProgress"
-              ],
-              "title": "StatusTurn3Status",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "title": "StatusTurn3",
-          "type": "object"
-        }
-      ],
-      "properties": {
         "id": {
           "type": "string"
         },
         "items": {
-          "description": "Only populated on a `thread/resume` response. For all other responses and notifications returning a Turn, the items field will be an empty list.",
+          "description": "Only populated on a `thread/resume` or `thread/fork` response. For all other responses and notifications returning a Turn, the items field will be an empty list.",
           "items": {
             "$ref": "#/definitions/ThreadItem"
           },
           "type": "array"
+        },
+        "status": {
+          "$ref": "#/definitions/TurnStatus"
         }
       },
       "required": [
         "id",
-        "items"
+        "items",
+        "status"
       ],
       "type": "object"
     },
     "TurnError": {
       "properties": {
+        "additionalDetails": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "codexErrorInfo": {
           "anyOf": [
             {
@@ -1316,6 +1268,15 @@
         "message"
       ],
       "type": "object"
+    },
+    "TurnStatus": {
+      "enum": [
+        "completed",
+        "interrupted",
+        "failed",
+        "inProgress"
+      ],
+      "type": "string"
     },
     "UserInput": {
       "oneOf": [
@@ -1377,6 +1338,30 @@
             "type"
           ],
           "title": "LocalImageUserInput",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "skill"
+              ],
+              "title": "SkillUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "SkillUserInput",
           "type": "object"
         }
       ]

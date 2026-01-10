@@ -10,12 +10,20 @@
     "summaryIndex": {
       "format": "int64",
       "type": "integer"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
     }
   },
   "required": [
     "delta",
     "itemId",
-    "summaryIndex"
+    "summaryIndex",
+    "threadId",
+    "turnId"
   ],
   "title": "ReasoningSummaryTextDeltaNotification",
   "type": "object"

@@ -16,7 +16,7 @@
     {
       "properties": {
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         }
       },
       "required": [
@@ -27,7 +27,7 @@
     }
   ],
   "definitions": {
-    "ConversationId": {
+    "ThreadId": {
       "type": "string"
     }
   },

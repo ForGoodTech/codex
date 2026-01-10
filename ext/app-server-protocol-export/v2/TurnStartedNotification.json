@@ -90,6 +90,7 @@
             "internalServerError",
             "unauthorized",
             "badRequest",
+            "threadRollbackFailed",
             "sandboxError",
             "other"
           ],
@@ -819,6 +820,14 @@
         {
           "properties": {
             "arguments": true,
+            "durationMs": {
+              "description": "The duration of the MCP tool call in milliseconds.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "error": {
               "anyOf": [
                 {
@@ -899,33 +908,6 @@
             "id": {
               "type": "string"
             },
-            "items": {
-              "items": {
-                "$ref": "#/definitions/TodoItem"
-              },
-              "type": "array"
-            },
-            "type": {
-              "enum": [
-                "todoList"
-              ],
-              "title": "TodoListThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "items",
-            "type"
-          ],
-          "title": "TodoListThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
             "path": {
               "type": "string"
             },
@@ -995,114 +977,49 @@
         }
       ]
     },
-    "TodoItem": {
-      "properties": {
-        "completed": {
-          "type": "boolean"
-        },
-        "id": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "completed",
-        "id",
-        "text"
-      ],
-      "type": "object"
-    },
     "Turn": {
-      "oneOf": [
-        {
-          "properties": {
-            "status": {
-              "enum": [
-                "completed"
-              ],
-              "title": "StatusTurnStatus",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "title": "StatusTurn",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "status": {
-              "enum": [
-                "interrupted"
-              ],
-              "title": "StatusTurn2Status",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "title": "StatusTurn2",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "error": {
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
               "$ref": "#/definitions/TurnError"
             },
-            "status": {
-              "enum": [
-                "failed"
-              ],
-              "type": "string"
+            {
+              "type": "null"
             }
-          },
-          "required": [
-            "error",
-            "status"
           ],
-          "type": "object"
+          "description": "Only populated when the Turn's status is failed."
         },
-        {
-          "properties": {
-            "status": {
-              "enum": [
-                "inProgress"
-              ],
-              "title": "StatusTurn3Status",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status"
-          ],
-          "title": "StatusTurn3",
-          "type": "object"
-        }
-      ],
-      "properties": {
         "id": {
           "type": "string"
         },
         "items": {
-          "description": "Only populated on a `thread/resume` response. For all other responses and notifications returning a Turn, the items field will be an empty list.",
+          "description": "Only populated on a `thread/resume` or `thread/fork` response. For all other responses and notifications returning a Turn, the items field will be an empty list.",
           "items": {
             "$ref": "#/definitions/ThreadItem"
           },
           "type": "array"
+        },
+        "status": {
+          "$ref": "#/definitions/TurnStatus"
         }
       },
       "required": [
         "id",
-        "items"
+        "items",
+        "status"
       ],
       "type": "object"
     },
     "TurnError": {
       "properties": {
+        "additionalDetails": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "codexErrorInfo": {
           "anyOf": [
             {
@@ -1121,6 +1038,15 @@
         "message"
       ],
       "type": "object"
+    },
+    "TurnStatus": {
+      "enum": [
+        "completed",
+        "interrupted",
+        "failed",
+        "inProgress"
+      ],
+      "type": "string"
     },
     "UserInput": {
       "oneOf": [
@@ -1182,6 +1108,30 @@
             "type"
           ],
           "title": "LocalImageUserInput",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "skill"
+              ],
+              "title": "SkillUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "SkillUserInput",
           "type": "object"
         }
       ]

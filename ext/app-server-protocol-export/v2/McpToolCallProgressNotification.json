@@ -6,11 +6,19 @@
     },
     "message": {
       "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
     }
   },
   "required": [
     "itemId",
-    "message"
+    "message",
+    "threadId",
+    "turnId"
   ],
   "title": "McpToolCallProgressNotification",
   "type": "object"

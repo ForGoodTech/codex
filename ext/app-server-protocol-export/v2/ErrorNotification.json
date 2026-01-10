@@ -11,6 +11,7 @@
             "internalServerError",
             "unauthorized",
             "badRequest",
+            "threadRollbackFailed",
             "sandboxError",
             "other"
           ],
@@ -115,6 +116,13 @@
     },
     "TurnError": {
       "properties": {
+        "additionalDetails": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "codexErrorInfo": {
           "anyOf": [
             {
@@ -144,12 +152,16 @@
     },
     "turnId": {
       "type": "string"
+    },
+    "willRetry": {
+      "type": "boolean"
     }
   },
   "required": [
     "error",
     "threadId",
-    "turnId"
+    "turnId",
+    "willRetry"
   ],
   "title": "ErrorNotification",
   "type": "object"

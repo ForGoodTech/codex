@@ -7,11 +7,19 @@
     "summaryIndex": {
       "format": "int64",
       "type": "integer"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
     }
   },
   "required": [
     "itemId",
-    "summaryIndex"
+    "summaryIndex",
+    "threadId",
+    "turnId"
   ],
   "title": "ReasoningSummaryPartAddedNotification",
   "type": "object"

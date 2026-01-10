@@ -1,12 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "AbsolutePathBuf": {
+      "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
+      "type": "string"
+    },
     "AskForApproval": {
       "enum": [
-        "unlessTrusted",
-        "onFailure",
-        "onRequest",
+        "untrusted",
+        "on-failure",
+        "on-request",
         "never"
+      ],
+      "type": "string"
+    },
+    "NetworkAccess": {
+      "enum": [
+        "restricted",
+        "enabled"
       ],
       "type": "string"
     },
@@ -78,6 +89,30 @@
         },
         {
           "properties": {
+            "networkAccess": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NetworkAccess"
+                }
+              ],
+              "default": "restricted"
+            },
+            "type": {
+              "enum": [
+                "externalSandbox"
+              ],
+              "title": "ExternalSandboxSandboxPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "ExternalSandboxSandboxPolicy",
+          "type": "object"
+        },
+        {
+          "properties": {
             "excludeSlashTmp": {
               "default": false,
               "type": "boolean"
@@ -100,7 +135,7 @@
             "writableRoots": {
               "default": [],
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/AbsolutePathBuf"
               },
               "type": "array"
             }
@@ -174,6 +209,30 @@
           ],
           "title": "LocalImageUserInput",
           "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "skill"
+              ],
+              "title": "SkillUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "SkillUserInput",
+          "type": "object"
         }
       ]
     }
@@ -220,6 +279,9 @@
         "string",
         "null"
       ]
+    },
+    "outputSchema": {
+      "description": "Optional JSON Schema used to constrain the final assistant message for this turn."
     },
     "sandboxPolicy": {
       "anyOf": [

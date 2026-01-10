@@ -707,6 +707,14 @@
         {
           "properties": {
             "arguments": true,
+            "durationMs": {
+              "description": "The duration of the MCP tool call in milliseconds.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "error": {
               "anyOf": [
                 {
@@ -787,33 +795,6 @@
             "id": {
               "type": "string"
             },
-            "items": {
-              "items": {
-                "$ref": "#/definitions/TodoItem"
-              },
-              "type": "array"
-            },
-            "type": {
-              "enum": [
-                "todoList"
-              ],
-              "title": "TodoListThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "items",
-            "type"
-          ],
-          "title": "TodoListThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
             "path": {
               "type": "string"
             },
@@ -883,25 +864,6 @@
         }
       ]
     },
-    "TodoItem": {
-      "properties": {
-        "completed": {
-          "type": "boolean"
-        },
-        "id": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "completed",
-        "id",
-        "text"
-      ],
-      "type": "object"
-    },
     "UserInput": {
       "oneOf": [
         {
@@ -962,6 +924,30 @@
             "type"
           ],
           "title": "LocalImageUserInput",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "skill"
+              ],
+              "title": "SkillUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "SkillUserInput",
           "type": "object"
         }
       ]

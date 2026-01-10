@@ -24,16 +24,13 @@
       },
       "type": "object"
     },
-    "ConversationId": {
-      "type": "string"
-    },
     "ConversationSummary": {
       "properties": {
         "cliVersion": {
           "type": "string"
         },
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         "cwd": {
           "type": "string"
@@ -128,6 +125,9 @@
           "type": "object"
         }
       ]
+    },
+    "ThreadId": {
+      "type": "string"
     }
   },
   "properties": {
