@@ -98,9 +98,6 @@
         }
       ]
     },
-    "ConversationId": {
-      "type": "string"
-    },
     "FunctionCallOutputContentItem": {
       "description": "Responses API compatible content items that can be returned by a tool call. This is a subset of ContentItem with the types we support as function call outputs.",
       "oneOf": [
@@ -720,9 +717,9 @@
             },
             "type": {
               "enum": [
-                "compaction_summary"
+                "compaction"
               ],
-              "title": "CompactionSummaryResponseItemType",
+              "title": "CompactionResponseItemType",
               "type": "string"
             }
           },
@@ -730,7 +727,7 @@
             "encrypted_content",
             "type"
           ],
-          "title": "CompactionSummaryResponseItem",
+          "title": "CompactionResponseItem",
           "type": "object"
         },
         {
@@ -757,6 +754,9 @@
         "workspace-write",
         "danger-full-access"
       ],
+      "type": "string"
+    },
+    "ThreadId": {
       "type": "string"
     },
     "WebSearchAction": {
@@ -856,7 +856,7 @@
     "conversationId": {
       "anyOf": [
         {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         {
           "type": "null"

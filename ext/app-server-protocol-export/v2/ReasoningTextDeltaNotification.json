@@ -10,12 +10,20 @@
     },
     "itemId": {
       "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
     }
   },
   "required": [
     "contentIndex",
     "delta",
-    "itemId"
+    "itemId",
+    "threadId",
+    "turnId"
   ],
   "title": "ReasoningTextDeltaNotification",
   "type": "object"

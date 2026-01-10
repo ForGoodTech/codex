@@ -1,6 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "AbsolutePathBuf": {
+      "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
+      "type": "string"
+    },
     "AgentMessageContent": {
       "oneOf": [
         {
@@ -170,6 +174,7 @@
             "unauthorized",
             "bad_request",
             "sandbox_error",
+            "thread_rollback_failed",
             "other"
           ],
           "type": "string"
@@ -354,9 +359,6 @@
         }
       ]
     },
-    "ConversationId": {
-      "type": "string"
-    },
     "CreditsSnapshot": {
       "properties": {
         "balance": {
@@ -500,7 +502,7 @@
           "type": "object"
         },
         {
-          "description": "Warning issued while processing a submission. Unlike `Error`, this indicates the task continued but the user should still be notified.",
+          "description": "Warning issued while processing a submission. Unlike `Error`, this indicates the turn continued but the user should still be notified.",
           "properties": {
             "message": {
               "type": "string"
@@ -538,7 +540,31 @@
           "type": "object"
         },
         {
-          "description": "Agent has started a task",
+          "description": "Conversation history was rolled back by dropping the last N user turns.",
+          "properties": {
+            "num_turns": {
+              "description": "Number of user turns that were removed from context.",
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "thread_rolled_back"
+              ],
+              "title": "ThreadRolledBackEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "num_turns",
+            "type"
+          ],
+          "title": "ThreadRolledBackEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Agent has started a turn. v1 wire format uses `task_started`; accept `turn_started` for v2 interop.",
           "properties": {
             "model_context_window": {
               "format": "int64",
@@ -562,7 +588,7 @@
           "type": "object"
         },
         {
-          "description": "Agent has completed all actions",
+          "description": "Agent has completed all actions. v1 wire format uses `task_complete`; accept `turn_complete` for v2 interop.",
           "properties": {
             "last_agent_message": {
               "type": [
@@ -872,10 +898,10 @@
             "session_id": {
               "allOf": [
                 {
-                  "$ref": "#/definitions/ConversationId"
+                  "$ref": "#/definitions/ThreadId"
                 }
               ],
-              "description": "Name left as session_id instead of conversation_id for backwards compatibility."
+              "description": "Name left as session_id instead of thread_id for backwards compatibility."
             },
             "type": {
               "enum": [
@@ -1183,6 +1209,38 @@
           "type": "object"
         },
         {
+          "description": "Terminal interaction for an in-progress command (stdin sent and stdout observed).",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the ExecCommandBegin that produced this chunk.",
+              "type": "string"
+            },
+            "process_id": {
+              "description": "Process id associated with the running command.",
+              "type": "string"
+            },
+            "stdin": {
+              "description": "Stdin sent to the running session.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "terminal_interaction"
+              ],
+              "title": "TerminalInteractionEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "process_id",
+            "stdin",
+            "type"
+          ],
+          "title": "TerminalInteractionEventMsg",
+          "type": "object"
+        },
+        {
           "properties": {
             "aggregated_output": {
               "default": "",
@@ -1336,23 +1394,22 @@
               },
               "type": "array"
             },
+            "proposed_execpolicy_amendment": {
+              "description": "Proposed execpolicy amendment that can be applied to allow future runs.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
             "reason": {
               "description": "Optional human-readable reason for the approval (e.g. retry without sandbox).",
               "type": [
                 "string",
                 "null"
               ]
-            },
-            "risk": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/SandboxCommandAssessment"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Optional model-provided risk assessment describing the blocked command."
             },
             "turn_id": {
               "default": "",
@@ -1552,6 +1609,14 @@
         {
           "description": "Notification that a model stream experienced an error or disconnect and the system is handling it (e.g., retrying with backoff).",
           "properties": {
+            "additional_details": {
+              "default": null,
+              "description": "Optional details about the underlying stream failure (often the same human-readable message that is surfaced as the terminal error if retries are exhausted).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "codex_error_info": {
               "anyOf": [
                 {
@@ -1811,6 +1876,47 @@
           "type": "object"
         },
         {
+          "description": "List of skills available to the agent.",
+          "properties": {
+            "skills": {
+              "items": {
+                "$ref": "#/definitions/SkillsListEntry"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "list_skills_response"
+              ],
+              "title": "ListSkillsResponseEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "skills",
+            "type"
+          ],
+          "title": "ListSkillsResponseEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Notification that skill data may have been updated and clients may want to reload.",
+          "properties": {
+            "type": {
+              "enum": [
+                "skills_update_available"
+              ],
+              "title": "SkillsUpdateAvailableEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "SkillsUpdateAvailableEventMsg",
+          "type": "object"
+        },
+        {
           "properties": {
             "explanation": {
               "default": null,
@@ -1880,8 +1986,8 @@
         {
           "description": "Entered review mode.",
           "properties": {
-            "prompt": {
-              "type": "string"
+            "target": {
+              "$ref": "#/definitions/ReviewTarget"
             },
             "type": {
               "enum": [
@@ -1891,13 +1997,15 @@
               "type": "string"
             },
             "user_facing_hint": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
-            "prompt",
-            "type",
-            "user_facing_hint"
+            "target",
+            "type"
           ],
           "title": "EnteredReviewModeEventMsg",
           "type": "object"
@@ -1955,7 +2063,7 @@
               "$ref": "#/definitions/TurnItem"
             },
             "thread_id": {
-              "$ref": "#/definitions/ConversationId"
+              "$ref": "#/definitions/ThreadId"
             },
             "turn_id": {
               "type": "string"
@@ -1983,7 +2091,7 @@
               "$ref": "#/definitions/TurnItem"
             },
             "thread_id": {
-              "$ref": "#/definitions/ConversationId"
+              "$ref": "#/definitions/ThreadId"
             },
             "turn_id": {
               "type": "string"
@@ -2529,6 +2637,14 @@
         }
       ]
     },
+    "NetworkAccess": {
+      "description": "Represents whether outbound network access is available to the agent.",
+      "enum": [
+        "restricted",
+        "enabled"
+      ],
+      "type": "string"
+    },
     "ParsedCommand": {
       "oneOf": [
         {
@@ -2656,12 +2772,35 @@
       ],
       "type": "object"
     },
+    "PlanType": {
+      "enum": [
+        "free",
+        "plus",
+        "pro",
+        "team",
+        "business",
+        "enterprise",
+        "edu",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "RateLimitSnapshot": {
       "properties": {
         "credits": {
           "anyOf": [
             {
               "$ref": "#/definitions/CreditsSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "plan_type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PlanType"
             },
             {
               "type": "null"
@@ -3264,9 +3403,9 @@
             },
             "type": {
               "enum": [
-                "compaction_summary"
+                "compaction"
               ],
-              "title": "CompactionSummaryResponseItemType",
+              "title": "CompactionResponseItemType",
               "type": "string"
             }
           },
@@ -3274,7 +3413,7 @@
             "encrypted_content",
             "type"
           ],
-          "title": "CompactionSummaryResponseItem",
+          "title": "CompactionResponseItem",
           "type": "object"
         },
         {
@@ -3417,6 +3556,97 @@
       ],
       "type": "object"
     },
+    "ReviewTarget": {
+      "oneOf": [
+        {
+          "description": "Review the working tree: staged, unstaged, and untracked files.",
+          "properties": {
+            "type": {
+              "enum": [
+                "uncommittedChanges"
+              ],
+              "title": "UncommittedChangesReviewTargetType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "UncommittedChangesReviewTarget",
+          "type": "object"
+        },
+        {
+          "description": "Review changes between the current branch and the given base branch.",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "baseBranch"
+              ],
+              "title": "BaseBranchReviewTargetType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch",
+            "type"
+          ],
+          "title": "BaseBranchReviewTarget",
+          "type": "object"
+        },
+        {
+          "description": "Review the changes introduced by a specific commit.",
+          "properties": {
+            "sha": {
+              "type": "string"
+            },
+            "title": {
+              "description": "Optional human-readable label (e.g., commit subject) for UIs.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "commit"
+              ],
+              "title": "CommitReviewTargetType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "sha",
+            "type"
+          ],
+          "title": "CommitReviewTarget",
+          "type": "object"
+        },
+        {
+          "description": "Arbitrary instructions provided by the user.",
+          "properties": {
+            "instructions": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "custom"
+              ],
+              "title": "CustomReviewTargetType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "instructions",
+            "type"
+          ],
+          "title": "CustomReviewTarget",
+          "type": "object"
+        }
+      ]
+    },
     "Role": {
       "description": "The sender or recipient of messages and data in a conversation.",
       "enum": [
@@ -3424,21 +3654,6 @@
         "user"
       ],
       "type": "string"
-    },
-    "SandboxCommandAssessment": {
-      "properties": {
-        "description": {
-          "type": "string"
-        },
-        "risk_level": {
-          "$ref": "#/definitions/SandboxRiskLevel"
-        }
-      },
-      "required": [
-        "description",
-        "risk_level"
-      ],
-      "type": "object"
     },
     "SandboxPolicy": {
       "description": "Determines execution restrictions for model shell commands.",
@@ -3478,6 +3693,32 @@
           "type": "object"
         },
         {
+          "description": "Indicates the process is already in an external sandbox. Allows full disk access while honoring the provided network setting.",
+          "properties": {
+            "network_access": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NetworkAccess"
+                }
+              ],
+              "default": "restricted",
+              "description": "Whether the external sandbox permits outbound network traffic."
+            },
+            "type": {
+              "enum": [
+                "external-sandbox"
+              ],
+              "title": "ExternalSandboxSandboxPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "ExternalSandboxSandboxPolicy",
+          "type": "object"
+        },
+        {
           "description": "Same as `ReadOnly` but additionally grants write access to the current working directory (\"workspace\").",
           "properties": {
             "exclude_slash_tmp": {
@@ -3505,7 +3746,7 @@
             "writable_roots": {
               "description": "Additional folders (beyond cwd and possibly TMPDIR) that should be writable from within the sandbox.",
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/AbsolutePathBuf"
               },
               "type": "array"
             }
@@ -3518,13 +3759,83 @@
         }
       ]
     },
-    "SandboxRiskLevel": {
+    "SkillErrorInfo": {
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "path"
+      ],
+      "type": "object"
+    },
+    "SkillMetadata": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/SkillScope"
+        },
+        "short_description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "description",
+        "name",
+        "path",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "SkillScope": {
       "enum": [
-        "low",
-        "medium",
-        "high"
+        "user",
+        "repo",
+        "system",
+        "admin"
       ],
       "type": "string"
+    },
+    "SkillsListEntry": {
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/definitions/SkillErrorInfo"
+          },
+          "type": "array"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/definitions/SkillMetadata"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cwd",
+        "errors",
+        "skills"
+      ],
+      "type": "object"
     },
     "StepStatus": {
       "enum": [
@@ -3580,6 +3891,9 @@
         "uri"
       ],
       "type": "object"
+    },
+    "ThreadId": {
+      "type": "string"
     },
     "TokenUsage": {
       "properties": {
@@ -3733,12 +4047,10 @@
           ]
         },
         "type": {
+          "default": "object",
           "type": "string"
         }
       },
-      "required": [
-        "type"
-      ],
       "type": "object"
     },
     "ToolOutputSchema": {
@@ -3755,12 +4067,10 @@
           ]
         },
         "type": {
+          "default": "object",
           "type": "string"
         }
       },
-      "required": [
-        "type"
-      ],
       "type": "object"
     },
     "TurnAbortReason": {
@@ -3951,6 +4261,31 @@
           ],
           "title": "LocalImageUserInput",
           "type": "object"
+        },
+        {
+          "description": "Skill selected by the user (name + path to SKILL.md).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "skill"
+              ],
+              "title": "SkillUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "SkillUserInput",
+          "type": "object"
         }
       ]
     },
@@ -4049,7 +4384,7 @@
   },
   "properties": {
     "conversationId": {
-      "$ref": "#/definitions/ConversationId"
+      "$ref": "#/definitions/ThreadId"
     },
     "initialMessages": {
       "items": {

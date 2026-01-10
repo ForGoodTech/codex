@@ -17,7 +17,11 @@
       ]
     },
     "filePath": {
-      "type": "string"
+      "description": "Path to the config file to write; defaults to the user's `config.toml` when omitted.",
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "keyPath": {
       "type": "string"
@@ -28,7 +32,6 @@
     "value": true
   },
   "required": [
-    "filePath",
     "keyPath",
     "mergeStrategy",
     "value"

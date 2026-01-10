@@ -8,7 +8,7 @@
           "type": "string"
         },
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         "fileChanges": {
           "additionalProperties": {
@@ -43,23 +43,22 @@
         "itemId": {
           "type": "string"
         },
+        "proposedExecpolicyAmendment": {
+          "description": "Optional proposed execpolicy amendment to allow similar commands without prompting.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "reason": {
           "description": "Optional explanatory reason (e.g. request for network access).",
           "type": [
             "string",
             "null"
           ]
-        },
-        "risk": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxCommandAssessment"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional model-provided risk assessment describing the blocked command."
         },
         "threadId": {
           "type": "string"
@@ -75,17 +74,6 @@
       ],
       "type": "object"
     },
-    "CommandRiskLevel": {
-      "enum": [
-        "low",
-        "medium",
-        "high"
-      ],
-      "type": "string"
-    },
-    "ConversationId": {
-      "type": "string"
-    },
     "ExecCommandApprovalParams": {
       "properties": {
         "callId": {
@@ -99,7 +87,7 @@
           "type": "array"
         },
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         "cwd": {
           "type": "string"
@@ -114,16 +102,6 @@
           "type": [
             "string",
             "null"
-          ]
-        },
-        "risk": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxCommandAssessment2"
-            },
-            {
-              "type": "null"
-            }
           ]
         }
       },
@@ -361,42 +339,7 @@
         }
       ]
     },
-    "SandboxCommandAssessment": {
-      "properties": {
-        "description": {
-          "type": "string"
-        },
-        "riskLevel": {
-          "$ref": "#/definitions/CommandRiskLevel"
-        }
-      },
-      "required": [
-        "description",
-        "riskLevel"
-      ],
-      "type": "object"
-    },
-    "SandboxCommandAssessment2": {
-      "properties": {
-        "description": {
-          "type": "string"
-        },
-        "risk_level": {
-          "$ref": "#/definitions/SandboxRiskLevel"
-        }
-      },
-      "required": [
-        "description",
-        "risk_level"
-      ],
-      "type": "object"
-    },
-    "SandboxRiskLevel": {
-      "enum": [
-        "low",
-        "medium",
-        "high"
-      ],
+    "ThreadId": {
       "type": "string"
     }
   },

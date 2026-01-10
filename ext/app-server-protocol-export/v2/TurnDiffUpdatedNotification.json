@@ -5,12 +5,16 @@
     "diff": {
       "type": "string"
     },
+    "threadId": {
+      "type": "string"
+    },
     "turnId": {
       "type": "string"
     }
   },
   "required": [
     "diff",
+    "threadId",
     "turnId"
   ],
   "title": "TurnDiffUpdatedNotification",

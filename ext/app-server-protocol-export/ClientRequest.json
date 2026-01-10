@@ -1,10 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "AbsolutePathBuf": {
+      "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
+      "type": "string"
+    },
     "AddConversationListenerParams": {
       "properties": {
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         "experimentalRawEvents": {
           "default": false,
@@ -19,7 +23,7 @@
     "ArchiveConversationParams": {
       "properties": {
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         "rolloutPath": {
           "type": "string"
@@ -33,9 +37,9 @@
     },
     "AskForApproval": {
       "enum": [
-        "unlessTrusted",
-        "onFailure",
-        "onRequest",
+        "untrusted",
+        "on-failure",
+        "on-request",
         "never"
       ],
       "type": "string"
@@ -116,6 +120,43 @@
       ],
       "type": "object"
     },
+    "CommandExecParams": {
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sandboxPolicy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeoutMs": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
     "ConfigBatchWriteParams": {
       "properties": {
         "edits": {
@@ -131,12 +172,15 @@
           ]
         },
         "filePath": {
-          "type": "string"
+          "description": "Path to the config file to write; defaults to the user's `config.toml` when omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
-        "edits",
-        "filePath"
+        "edits"
       ],
       "type": "object"
     },
@@ -175,7 +219,11 @@
           ]
         },
         "filePath": {
-          "type": "string"
+          "description": "Path to the config file to write; defaults to the user's `config.toml` when omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "keyPath": {
           "type": "string"
@@ -186,7 +234,6 @@
         "value": true
       },
       "required": [
-        "filePath",
         "keyPath",
         "mergeStrategy",
         "value"
@@ -257,9 +304,6 @@
         }
       ]
     },
-    "ConversationId": {
-      "type": "string"
-    },
     "ExecOneOffCommandParams": {
       "properties": {
         "command": {
@@ -303,20 +347,16 @@
         "classification": {
           "type": "string"
         },
-        "conversationId": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ConversationId"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "includeLogs": {
           "type": "boolean"
         },
         "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
           "type": [
             "string",
             "null"
@@ -327,6 +367,37 @@
         "classification",
         "includeLogs"
       ],
+      "type": "object"
+    },
+    "ForkConversationParams": {
+      "properties": {
+        "conversationId": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overrides": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/NewConversationParams"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "FunctionCallOutputContentItem": {
@@ -468,7 +539,7 @@
         {
           "properties": {
             "conversationId": {
-              "$ref": "#/definitions/ConversationId"
+              "$ref": "#/definitions/ThreadId"
             }
           },
           "required": [
@@ -624,7 +695,7 @@
     "InterruptConversationParams": {
       "properties": {
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         }
       },
       "required": [
@@ -651,6 +722,27 @@
         },
         "pageSize": {
           "format": "uint",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ListMcpServerStatusParams": {
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor returned by a previous call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Optional page size; defaults to a server-defined value.",
+          "format": "uint32",
           "minimum": 0.0,
           "type": [
             "integer",
@@ -775,6 +867,33 @@
       ],
       "type": "object"
     },
+    "McpServerOauthLoginParams": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "timeoutSecs": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "MergeStrategy": {
       "enum": [
         "replace",
@@ -802,6 +921,21 @@
         }
       },
       "type": "object"
+    },
+    "NetworkAccess": {
+      "enum": [
+        "restricted",
+        "enabled"
+      ],
+      "type": "string"
+    },
+    "NetworkAccess2": {
+      "description": "Represents whether outbound network access is available to the agent.",
+      "enum": [
+        "restricted",
+        "enabled"
+      ],
+      "type": "string"
     },
     "NewConversationParams": {
       "properties": {
@@ -1308,9 +1442,9 @@
             },
             "type": {
               "enum": [
-                "compaction_summary"
+                "compaction"
               ],
-              "title": "CompactionSummaryResponseItemType",
+              "title": "CompactionResponseItemType",
               "type": "string"
             }
           },
@@ -1318,7 +1452,7 @@
             "encrypted_content",
             "type"
           ],
-          "title": "CompactionSummaryResponseItem",
+          "title": "CompactionResponseItem",
           "type": "object"
         },
         {
@@ -1344,7 +1478,7 @@
         "conversationId": {
           "anyOf": [
             {
-              "$ref": "#/definitions/ConversationId"
+              "$ref": "#/definitions/ThreadId"
             },
             {
               "type": "null"
@@ -1506,9 +1640,9 @@
     },
     "SandboxMode": {
       "enum": [
-        "readOnly",
-        "workspaceWrite",
-        "dangerFullAccess"
+        "read-only",
+        "workspace-write",
+        "danger-full-access"
       ],
       "type": "string"
     },
@@ -1556,6 +1690,30 @@
         },
         {
           "properties": {
+            "networkAccess": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NetworkAccess"
+                }
+              ],
+              "default": "restricted"
+            },
+            "type": {
+              "enum": [
+                "externalSandbox"
+              ],
+              "title": "ExternalSandboxSandboxPolicyType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "ExternalSandboxSandboxPolicy",
+          "type": "object"
+        },
+        {
+          "properties": {
             "excludeSlashTmp": {
               "default": false,
               "type": "boolean"
@@ -1578,7 +1736,7 @@
             "writableRoots": {
               "default": [],
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/AbsolutePathBuf"
               },
               "type": "array"
             }
@@ -1629,6 +1787,32 @@
           "type": "object"
         },
         {
+          "description": "Indicates the process is already in an external sandbox. Allows full disk access while honoring the provided network setting.",
+          "properties": {
+            "network_access": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NetworkAccess2"
+                }
+              ],
+              "default": "restricted",
+              "description": "Whether the external sandbox permits outbound network traffic."
+            },
+            "type": {
+              "enum": [
+                "external-sandbox"
+              ],
+              "title": "ExternalSandboxSandboxPolicy2Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "ExternalSandboxSandboxPolicy2",
+          "type": "object"
+        },
+        {
           "description": "Same as `ReadOnly` but additionally grants write access to the current working directory (\"workspace\").",
           "properties": {
             "exclude_slash_tmp": {
@@ -1656,7 +1840,7 @@
             "writable_roots": {
               "description": "Additional folders (beyond cwd and possibly TMPDIR) that should be writable from within the sandbox.",
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/AbsolutePathBuf"
               },
               "type": "array"
             }
@@ -1672,7 +1856,7 @@
     "SendUserMessageParams": {
       "properties": {
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         "items": {
           "items": {
@@ -1693,7 +1877,7 @@
           "$ref": "#/definitions/AskForApproval2"
         },
         "conversationId": {
-          "$ref": "#/definitions/ConversationId"
+          "$ref": "#/definitions/ThreadId"
         },
         "cwd": {
           "type": "string"
@@ -1716,6 +1900,9 @@
         },
         "model": {
           "type": "string"
+        },
+        "outputSchema": {
+          "description": "Optional JSON Schema used to constrain the final assistant message for this turn."
         },
         "sandboxPolicy": {
           "$ref": "#/definitions/SandboxPolicy2"
@@ -1756,6 +1943,22 @@
       },
       "type": "object"
     },
+    "SkillsListParams": {
+      "properties": {
+        "cwds": {
+          "description": "When empty, defaults to the current session working directory.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "forceReload": {
+          "description": "When true, bypass the skills cache and re-scan skills from disk.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "ThreadArchiveParams": {
       "properties": {
         "threadId": {
@@ -1767,8 +1970,74 @@
       ],
       "type": "object"
     },
-    "ThreadCompactParams": {
+    "ThreadForkParams": {
+      "description": "There are two ways to fork a thread: 1. By thread_id: load the thread from disk by thread_id and fork it into a new thread. 2. By path: load the thread from disk by path and fork it into a new thread.\n\nIf using path, the thread_id param will be ignored.\n\nPrefer using thread_id whenever possible.",
       "properties": {
+        "approvalPolicy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AskForApproval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "baseInstructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "config": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "developerInstructions": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "Configuration overrides for the forked thread, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelProvider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "[UNSTABLE] Specify the rollout path to fork from. If specified, the thread_id param will be ignored.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sandbox": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "threadId": {
           "type": "string"
         }
@@ -1777,6 +2046,9 @@
         "threadId"
       ],
       "type": "object"
+    },
+    "ThreadId": {
+      "type": "string"
     },
     "ThreadListParams": {
       "properties": {
@@ -1803,6 +2075,27 @@
           },
           "type": [
             "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ThreadLoadedListParams": {
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor returned by a previous call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Optional page size; defaults to no limit.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
             "null"
           ]
         }
@@ -1896,6 +2189,24 @@
       ],
       "type": "object"
     },
+    "ThreadRollbackParams": {
+      "properties": {
+        "numTurns": {
+          "description": "The number of turns to drop from the end of the thread. Must be >= 1.\n\nThis only modifies the thread's history and does not revert local file changes that have been made by the agent. Clients are responsible for reverting these changes.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "numTurns",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadStartParams": {
       "properties": {
         "approvalPolicy": {
@@ -1932,6 +2243,11 @@
             "string",
             "null"
           ]
+        },
+        "experimentalRawEvents": {
+          "default": false,
+          "description": "If true, opt into emitting raw response items on the event stream.\n\nThis is for internal use only (e.g. Codex Cloud). (TODO): Figure out a better way to categorize internal / experimental events & protocols.",
+          "type": "boolean"
         },
         "model": {
           "type": [
@@ -2016,6 +2332,9 @@
             "string",
             "null"
           ]
+        },
+        "outputSchema": {
+          "description": "Optional JSON Schema used to constrain the final assistant message for this turn."
         },
         "sandboxPolicy": {
           "anyOf": [
@@ -2109,6 +2428,30 @@
             "type"
           ],
           "title": "LocalImageUserInput",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "skill"
+              ],
+              "title": "SkillUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "SkillUserInput",
           "type": "object"
         }
       ]
@@ -2288,6 +2631,30 @@
         },
         "method": {
           "enum": [
+            "thread/fork"
+          ],
+          "title": "Thread/forkRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadForkParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/forkRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
             "thread/archive"
           ],
           "title": "Thread/archiveRequestMethod",
@@ -2303,6 +2670,30 @@
         "params"
       ],
       "title": "Thread/archiveRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/rollback"
+          ],
+          "title": "Thread/rollbackRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadRollbackParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/rollbackRequest",
       "type": "object"
     },
     {
@@ -2336,13 +2727,13 @@
         },
         "method": {
           "enum": [
-            "thread/compact"
+            "thread/loaded/list"
           ],
-          "title": "Thread/compactRequestMethod",
+          "title": "Thread/loaded/listRequestMethod",
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/ThreadCompactParams"
+          "$ref": "#/definitions/ThreadLoadedListParams"
         }
       },
       "required": [
@@ -2350,7 +2741,31 @@
         "method",
         "params"
       ],
-      "title": "Thread/compactRequest",
+      "title": "Thread/loaded/listRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "skills/list"
+          ],
+          "title": "Skills/listRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SkillsListParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Skills/listRequest",
       "type": "object"
     },
     {
@@ -2447,6 +2862,54 @@
         "params"
       ],
       "title": "Model/listRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "mcpServer/oauth/login"
+          ],
+          "title": "McpServer/oauth/loginRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/McpServerOauthLoginParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "McpServer/oauth/loginRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "mcpServerStatus/list"
+          ],
+          "title": "McpServerStatus/listRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ListMcpServerStatusParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "McpServerStatus/listRequest",
       "type": "object"
     },
     {
@@ -2568,6 +3031,31 @@
       "type": "object"
     },
     {
+      "description": "Execute a command (argv vector) under the server's sandbox.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "command/exec"
+          ],
+          "title": "Command/execRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/CommandExecParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Command/execRequest",
+      "type": "object"
+    },
+    {
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"
@@ -2637,6 +3125,29 @@
         "params"
       ],
       "title": "Config/batchWriteRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "configRequirements/read"
+          ],
+          "title": "ConfigRequirements/readRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "id",
+        "method"
+      ],
+      "title": "ConfigRequirements/readRequest",
       "type": "object"
     },
     {
@@ -2760,6 +3271,31 @@
         "params"
       ],
       "title": "ResumeConversationRequest",
+      "type": "object"
+    },
+    {
+      "description": "Fork a recorded Codex conversation into a new session.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "forkConversation"
+          ],
+          "title": "ForkConversationRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ForkConversationParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "ForkConversationRequest",
       "type": "object"
     },
     {

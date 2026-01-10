@@ -1,9 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
-    "ConversationId": {
-      "type": "string"
-    },
     "ParsedCommand": {
       "oneOf": [
         {
@@ -115,27 +112,7 @@
         }
       ]
     },
-    "SandboxCommandAssessment": {
-      "properties": {
-        "description": {
-          "type": "string"
-        },
-        "risk_level": {
-          "$ref": "#/definitions/SandboxRiskLevel"
-        }
-      },
-      "required": [
-        "description",
-        "risk_level"
-      ],
-      "type": "object"
-    },
-    "SandboxRiskLevel": {
-      "enum": [
-        "low",
-        "medium",
-        "high"
-      ],
+    "ThreadId": {
       "type": "string"
     }
   },
@@ -151,7 +128,7 @@
       "type": "array"
     },
     "conversationId": {
-      "$ref": "#/definitions/ConversationId"
+      "$ref": "#/definitions/ThreadId"
     },
     "cwd": {
       "type": "string"
@@ -166,16 +143,6 @@
       "type": [
         "string",
         "null"
-      ]
-    },
-    "risk": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/SandboxCommandAssessment"
-        },
-        {
-          "type": "null"
-        }
       ]
     }
   },

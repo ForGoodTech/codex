@@ -6,11 +6,19 @@
     },
     "itemId": {
       "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
     }
   },
   "required": [
     "delta",
-    "itemId"
+    "itemId",
+    "threadId",
+    "turnId"
   ],
   "title": "AgentMessageDeltaNotification",
   "type": "object"
