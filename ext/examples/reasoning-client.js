@@ -16,18 +16,16 @@
  *
  * How to run (server inside Docker container)
  * -------------------------------------------
- * - In the container, run the long-lived proxy that bridges the app server stdio to a TCP port (see
- *   ext/docker/pi/app-server-proxy.js for full instructions). Example inside the container:
+ * - Start the proxy in a container attached to the shared Docker network:
+ *      docker network create codex-net
+ *      docker run -it --rm --name codex-proxy --network codex-net my-codex-docker-image /bin/bash
  *      codex-app-server-proxy
- * - Publish the proxy port to the host when starting the container, e.g.:
- *      docker run -it --rm -p 9395:9395 my-codex-docker-image /bin/bash
- * - From the host, connect to the forwarded TCP endpoint (defaults to 127.0.0.1:9395 so
- *   no env vars are required):
- *      node ext/examples/reasoning-client.js
+ * - From another container on codex-net (for example, the examples image), connect to
+ *   codex-proxy:9395 (the defaults below).
  *
  * Environment variables
  * ---------------------
- * - APP_SERVER_TCP_HOST (optional): TCP host for the proxy. Defaults to 127.0.0.1.
+ * - APP_SERVER_TCP_HOST (optional): TCP host for the proxy. Defaults to codex-proxy.
  * - APP_SERVER_TCP_PORT (optional): TCP port for the proxy. Defaults to 9395.
  * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults to /tmp/codex-app-server.in when set.
  * - APP_SERVER_OUT (optional): path to the FIFO to read server responses/notifications from. Defaults to /tmp/codex-app-server.out when set.
@@ -50,7 +48,7 @@ const net = require('node:net');
 
 const fifoInPath = process.env.APP_SERVER_IN;
 const fifoOutPath = process.env.APP_SERVER_OUT;
-const tcpHost = process.env.APP_SERVER_TCP_HOST ?? '127.0.0.1';
+const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
 const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
 const tcpPort = (() => {
   if (!tcpPortEnv) {
