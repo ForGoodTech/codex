@@ -10,7 +10,7 @@
 const net = require('node:net');
 const readline = require('node:readline');
 
-const host = process.env.SDK_PROXY_HOST ?? '127.0.0.1';
+const host = process.env.SDK_PROXY_HOST ?? 'codex-proxy';
 const port = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 const verbose = process.argv.includes('--verbose') || process.env.SDK_PROXY_VERBOSE === '1';
 

@@ -14,13 +14,15 @@
  * -------------
  * - Run this proxy inside the container where `codex-app-server` is available on PATH (the image
  *   symlinks both codex-app-server and this proxy into npm-global/bin).
- * - Publish the proxy port to the host when starting the container, e.g.:
- *     docker run -it --rm -p 9395:9395 my-codex-docker-image /bin/bash
+ * - Attach the container to the shared Docker network so other containers can reach the proxy:
+ *     docker network create codex-net
+ *     docker run -it --rm --name codex-proxy --network codex-net my-codex-docker-image /bin/bash
  * - Start the proxy inside the container (either path works):
  *     codex-app-server-proxy
  *   or
  *     node ~/app-server-proxy.js
- * - On the host, point hello-app-server.js at the published port using APP_SERVER_TCP_HOST/PORT.
+ * - From another container on codex-net, connect to codex-proxy:9395 (override with
+ *   APP_SERVER_TCP_HOST/PORT if needed).
  *
  * Protocol
  * --------
