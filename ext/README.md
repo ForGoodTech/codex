@@ -42,13 +42,14 @@ Debug builds reuse `target/debug` artifacts; release builds pull from `target/re
 
 > **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). After obtaining it, copy the file into the container's `.codex` directory, for example with `docker cp ~/.codex/auth.json my-codex-docker-container:/home/node/.codex/auth.json` (adjust the container name if you used a different one).
 
-Assume you want the app server ready; publishing the proxy port is safe even if you only use the CLI. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
+Create a shared Docker network so the proxy and any client containers can talk without publishing ports on the host. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
 
 ```shell
+docker network create codex-net
+
 docker run -it --rm \
-  --name my-codex-docker-container \
-  -p 9395:9395 \
-  -p 9400:9400 \
+  --name codex-proxy \
+  --network codex-net \
   -v "$PWD:/home/node/workdir" \
   my-codex-docker-image \
   bash
@@ -64,20 +65,33 @@ codex "explain this repo"  # or any other prompt
 
 ```
 
-Clients outside the container (for example, `ext/examples/hello-app-server.js`) default to the published host port (`127.0.0.1:9395`), so you can run them without extra environment variables:
+If you want a detached proxy container, pass the proxy command directly:
 
 ```shell
-node ext/examples/hello-app-server.js
+docker run -d \
+  --name codex-proxy \
+  --network codex-net \
+  -v "$PWD:/home/node/workdir" \
+  my-codex-docker-image \
+  codex-app-server-proxy
 ```
 
-For the SDK proxy, the sample scripts connect to `127.0.0.1:9400` by default:
+## Building and running the examples image
+
+The sample clients default to `codex-proxy` for the proxy host, so run them in a second container on the same network.
 
 ```shell
-node ext/examples/sdk-proxy-ping.js              # quick connectivity + run smoke test
-node ext/examples/hello-sdk-proxy.js
-node ext/examples/reasoning-sdk-proxy.js
-node ext/examples/paste-image-sdk-proxy.js
+cd ext/examples
+# Build a Node image with the sample scripts.
+./build_image.sh codex-examples
+
+# Run any example on the shared network.
+docker run --rm --network codex-net codex-examples node /examples/hello-app-server.js
+docker run --rm --network codex-net codex-examples node /examples/sdk-proxy-ping.js
 ```
+
+If you prefer to run the scripts on the host instead of in a container, publish the proxy ports and override the host
+defaults, for example `APP_SERVER_TCP_HOST=127.0.0.1` or `SDK_PROXY_HOST=127.0.0.1`.
 
 You can also ask the SDK proxy itself to run a one-off self-test prompt when it
 starts (without any client) to confirm the Codex SDK path is working. The
