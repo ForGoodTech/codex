@@ -71,10 +71,12 @@ case "$BUILD_PROFILE" in
   release)
     CODEX_BIN_SRC="$RUST_ROOT/target/release/codex"
     APP_SERVER_BIN_SRC="$RUST_ROOT/target/release/codex-app-server"
+    LINUX_SANDBOX_BIN_SRC="$RUST_ROOT/target/release/codex-linux-sandbox"
     ;;
   debug)
     CODEX_BIN_SRC="$RUST_ROOT/target/debug/codex"
     APP_SERVER_BIN_SRC="$RUST_ROOT/target/debug/codex-app-server"
+    LINUX_SANDBOX_BIN_SRC="$RUST_ROOT/target/debug/codex-linux-sandbox"
     ;;
   *)
     echo "Unknown build profile: $BUILD_PROFILE" >&2
@@ -107,6 +109,7 @@ function ensure_binary() {
 
 ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
 ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
+ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
 
 function ensure_rg_binary() {
   local rg_path
@@ -145,9 +148,10 @@ RG_BIN_SRC=$(ensure_rg_binary)
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
-mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
+mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/codex-linux-sandbox" "$TARGET_VENDOR/path"
 install -Dm755 "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
 install -Dm755 "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
+install -Dm755 "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
 install -Dm755 "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
 mkdir -p dist

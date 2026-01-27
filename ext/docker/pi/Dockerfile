@@ -43,11 +43,15 @@ COPY codex-cli/dist/codex.tgz codex.tgz
 RUN npm install -g codex.tgz \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
-       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/path/rg; \
+       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/codex-linux-sandbox/codex-linux-sandbox "${INSTALL_ROOT}"/vendor/*/path/rg; \
        chown -R node:node "${INSTALL_ROOT}/vendor"; \
        APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-app-server -perm -111 | head -n 1); \
        if [ -n "$APP_SERVER_BIN" ]; then \
          ln -sf "$APP_SERVER_BIN" /usr/local/share/npm-global/bin/codex-app-server; \
+       fi; \
+       SANDBOX_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-linux-sandbox -perm -111 | head -n 1); \
+       if [ -n "$SANDBOX_BIN" ]; then \
+         ln -sf "$SANDBOX_BIN" /usr/local/share/npm-global/bin/codex-linux-sandbox; \
        fi; \
      fi \
   && npm cache clean --force \
@@ -68,10 +72,6 @@ COPY --chown=node:node sdk/typescript/package.json /home/node/node_modules/@open
 COPY --chown=node:node sdk/typescript/dist /home/node/node_modules/@openai/codex-sdk/dist
 COPY --chown=node:node codex-cli/vendor /home/node/node_modules/@openai/codex-sdk/vendor
 
-# Inside the container we consider the environment already sufficiently locked
-# down, therefore instruct Codex CLI to allow running without sandboxing.
-ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
-
 # Copy and set up firewall script as root.
 USER root
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
@@ -83,4 +83,4 @@ USER node
 # Default workspace under the user's home directory so it can be bind-mounted easily.
 WORKDIR /home/node/workdir
 RUN mkdir -p /home/node/workdir && \
-  printf 'sandbox_mode = "danger-full-access"\n' > /home/node/.codex/config.toml
+  printf 'sandbox_mode = "workspace-write"\n' > /home/node/.codex/config.toml
