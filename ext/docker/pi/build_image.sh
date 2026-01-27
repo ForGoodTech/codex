@@ -159,6 +159,11 @@ rm -f dist/openai-codex-*.tgz dist/codex.tgz
 pnpm pack --pack-destination dist
 mv dist/openai-codex-*.tgz dist/codex.tgz
 
+containers_using_image=$(docker ps -aq --filter "ancestor=$IMAGE_TAG")
+if [[ -n "$containers_using_image" ]]; then
+  docker rm -f $containers_using_image
+fi
+
 if docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
   docker rmi "$IMAGE_TAG"
 fi
