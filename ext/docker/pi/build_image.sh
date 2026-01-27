@@ -159,6 +159,10 @@ rm -f dist/openai-codex-*.tgz dist/codex.tgz
 pnpm pack --pack-destination dist
 mv dist/openai-codex-*.tgz dist/codex.tgz
 
+if docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+  docker rmi "$IMAGE_TAG"
+fi
+
 docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$REPO_ROOT"
 
 popd > /dev/null
