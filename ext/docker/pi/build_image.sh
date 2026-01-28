@@ -26,6 +26,10 @@ if [[ $# -ge 2 ]]; then
   BUILD_PROFILE=$2
 fi
 VENDOR_DIR="$CLI_ROOT/vendor"
+IMAGE_REF="$IMAGE_TAG"
+if [[ "$IMAGE_REF" != *:* ]]; then
+  IMAGE_REF="${IMAGE_REF}:latest"
+fi
 
 if [[ ! -d "$CLI_ROOT" ]]; then
   echo "Codex CLI directory not found at: $CLI_ROOT" >&2
@@ -159,13 +163,13 @@ rm -f dist/openai-codex-*.tgz dist/codex.tgz
 pnpm pack --pack-destination dist
 mv dist/openai-codex-*.tgz dist/codex.tgz
 
-containers_using_image=$(docker ps -aq --filter "ancestor=$IMAGE_TAG")
+containers_using_image=$(docker ps -aq --filter "ancestor=$IMAGE_REF")
 if [[ -n "$containers_using_image" ]]; then
   docker rm -f $containers_using_image
 fi
 
-if docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-  docker rmi "$IMAGE_TAG"
+if docker image inspect "$IMAGE_REF" >/dev/null 2>&1; then
+  docker rmi "$IMAGE_REF"
 fi
 
 docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$REPO_ROOT"
