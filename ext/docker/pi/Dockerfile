@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   iptables \
   jq \
   less \
-  libssl3 \
+  libssl1.1 \
   man-db \
   procps \
   unzip \
