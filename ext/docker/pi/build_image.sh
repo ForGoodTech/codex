@@ -146,9 +146,22 @@ RG_BIN_SRC=$(ensure_rg_binary)
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
 mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
-install -Dm755 "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
-install -Dm755 "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
-install -Dm755 "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
+
+function stage_binary() {
+  local src=$1
+  local dest=$2
+
+  if install -Dm755 "$src" "$dest" 2>/dev/null; then
+    return
+  fi
+
+  cp -f "$src" "$dest"
+  chmod 755 "$dest" 2>/dev/null || true
+}
+
+stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
+stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
+stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
 mkdir -p dist
 rm -f dist/openai-codex-*.tgz dist/codex.tgz
