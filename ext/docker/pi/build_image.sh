@@ -165,11 +165,18 @@ mv dist/openai-codex-*.tgz dist/codex.tgz
 
 containers_using_image=$(docker ps -aq --filter "ancestor=$IMAGE_REF")
 if [[ -n "$containers_using_image" ]]; then
+  echo "Removing containers using $IMAGE_REF:"
+  echo "$containers_using_image"
   docker rm -f $containers_using_image
+else
+  echo "No containers found for $IMAGE_REF"
 fi
 
 if docker image inspect "$IMAGE_REF" >/dev/null 2>&1; then
+  echo "Removing image $IMAGE_REF"
   docker rmi "$IMAGE_REF"
+else
+  echo "No image found for $IMAGE_REF"
 fi
 
 docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$REPO_ROOT"
