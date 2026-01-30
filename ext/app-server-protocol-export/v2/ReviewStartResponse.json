@@ -80,6 +80,25 @@
       ],
       "type": "object"
     },
+    "ByteRange": {
+      "properties": {
+        "end": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "start": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "type": "object"
+    },
     "CodexErrorInfo": {
       "description": "This translation layer make sure that we expose codex error code in camel case.\n\nWhen an upstream HTTP status is available (for example, from the Responses API or a provider), it is forwarded in `httpStatusCode` on the relevant `codexErrorInfo` variant.",
       "oneOf": [
@@ -95,6 +114,35 @@
             "other"
           ],
           "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "modelCap": {
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "reset_after_seconds": {
+                  "format": "uint64",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "model"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "modelCap"
+          ],
+          "title": "ModelCapCodexErrorInfo",
+          "type": "object"
         },
         {
           "additionalProperties": false,
@@ -192,6 +240,51 @@
           "type": "object"
         }
       ]
+    },
+    "CollabAgentState": {
+      "properties": {
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/CollabAgentStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "CollabAgentStatus": {
+      "enum": [
+        "pendingInit",
+        "running",
+        "completed",
+        "errored",
+        "shutdown",
+        "notFound"
+      ],
+      "type": "string"
+    },
+    "CollabAgentTool": {
+      "enum": [
+        "spawnAgent",
+        "sendInput",
+        "wait",
+        "closeAgent"
+      ],
+      "type": "string"
+    },
+    "CollabAgentToolCallStatus": {
+      "enum": [
+        "inProgress",
+        "completed",
+        "failed"
+      ],
+      "type": "string"
     },
     "CommandAction": {
       "oneOf": [
@@ -606,6 +699,29 @@
       ],
       "type": "object"
     },
+    "TextElement": {
+      "properties": {
+        "byteRange": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ByteRange"
+            }
+          ],
+          "description": "Byte range in the parent `text` buffer that this element occupies."
+        },
+        "placeholder": {
+          "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "byteRange"
+      ],
+      "type": "object"
+    },
     "TextResourceContents": {
       "properties": {
         "mimeType": {
@@ -881,6 +997,73 @@
         },
         {
           "properties": {
+            "agentsStates": {
+              "additionalProperties": {
+                "$ref": "#/definitions/CollabAgentState"
+              },
+              "description": "Last known status of the target agents, when available.",
+              "type": "object"
+            },
+            "id": {
+              "description": "Unique identifier for this collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Prompt text sent as part of the collab tool call, when available.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "receiverThreadIds": {
+              "description": "Thread ID of the receiving agent, when applicable. In case of spawn operation, this corresponds to the newly spawned agent.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "senderThreadId": {
+              "description": "Thread ID of the agent issuing the collab request.",
+              "type": "string"
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CollabAgentToolCallStatus"
+                }
+              ],
+              "description": "Current status of the collab tool call."
+            },
+            "tool": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CollabAgentTool"
+                }
+              ],
+              "description": "Name of the collab tool that was invoked."
+            },
+            "type": {
+              "enum": [
+                "collabAgentToolCall"
+              ],
+              "title": "CollabAgentToolCallThreadItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agentsStates",
+            "id",
+            "receiverThreadIds",
+            "senderThreadId",
+            "status",
+            "tool",
+            "type"
+          ],
+          "title": "CollabAgentToolCallThreadItem",
+          "type": "object"
+        },
+        {
+          "properties": {
             "id": {
               "type": "string"
             },
@@ -974,6 +1157,26 @@
           ],
           "title": "ExitedReviewModeThreadItem",
           "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "contextCompaction"
+              ],
+              "title": "ContextCompactionThreadItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "title": "ContextCompactionThreadItem",
+          "type": "object"
         }
       ]
     },
@@ -1055,6 +1258,14 @@
             "text": {
               "type": "string"
             },
+            "text_elements": {
+              "default": [],
+              "description": "UI-defined spans within `text` used to render or persist special elements.",
+              "items": {
+                "$ref": "#/definitions/TextElement"
+              },
+              "type": "array"
+            },
             "type": {
               "enum": [
                 "text"
@@ -1132,6 +1343,30 @@
             "type"
           ],
           "title": "SkillUserInput",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "mention"
+              ],
+              "title": "MentionUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "MentionUserInput",
           "type": "object"
         }
       ]

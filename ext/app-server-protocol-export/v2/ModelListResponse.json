@@ -26,6 +26,10 @@
             "$ref": "#/definitions/ReasoningEffortOption"
           },
           "type": "array"
+        },
+        "supportsPersonality": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "required": [

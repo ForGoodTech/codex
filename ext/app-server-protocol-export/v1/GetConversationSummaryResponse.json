@@ -62,6 +62,12 @@
             "string",
             "null"
           ]
+        },
+        "updatedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -110,6 +116,32 @@
             "compact"
           ],
           "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "thread_spawn": {
+              "properties": {
+                "depth": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "parent_thread_id": {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              },
+              "required": [
+                "depth",
+                "parent_thread_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread_spawn"
+          ],
+          "title": "ThreadSpawnSubAgentSource",
+          "type": "object"
         },
         {
           "additionalProperties": false,

@@ -187,6 +187,16 @@
               "type": "null"
             }
           ]
+        },
+        "web_search": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object"
@@ -194,6 +204,12 @@
     "ConfigLayer": {
       "properties": {
         "config": true,
+        "disabledReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "name": {
           "$ref": "#/definitions/ConfigLayerSource"
         },
@@ -446,6 +462,16 @@
               "type": "null"
             }
           ]
+        },
+        "web_search": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object"
@@ -537,6 +563,14 @@
         "low",
         "medium",
         "high"
+      ],
+      "type": "string"
+    },
+    "WebSearchMode": {
+      "enum": [
+        "disabled",
+        "cached",
+        "live"
       ],
       "type": "string"
     }

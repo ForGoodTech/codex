@@ -101,6 +101,70 @@
       ],
       "type": "object"
     },
+    "AgentStatus": {
+      "description": "Agent lifecycle status, derived from emitted events.",
+      "oneOf": [
+        {
+          "description": "Agent is waiting for initialization.",
+          "enum": [
+            "pending_init"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Agent is currently running.",
+          "enum": [
+            "running"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Agent is done. Contains the final assistant message.",
+          "properties": {
+            "completed": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "completed"
+          ],
+          "title": "CompletedAgentStatus",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Agent encountered an error.",
+          "properties": {
+            "errored": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "errored"
+          ],
+          "title": "ErroredAgentStatus",
+          "type": "object"
+        },
+        {
+          "description": "Agent has been shutdown.",
+          "enum": [
+            "shutdown"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Agent is not found.",
+          "enum": [
+            "not_found"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "Annotations": {
       "description": "Optional annotations for the client. The client can use annotations to inform how objects are used or displayed",
       "properties": {
@@ -193,11 +257,30 @@
       "type": "object"
     },
     "AuthMode": {
-      "enum": [
-        "apikey",
-        "chatgpt"
-      ],
-      "type": "string"
+      "description": "Authentication mode for OpenAI-backed providers.\n\nThis is used internally to determine the base URL for generating responses, and to gate ChatGPT-only behaviors like rate limits and available models (as opposed to API key-based auth).",
+      "oneOf": [
+        {
+          "description": "OpenAI API key provided by the caller and stored by Codex.",
+          "enum": [
+            "apikey"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "ChatGPT OAuth managed by Codex (tokens persisted and refreshed by Codex).",
+          "enum": [
+            "chatgpt"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "[UNSTABLE] FOR OPENAI INTERNAL USE ONLY - DO NOT USE.\n\nChatGPT auth tokens are supplied by an external host app and are only stored in memory. Token refresh must be handled by the external host app.",
+          "enum": [
+            "chatgptAuthTokens"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "AuthStatusChangeNotification": {
       "description": "Deprecated notification. Use AccountUpdatedNotification instead.",
@@ -233,6 +316,46 @@
       "required": [
         "blob",
         "uri"
+      ],
+      "type": "object"
+    },
+    "ByteRange": {
+      "properties": {
+        "end": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "start": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "type": "object"
+    },
+    "ByteRange2": {
+      "properties": {
+        "end": {
+          "description": "End byte offset (exclusive) within the UTF-8 text buffer.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "start": {
+          "description": "Start byte offset (inclusive) within the UTF-8 text buffer.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "end",
+        "start"
       ],
       "type": "object"
     },
@@ -273,6 +396,35 @@
             "other"
           ],
           "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "modelCap": {
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "reset_after_seconds": {
+                  "format": "uint64",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "model"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "modelCap"
+          ],
+          "title": "ModelCapCodexErrorInfo",
+          "type": "object"
         },
         {
           "additionalProperties": false,
@@ -390,6 +542,35 @@
         {
           "additionalProperties": false,
           "properties": {
+            "model_cap": {
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "reset_after_seconds": {
+                  "format": "uint64",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "model"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "model_cap"
+          ],
+          "title": "ModelCapCodexErrorInfo2",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "http_connection_failed": {
               "properties": {
                 "http_status_code": {
@@ -483,6 +664,51 @@
           "type": "object"
         }
       ]
+    },
+    "CollabAgentState": {
+      "properties": {
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/CollabAgentStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "CollabAgentStatus": {
+      "enum": [
+        "pendingInit",
+        "running",
+        "completed",
+        "errored",
+        "shutdown",
+        "notFound"
+      ],
+      "type": "string"
+    },
+    "CollabAgentTool": {
+      "enum": [
+        "spawnAgent",
+        "sendInput",
+        "wait",
+        "closeAgent"
+      ],
+      "type": "string"
+    },
+    "CollabAgentToolCallStatus": {
+      "enum": [
+        "inProgress",
+        "completed",
+        "failed"
+      ],
+      "type": "string"
     },
     "CommandAction": {
       "oneOf": [
@@ -626,6 +852,43 @@
       ],
       "type": "string"
     },
+    "ConfigWarningNotification": {
+      "properties": {
+        "details": {
+          "description": "Optional extra guidance or error details.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Optional path to the config file that triggered the warning.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "range": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TextRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional range for the error location inside the config file."
+        },
+        "summary": {
+          "description": "Concise summary of the warning.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "type": "object"
+    },
     "ContentBlock": {
       "anyOf": [
         {
@@ -710,6 +973,7 @@
       ]
     },
     "ContextCompactedNotification": {
+      "description": "Deprecated: Use `ContextCompaction` item type instead.",
       "properties": {
         "threadId": {
           "type": "string"
@@ -1100,6 +1364,7 @@
           "description": "User/system input message (what was sent to the model)",
           "properties": {
             "images": {
+              "description": "Image URLs sourced from `UserInput::Image`. These are safe to replay in legacy UI history events and correspond to images sent to the model.",
               "items": {
                 "type": "string"
               },
@@ -1108,8 +1373,24 @@
                 "null"
               ]
             },
+            "local_images": {
+              "default": [],
+              "description": "Local file paths sourced from `UserInput::LocalImage`. These are kept so the UI can reattach images when editing history, and should not be sent to the model or treated as API-ready URLs.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "message": {
               "type": "string"
+            },
+            "text_elements": {
+              "default": [],
+              "description": "UI-defined spans within `message` used to render or persist special elements.",
+              "items": {
+                "$ref": "#/definitions/TextElement2"
+              },
+              "type": "array"
             },
             "type": {
               "enum": [
@@ -1272,6 +1553,16 @@
               "description": "Working directory that should be treated as the *root* of the session.",
               "type": "string"
             },
+            "forked_from_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "history_entry_count": {
               "description": "Current number of entries in the history log.",
               "format": "uint",
@@ -1313,7 +1604,11 @@
               "description": "The effort the model is putting into reasoning about the user's request."
             },
             "rollout_path": {
-              "type": "string"
+              "description": "Path in which the rollout is stored. Can be `None` for ephemeral threads",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "sandbox_policy": {
               "allOf": [
@@ -1346,7 +1641,6 @@
             "history_log_id",
             "model",
             "model_provider_id",
-            "rollout_path",
             "sandbox_policy",
             "session_id",
             "type"
@@ -1508,6 +1802,9 @@
         },
         {
           "properties": {
+            "action": {
+              "$ref": "#/definitions/WebSearchAction"
+            },
             "call_id": {
               "type": "string"
             },
@@ -1523,6 +1820,7 @@
             }
           },
           "required": [
+            "action",
             "call_id",
             "query",
             "type"
@@ -1860,6 +2158,69 @@
             "type"
           ],
           "title": "ExecApprovalRequestEventMsg",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "call_id": {
+              "description": "Responses API call id for the associated tool call, if available.",
+              "type": "string"
+            },
+            "questions": {
+              "items": {
+                "$ref": "#/definitions/RequestUserInputQuestion"
+              },
+              "type": "array"
+            },
+            "turn_id": {
+              "default": "",
+              "description": "Turn ID that this request belongs to. Uses `#[serde(default)]` for backwards compatibility.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "request_user_input"
+              ],
+              "title": "RequestUserInputEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "questions",
+            "type"
+          ],
+          "title": "RequestUserInputEventMsg",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "arguments": true,
+            "callId": {
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "dynamic_tool_call_request"
+              ],
+              "title": "DynamicToolCallRequestEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "arguments",
+            "callId",
+            "tool",
+            "turnId",
+            "type"
+          ],
+          "title": "DynamicToolCallRequestEventMsg",
           "type": "object"
         },
         {
@@ -2645,6 +3006,364 @@
             "type"
           ],
           "title": "ReasoningRawContentDeltaEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent spawn begin.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_spawn_begin"
+              ],
+              "title": "CollabAgentSpawnBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabAgentSpawnBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent spawn end.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "new_thread_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Thread ID of the newly spawned agent, if it was created."
+            },
+            "prompt": {
+              "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AgentStatus"
+                }
+              ],
+              "description": "Last known status of the new agent reported to the sender agent."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_spawn_end"
+              ],
+              "title": "CollabAgentSpawnEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "sender_thread_id",
+            "status",
+            "type"
+          ],
+          "title": "CollabAgentSpawnEndEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent interaction begin.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_interaction_begin"
+              ],
+              "title": "CollabAgentInteractionBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabAgentInteractionBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent interaction end.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AgentStatus"
+                }
+              ],
+              "description": "Last known status of the receiver agent reported to the sender agent."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_interaction_end"
+              ],
+              "title": "CollabAgentInteractionEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "status",
+            "type"
+          ],
+          "title": "CollabAgentInteractionEndEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: waiting begin.",
+          "properties": {
+            "call_id": {
+              "description": "ID of the waiting call.",
+              "type": "string"
+            },
+            "receiver_thread_ids": {
+              "description": "Thread ID of the receivers.",
+              "items": {
+                "$ref": "#/definitions/ThreadId"
+              },
+              "type": "array"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_waiting_begin"
+              ],
+              "title": "CollabWaitingBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "receiver_thread_ids",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabWaitingBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: waiting end.",
+          "properties": {
+            "call_id": {
+              "description": "ID of the waiting call.",
+              "type": "string"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "statuses": {
+              "additionalProperties": {
+                "$ref": "#/definitions/AgentStatus"
+              },
+              "description": "Last known status of the receiver agents reported to the sender agent.",
+              "type": "object"
+            },
+            "type": {
+              "enum": [
+                "collab_waiting_end"
+              ],
+              "title": "CollabWaitingEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "sender_thread_id",
+            "statuses",
+            "type"
+          ],
+          "title": "CollabWaitingEndEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: close begin.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_close_begin"
+              ],
+              "title": "CollabCloseBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabCloseBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: close end.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AgentStatus"
+                }
+              ],
+              "description": "Last known status of the receiver agent reported to the sender agent before the close."
+            },
+            "type": {
+              "enum": [
+                "collab_close_end"
+              ],
+              "title": "CollabCloseEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "status",
+            "type"
+          ],
+          "title": "CollabCloseEndEventMsg",
           "type": "object"
         }
       ]
@@ -3818,6 +4537,57 @@
         }
       ]
     },
+    "RequestUserInputQuestion": {
+      "properties": {
+        "header": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "isOther": {
+          "default": false,
+          "type": "boolean"
+        },
+        "isSecret": {
+          "default": false,
+          "type": "boolean"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/definitions/RequestUserInputQuestionOption"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "question": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "header",
+        "id",
+        "question"
+      ],
+      "type": "object"
+    },
+    "RequestUserInputQuestionOption": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "label"
+      ],
+      "type": "object"
+    },
     "Resource": {
       "description": "A known resource that the server is capable of reading.",
       "properties": {
@@ -3977,6 +4747,12 @@
                 "$ref": "#/definitions/ContentItem"
               },
               "type": "array"
+            },
+            "end_turn": {
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "id": {
               "type": [
@@ -4214,7 +4990,14 @@
         {
           "properties": {
             "action": {
-              "$ref": "#/definitions/WebSearchAction"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/WebSearchAction"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "id": {
               "type": [
@@ -4238,7 +5021,6 @@
             }
           },
           "required": [
-            "action",
             "type"
           ],
           "title": "WebSearchCallResponseItem",
@@ -4678,14 +5460,45 @@
       "type": "object"
     },
     "SessionSource": {
-      "enum": [
-        "cli",
-        "vscode",
-        "exec",
-        "appServer",
-        "unknown"
+      "oneOf": [
+        {
+          "enum": [
+            "cli",
+            "vscode",
+            "exec",
+            "appServer",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "subAgent": {
+              "$ref": "#/definitions/SubAgentSource"
+            }
+          },
+          "required": [
+            "subAgent"
+          ],
+          "title": "SubAgentSessionSource",
+          "type": "object"
+        }
+      ]
+    },
+    "SkillDependencies": {
+      "properties": {
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/SkillToolDependency"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tools"
       ],
-      "type": "string"
+      "type": "object"
     },
     "SkillErrorInfo": {
       "properties": {
@@ -4702,10 +5515,74 @@
       ],
       "type": "object"
     },
+    "SkillInterface": {
+      "properties": {
+        "brand_color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon_large": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon_small": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "short_description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "SkillMetadata": {
       "properties": {
+        "dependencies": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SkillDependencies"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "description": {
           "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SkillInterface"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "name": {
           "type": "string"
@@ -4717,6 +5594,7 @@
           "$ref": "#/definitions/SkillScope"
         },
         "short_description": {
+          "description": "Legacy short_description from SKILL.md. Prefer SKILL.json interface.short_description.",
           "type": [
             "string",
             "null"
@@ -4725,6 +5603,7 @@
       },
       "required": [
         "description",
+        "enabled",
         "name",
         "path",
         "scope"
@@ -4739,6 +5618,45 @@
         "admin"
       ],
       "type": "string"
+    },
+    "SkillToolDependency": {
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transport": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "value"
+      ],
+      "type": "object"
     },
     "SkillsListEntry": {
       "properties": {
@@ -4772,6 +5690,56 @@
         "completed"
       ],
       "type": "string"
+    },
+    "SubAgentSource": {
+      "oneOf": [
+        {
+          "enum": [
+            "review",
+            "compact"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "thread_spawn": {
+              "properties": {
+                "depth": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "parent_thread_id": {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              },
+              "required": [
+                "depth",
+                "parent_thread_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread_spawn"
+          ],
+          "title": "ThreadSpawnSubAgentSource",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "other": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "other"
+          ],
+          "title": "OtherSubAgentSource",
+          "type": "object"
+        }
+      ]
     },
     "TerminalInteractionNotification": {
       "properties": {
@@ -4823,6 +5791,88 @@
       "required": [
         "text",
         "type"
+      ],
+      "type": "object"
+    },
+    "TextElement": {
+      "properties": {
+        "byteRange": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ByteRange"
+            }
+          ],
+          "description": "Byte range in the parent `text` buffer that this element occupies."
+        },
+        "placeholder": {
+          "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "byteRange"
+      ],
+      "type": "object"
+    },
+    "TextElement2": {
+      "properties": {
+        "byte_range": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ByteRange2"
+            }
+          ],
+          "description": "Byte range in the parent `text` buffer that this element occupies."
+        },
+        "placeholder": {
+          "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "byte_range"
+      ],
+      "type": "object"
+    },
+    "TextPosition": {
+      "properties": {
+        "column": {
+          "description": "1-based column number (in Unicode scalar values).",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "line": {
+          "description": "1-based line number.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "column",
+        "line"
+      ],
+      "type": "object"
+    },
+    "TextRange": {
+      "properties": {
+        "end": {
+          "$ref": "#/definitions/TextPosition"
+        },
+        "start": {
+          "$ref": "#/definitions/TextPosition"
+        }
+      },
+      "required": [
+        "end",
+        "start"
       ],
       "type": "object"
     },
@@ -4882,7 +5932,10 @@
         },
         "path": {
           "description": "[UNSTABLE] Path to the thread on disk.",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "preview": {
           "description": "Usually the first user message in the thread, if available.",
@@ -4897,11 +5950,16 @@
           "description": "Origin of the thread (CLI, VSCode, codex exec, codex app-server, etc.)."
         },
         "turns": {
-          "description": "Only populated on `thread/resume`, `thread/rollback`, `thread/fork` responses. For all other responses and notifications returning a Thread, the turns field will be an empty list.",
+          "description": "Only populated on `thread/resume`, `thread/rollback`, `thread/fork`, and `thread/read` (when `includeTurns` is true) responses. For all other responses and notifications returning a Thread, the turns field will be an empty list.",
           "items": {
             "$ref": "#/definitions/Turn"
           },
           "type": "array"
+        },
+        "updatedAt": {
+          "description": "Unix timestamp (in seconds) when the thread was last updated.",
+          "format": "int64",
+          "type": "integer"
         }
       },
       "required": [
@@ -4910,10 +5968,10 @@
         "cwd",
         "id",
         "modelProvider",
-        "path",
         "preview",
         "source",
-        "turns"
+        "turns",
+        "updatedAt"
       ],
       "type": "object"
     },
@@ -5174,6 +6232,73 @@
         },
         {
           "properties": {
+            "agentsStates": {
+              "additionalProperties": {
+                "$ref": "#/definitions/CollabAgentState"
+              },
+              "description": "Last known status of the target agents, when available.",
+              "type": "object"
+            },
+            "id": {
+              "description": "Unique identifier for this collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Prompt text sent as part of the collab tool call, when available.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "receiverThreadIds": {
+              "description": "Thread ID of the receiving agent, when applicable. In case of spawn operation, this corresponds to the newly spawned agent.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "senderThreadId": {
+              "description": "Thread ID of the agent issuing the collab request.",
+              "type": "string"
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CollabAgentToolCallStatus"
+                }
+              ],
+              "description": "Current status of the collab tool call."
+            },
+            "tool": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CollabAgentTool"
+                }
+              ],
+              "description": "Name of the collab tool that was invoked."
+            },
+            "type": {
+              "enum": [
+                "collabAgentToolCall"
+              ],
+              "title": "CollabAgentToolCallThreadItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agentsStates",
+            "id",
+            "receiverThreadIds",
+            "senderThreadId",
+            "status",
+            "tool",
+            "type"
+          ],
+          "title": "CollabAgentToolCallThreadItem",
+          "type": "object"
+        },
+        {
+          "properties": {
             "id": {
               "type": "string"
             },
@@ -5266,6 +6391,26 @@
             "type"
           ],
           "title": "ExitedReviewModeThreadItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "contextCompaction"
+              ],
+              "title": "ContextCompactionThreadItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "title": "ContextCompactionThreadItem",
           "type": "object"
         }
       ]
@@ -5729,6 +6874,9 @@
         },
         {
           "properties": {
+            "action": {
+              "$ref": "#/definitions/WebSearchAction"
+            },
             "id": {
               "type": "string"
             },
@@ -5744,11 +6892,32 @@
             }
           },
           "required": [
+            "action",
             "id",
             "query",
             "type"
           ],
           "title": "WebSearchTurnItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "ContextCompaction"
+              ],
+              "title": "ContextCompactionTurnItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "title": "ContextCompactionTurnItem",
           "type": "object"
         }
       ]
@@ -5835,6 +7004,14 @@
             "text": {
               "type": "string"
             },
+            "text_elements": {
+              "default": [],
+              "description": "UI-defined spans within `text` used to render or persist special elements.",
+              "items": {
+                "$ref": "#/definitions/TextElement"
+              },
+              "type": "array"
+            },
             "type": {
               "enum": [
                 "text"
@@ -5913,6 +7090,30 @@
           ],
           "title": "SkillUserInput",
           "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "mention"
+              ],
+              "title": "MentionUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "MentionUserInput",
+          "type": "object"
         }
       ]
     },
@@ -5923,6 +7124,14 @@
           "properties": {
             "text": {
               "type": "string"
+            },
+            "text_elements": {
+              "default": [],
+              "description": "UI-defined spans within `text` that should be treated as special elements. These are byte ranges into the UTF-8 `text` buffer and are used to render or persist rich input markers (e.g., image placeholders) across history and resume without mutating the literal text.",
+              "items": {
+                "$ref": "#/definitions/TextElement2"
+              },
+              "type": "array"
             },
             "type": {
               "enum": [
@@ -6004,6 +7213,31 @@
             "type"
           ],
           "title": "SkillUserInput2",
+          "type": "object"
+        },
+        {
+          "description": "Explicit mention selected by the user (name + app://connector id).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "mention"
+              ],
+              "title": "MentionUserInput2Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "MentionUserInput2",
           "type": "object"
         }
       ]
@@ -6550,6 +7784,7 @@
       "type": "object"
     },
     {
+      "description": "Deprecated: Use `ContextCompaction` item type instead.",
       "properties": {
         "method": {
           "enum": [
@@ -6587,6 +7822,26 @@
         "params"
       ],
       "title": "DeprecationNoticeNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "configWarning"
+          ],
+          "title": "ConfigWarningNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConfigWarningNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "ConfigWarningNotification",
       "type": "object"
     },
     {

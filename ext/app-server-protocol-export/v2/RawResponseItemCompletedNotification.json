@@ -311,6 +311,12 @@
               },
               "type": "array"
             },
+            "end_turn": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "id": {
               "type": [
                 "string",
@@ -547,7 +553,14 @@
         {
           "properties": {
             "action": {
-              "$ref": "#/definitions/WebSearchAction"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/WebSearchAction"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "id": {
               "type": [
@@ -571,7 +584,6 @@
             }
           },
           "required": [
-            "action",
             "type"
           ],
           "title": "WebSearchCallResponseItem",

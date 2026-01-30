@@ -242,6 +242,13 @@
       ],
       "type": "string"
     },
+    "Personality": {
+      "enum": [
+        "friendly",
+        "pragmatic"
+      ],
+      "type": "string"
+    },
     "ReasoningItemContent": {
       "oneOf": [
         {
@@ -319,6 +326,12 @@
                 "$ref": "#/definitions/ContentItem"
               },
               "type": "array"
+            },
+            "end_turn": {
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "id": {
               "type": [
@@ -556,7 +569,14 @@
         {
           "properties": {
             "action": {
-              "$ref": "#/definitions/WebSearchAction"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/WebSearchAction"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "id": {
               "type": [
@@ -580,7 +600,6 @@
             }
           },
           "required": [
-            "action",
             "type"
           ],
           "title": "WebSearchCallResponseItem",
@@ -810,6 +829,16 @@
       "type": [
         "string",
         "null"
+      ]
+    },
+    "personality": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Personality"
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "sandbox": {

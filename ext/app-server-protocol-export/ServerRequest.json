@@ -38,8 +38,171 @@
       ],
       "type": "object"
     },
+    "ChatgptAuthTokensRefreshParams": {
+      "properties": {
+        "previousAccountId": {
+          "description": "Workspace/account identifier that Codex was previously using.\n\nClients that manage multiple accounts/workspaces can use this as a hint to refresh the token for the correct workspace.\n\nThis may be `null` when the prior ID token did not include a workspace identifier (`chatgpt_account_id`) or when the token could not be parsed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/definitions/ChatgptAuthTokensRefreshReason"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ChatgptAuthTokensRefreshReason": {
+      "oneOf": [
+        {
+          "description": "Codex attempted a backend request and received `401 Unauthorized`.",
+          "enum": [
+            "unauthorized"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "CommandAction": {
+      "oneOf": [
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "read"
+              ],
+              "title": "ReadCommandActionType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "ReadCommandAction",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "listFiles"
+              ],
+              "title": "ListFilesCommandActionType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "type"
+          ],
+          "title": "ListFilesCommandAction",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "query": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "search"
+              ],
+              "title": "SearchCommandActionType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "type"
+          ],
+          "title": "SearchCommandAction",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "unknown"
+              ],
+              "title": "UnknownCommandActionType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "type"
+          ],
+          "title": "UnknownCommandAction",
+          "type": "object"
+        }
+      ]
+    },
     "CommandExecutionRequestApprovalParams": {
       "properties": {
+        "command": {
+          "description": "The command to be executed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commandActions": {
+          "description": "Best-effort parsed command actions for friendly display.",
+          "items": {
+            "$ref": "#/definitions/CommandAction"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "cwd": {
+          "description": "The command's working directory.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "itemId": {
           "type": "string"
         },
@@ -70,6 +233,31 @@
       "required": [
         "itemId",
         "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "DynamicToolCallParams": {
+      "properties": {
+        "arguments": true,
+        "callId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "arguments",
+        "callId",
+        "threadId",
+        "tool",
         "turnId"
       ],
       "type": "object"
@@ -341,6 +529,86 @@
     },
     "ThreadId": {
       "type": "string"
+    },
+    "ToolRequestUserInputOption": {
+      "description": "EXPERIMENTAL. Defines a single selectable option for request_user_input.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "label"
+      ],
+      "type": "object"
+    },
+    "ToolRequestUserInputParams": {
+      "description": "EXPERIMENTAL. Params sent with a request_user_input event.",
+      "properties": {
+        "itemId": {
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/definitions/ToolRequestUserInputQuestion"
+          },
+          "type": "array"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemId",
+        "questions",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "ToolRequestUserInputQuestion": {
+      "description": "EXPERIMENTAL. Represents one request_user_input question and its optional options.",
+      "properties": {
+        "header": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "isOther": {
+          "default": false,
+          "type": "boolean"
+        },
+        "isSecret": {
+          "default": false,
+          "type": "boolean"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/definitions/ToolRequestUserInputOption"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "question": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "header",
+        "id",
+        "question"
+      ],
+      "type": "object"
     }
   },
   "description": "Request initiated from the server and sent to the client.",
@@ -393,6 +661,80 @@
         "params"
       ],
       "title": "Item/fileChange/requestApprovalRequest",
+      "type": "object"
+    },
+    {
+      "description": "EXPERIMENTAL - Request input from the user for a tool call.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "item/tool/requestUserInput"
+          ],
+          "title": "Item/tool/requestUserInputRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ToolRequestUserInputParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Item/tool/requestUserInputRequest",
+      "type": "object"
+    },
+    {
+      "description": "Execute a dynamic tool call on the client.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "item/tool/call"
+          ],
+          "title": "Item/tool/callRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DynamicToolCallParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Item/tool/callRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "account/chatgptAuthTokens/refresh"
+          ],
+          "title": "Account/chatgptAuthTokens/refreshRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ChatgptAuthTokensRefreshParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Account/chatgptAuthTokens/refreshRequest",
       "type": "object"
     },
     {

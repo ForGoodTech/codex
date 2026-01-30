@@ -36,6 +36,33 @@
       ],
       "title": "Chatgptv2::LoginAccountParams",
       "type": "object"
+    },
+    {
+      "description": "[UNSTABLE] FOR OPENAI INTERNAL USE ONLY - DO NOT USE. The access token must contain the same scopes that Codex-managed ChatGPT auth tokens have.",
+      "properties": {
+        "accessToken": {
+          "description": "Access token (JWT) supplied by the client. This token is used for backend API requests.",
+          "type": "string"
+        },
+        "idToken": {
+          "description": "ID token (JWT) supplied by the client.\n\nThis token is used for identity and account metadata (email, plan type, workspace id).",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "chatgptAuthTokens"
+          ],
+          "title": "ChatgptAuthTokensv2::LoginAccountParamsType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "accessToken",
+        "idToken",
+        "type"
+      ],
+      "title": "ChatgptAuthTokensv2::LoginAccountParams",
+      "type": "object"
     }
   ],
   "title": "LoginAccountParams"

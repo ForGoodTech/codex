@@ -29,6 +29,70 @@
         }
       ]
     },
+    "AgentStatus": {
+      "description": "Agent lifecycle status, derived from emitted events.",
+      "oneOf": [
+        {
+          "description": "Agent is waiting for initialization.",
+          "enum": [
+            "pending_init"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Agent is currently running.",
+          "enum": [
+            "running"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Agent is done. Contains the final assistant message.",
+          "properties": {
+            "completed": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "completed"
+          ],
+          "title": "CompletedAgentStatus",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Agent encountered an error.",
+          "properties": {
+            "errored": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "errored"
+          ],
+          "title": "ErroredAgentStatus",
+          "type": "object"
+        },
+        {
+          "description": "Agent has been shutdown.",
+          "enum": [
+            "shutdown"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Agent is not found.",
+          "enum": [
+            "not_found"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "Annotations": {
       "description": "Optional annotations for the client. The client can use annotations to inform how objects are used or displayed",
       "properties": {
@@ -141,6 +205,27 @@
       ],
       "type": "object"
     },
+    "ByteRange": {
+      "properties": {
+        "end": {
+          "description": "End byte offset (exclusive) within the UTF-8 text buffer.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "start": {
+          "description": "Start byte offset (inclusive) within the UTF-8 text buffer.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "type": "object"
+    },
     "CallToolResult": {
       "description": "The server's response to a tool call.",
       "properties": {
@@ -178,6 +263,35 @@
             "other"
           ],
           "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "model_cap": {
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "reset_after_seconds": {
+                  "format": "uint64",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "model"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "model_cap"
+          ],
+          "title": "ModelCapCodexErrorInfo",
+          "type": "object"
         },
         {
           "additionalProperties": false,
@@ -672,6 +786,7 @@
           "description": "User/system input message (what was sent to the model)",
           "properties": {
             "images": {
+              "description": "Image URLs sourced from `UserInput::Image`. These are safe to replay in legacy UI history events and correspond to images sent to the model.",
               "items": {
                 "type": "string"
               },
@@ -680,8 +795,24 @@
                 "null"
               ]
             },
+            "local_images": {
+              "default": [],
+              "description": "Local file paths sourced from `UserInput::LocalImage`. These are kept so the UI can reattach images when editing history, and should not be sent to the model or treated as API-ready URLs.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "message": {
               "type": "string"
+            },
+            "text_elements": {
+              "default": [],
+              "description": "UI-defined spans within `message` used to render or persist special elements.",
+              "items": {
+                "$ref": "#/definitions/TextElement"
+              },
+              "type": "array"
             },
             "type": {
               "enum": [
@@ -844,6 +975,16 @@
               "description": "Working directory that should be treated as the *root* of the session.",
               "type": "string"
             },
+            "forked_from_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "history_entry_count": {
               "description": "Current number of entries in the history log.",
               "format": "uint",
@@ -885,7 +1026,11 @@
               "description": "The effort the model is putting into reasoning about the user's request."
             },
             "rollout_path": {
-              "type": "string"
+              "description": "Path in which the rollout is stored. Can be `None` for ephemeral threads",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "sandbox_policy": {
               "allOf": [
@@ -918,7 +1063,6 @@
             "history_log_id",
             "model",
             "model_provider_id",
-            "rollout_path",
             "sandbox_policy",
             "session_id",
             "type"
@@ -1080,6 +1224,9 @@
         },
         {
           "properties": {
+            "action": {
+              "$ref": "#/definitions/WebSearchAction"
+            },
             "call_id": {
               "type": "string"
             },
@@ -1095,6 +1242,7 @@
             }
           },
           "required": [
+            "action",
             "call_id",
             "query",
             "type"
@@ -1432,6 +1580,69 @@
             "type"
           ],
           "title": "ExecApprovalRequestEventMsg",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "call_id": {
+              "description": "Responses API call id for the associated tool call, if available.",
+              "type": "string"
+            },
+            "questions": {
+              "items": {
+                "$ref": "#/definitions/RequestUserInputQuestion"
+              },
+              "type": "array"
+            },
+            "turn_id": {
+              "default": "",
+              "description": "Turn ID that this request belongs to. Uses `#[serde(default)]` for backwards compatibility.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "request_user_input"
+              ],
+              "title": "RequestUserInputEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "questions",
+            "type"
+          ],
+          "title": "RequestUserInputEventMsg",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "arguments": true,
+            "callId": {
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "dynamic_tool_call_request"
+              ],
+              "title": "DynamicToolCallRequestEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "arguments",
+            "callId",
+            "tool",
+            "turnId",
+            "type"
+          ],
+          "title": "DynamicToolCallRequestEventMsg",
           "type": "object"
         },
         {
@@ -2218,6 +2429,364 @@
           ],
           "title": "ReasoningRawContentDeltaEventMsg",
           "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent spawn begin.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_spawn_begin"
+              ],
+              "title": "CollabAgentSpawnBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabAgentSpawnBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent spawn end.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "new_thread_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Thread ID of the newly spawned agent, if it was created."
+            },
+            "prompt": {
+              "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AgentStatus"
+                }
+              ],
+              "description": "Last known status of the new agent reported to the sender agent."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_spawn_end"
+              ],
+              "title": "CollabAgentSpawnEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "sender_thread_id",
+            "status",
+            "type"
+          ],
+          "title": "CollabAgentSpawnEndEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent interaction begin.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_interaction_begin"
+              ],
+              "title": "CollabAgentInteractionBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabAgentInteractionBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: agent interaction end.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AgentStatus"
+                }
+              ],
+              "description": "Last known status of the receiver agent reported to the sender agent."
+            },
+            "type": {
+              "enum": [
+                "collab_agent_interaction_end"
+              ],
+              "title": "CollabAgentInteractionEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "prompt",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "status",
+            "type"
+          ],
+          "title": "CollabAgentInteractionEndEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: waiting begin.",
+          "properties": {
+            "call_id": {
+              "description": "ID of the waiting call.",
+              "type": "string"
+            },
+            "receiver_thread_ids": {
+              "description": "Thread ID of the receivers.",
+              "items": {
+                "$ref": "#/definitions/ThreadId"
+              },
+              "type": "array"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_waiting_begin"
+              ],
+              "title": "CollabWaitingBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "receiver_thread_ids",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabWaitingBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: waiting end.",
+          "properties": {
+            "call_id": {
+              "description": "ID of the waiting call.",
+              "type": "string"
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "statuses": {
+              "additionalProperties": {
+                "$ref": "#/definitions/AgentStatus"
+              },
+              "description": "Last known status of the receiver agents reported to the sender agent.",
+              "type": "object"
+            },
+            "type": {
+              "enum": [
+                "collab_waiting_end"
+              ],
+              "title": "CollabWaitingEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "sender_thread_id",
+            "statuses",
+            "type"
+          ],
+          "title": "CollabWaitingEndEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: close begin.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "type": {
+              "enum": [
+                "collab_close_begin"
+              ],
+              "title": "CollabCloseBeginEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "type"
+          ],
+          "title": "CollabCloseBeginEventMsg",
+          "type": "object"
+        },
+        {
+          "description": "Collab interaction: close end.",
+          "properties": {
+            "call_id": {
+              "description": "Identifier for the collab tool call.",
+              "type": "string"
+            },
+            "receiver_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the receiver."
+            },
+            "sender_thread_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ThreadId"
+                }
+              ],
+              "description": "Thread ID of the sender."
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AgentStatus"
+                }
+              ],
+              "description": "Last known status of the receiver agent reported to the sender agent before the close."
+            },
+            "type": {
+              "enum": [
+                "collab_close_end"
+              ],
+              "title": "CollabCloseEndEventMsgType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "receiver_thread_id",
+            "sender_thread_id",
+            "status",
+            "type"
+          ],
+          "title": "CollabCloseEndEventMsg",
+          "type": "object"
         }
       ]
     },
@@ -2950,6 +3519,57 @@
         }
       ]
     },
+    "RequestUserInputQuestion": {
+      "properties": {
+        "header": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "isOther": {
+          "default": false,
+          "type": "boolean"
+        },
+        "isSecret": {
+          "default": false,
+          "type": "boolean"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/definitions/RequestUserInputQuestionOption"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "question": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "header",
+        "id",
+        "question"
+      ],
+      "type": "object"
+    },
+    "RequestUserInputQuestionOption": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "label"
+      ],
+      "type": "object"
+    },
     "Resource": {
       "description": "A known resource that the server is capable of reading.",
       "properties": {
@@ -3109,6 +3729,12 @@
                 "$ref": "#/definitions/ContentItem"
               },
               "type": "array"
+            },
+            "end_turn": {
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "id": {
               "type": [
@@ -3346,7 +3972,14 @@
         {
           "properties": {
             "action": {
-              "$ref": "#/definitions/WebSearchAction"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/WebSearchAction"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "id": {
               "type": [
@@ -3370,7 +4003,6 @@
             }
           },
           "required": [
-            "action",
             "type"
           ],
           "title": "WebSearchCallResponseItem",
@@ -3759,6 +4391,20 @@
         }
       ]
     },
+    "SkillDependencies": {
+      "properties": {
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/SkillToolDependency"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tools"
+      ],
+      "type": "object"
+    },
     "SkillErrorInfo": {
       "properties": {
         "message": {
@@ -3774,10 +4420,74 @@
       ],
       "type": "object"
     },
+    "SkillInterface": {
+      "properties": {
+        "brand_color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon_large": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon_small": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "short_description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "SkillMetadata": {
       "properties": {
+        "dependencies": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SkillDependencies"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "description": {
           "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SkillInterface"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "name": {
           "type": "string"
@@ -3789,6 +4499,7 @@
           "$ref": "#/definitions/SkillScope"
         },
         "short_description": {
+          "description": "Legacy short_description from SKILL.md. Prefer SKILL.json interface.short_description.",
           "type": [
             "string",
             "null"
@@ -3797,6 +4508,7 @@
       },
       "required": [
         "description",
+        "enabled",
         "name",
         "path",
         "scope"
@@ -3811,6 +4523,45 @@
         "admin"
       ],
       "type": "string"
+    },
+    "SkillToolDependency": {
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transport": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "value"
+      ],
+      "type": "object"
     },
     "SkillsListEntry": {
       "properties": {
@@ -3868,6 +4619,29 @@
       "required": [
         "text",
         "type"
+      ],
+      "type": "object"
+    },
+    "TextElement": {
+      "properties": {
+        "byte_range": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ByteRange"
+            }
+          ],
+          "description": "Byte range in the parent `text` buffer that this element occupies."
+        },
+        "placeholder": {
+          "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "byte_range"
       ],
       "type": "object"
     },
@@ -4173,6 +4947,9 @@
         },
         {
           "properties": {
+            "action": {
+              "$ref": "#/definitions/WebSearchAction"
+            },
             "id": {
               "type": "string"
             },
@@ -4188,11 +4965,32 @@
             }
           },
           "required": [
+            "action",
             "id",
             "query",
             "type"
           ],
           "title": "WebSearchTurnItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "ContextCompaction"
+              ],
+              "title": "ContextCompactionTurnItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "title": "ContextCompactionTurnItem",
           "type": "object"
         }
       ]
@@ -4204,6 +5002,14 @@
           "properties": {
             "text": {
               "type": "string"
+            },
+            "text_elements": {
+              "default": [],
+              "description": "UI-defined spans within `text` that should be treated as special elements. These are byte ranges into the UTF-8 `text` buffer and are used to render or persist rich input markers (e.g., image placeholders) across history and resume without mutating the literal text.",
+              "items": {
+                "$ref": "#/definitions/TextElement"
+              },
+              "type": "array"
             },
             "type": {
               "enum": [
@@ -4285,6 +5091,31 @@
             "type"
           ],
           "title": "SkillUserInput",
+          "type": "object"
+        },
+        {
+          "description": "Explicit mention selected by the user (name + app://connector id).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "mention"
+              ],
+              "title": "MentionUserInputType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "type"
+          ],
+          "title": "MentionUserInput",
           "type": "object"
         }
       ]
@@ -4587,6 +5418,7 @@
       "description": "User/system input message (what was sent to the model)",
       "properties": {
         "images": {
+          "description": "Image URLs sourced from `UserInput::Image`. These are safe to replay in legacy UI history events and correspond to images sent to the model.",
           "items": {
             "type": "string"
           },
@@ -4595,8 +5427,24 @@
             "null"
           ]
         },
+        "local_images": {
+          "default": [],
+          "description": "Local file paths sourced from `UserInput::LocalImage`. These are kept so the UI can reattach images when editing history, and should not be sent to the model or treated as API-ready URLs.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "message": {
           "type": "string"
+        },
+        "text_elements": {
+          "default": [],
+          "description": "UI-defined spans within `message` used to render or persist special elements.",
+          "items": {
+            "$ref": "#/definitions/TextElement"
+          },
+          "type": "array"
         },
         "type": {
           "enum": [
@@ -4759,6 +5607,16 @@
           "description": "Working directory that should be treated as the *root* of the session.",
           "type": "string"
         },
+        "forked_from_id": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "history_entry_count": {
           "description": "Current number of entries in the history log.",
           "format": "uint",
@@ -4800,7 +5658,11 @@
           "description": "The effort the model is putting into reasoning about the user's request."
         },
         "rollout_path": {
-          "type": "string"
+          "description": "Path in which the rollout is stored. Can be `None` for ephemeral threads",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sandbox_policy": {
           "allOf": [
@@ -4833,7 +5695,6 @@
         "history_log_id",
         "model",
         "model_provider_id",
-        "rollout_path",
         "sandbox_policy",
         "session_id",
         "type"
@@ -4995,6 +5856,9 @@
     },
     {
       "properties": {
+        "action": {
+          "$ref": "#/definitions/WebSearchAction"
+        },
         "call_id": {
           "type": "string"
         },
@@ -5010,6 +5874,7 @@
         }
       },
       "required": [
+        "action",
         "call_id",
         "query",
         "type"
@@ -5347,6 +6212,69 @@
         "type"
       ],
       "title": "ExecApprovalRequestEventMsg",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "call_id": {
+          "description": "Responses API call id for the associated tool call, if available.",
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/definitions/RequestUserInputQuestion"
+          },
+          "type": "array"
+        },
+        "turn_id": {
+          "default": "",
+          "description": "Turn ID that this request belongs to. Uses `#[serde(default)]` for backwards compatibility.",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "request_user_input"
+          ],
+          "title": "RequestUserInputEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "questions",
+        "type"
+      ],
+      "title": "RequestUserInputEventMsg",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "arguments": true,
+        "callId": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "dynamic_tool_call_request"
+          ],
+          "title": "DynamicToolCallRequestEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "arguments",
+        "callId",
+        "tool",
+        "turnId",
+        "type"
+      ],
+      "title": "DynamicToolCallRequestEventMsg",
       "type": "object"
     },
     {
@@ -6132,6 +7060,364 @@
         "type"
       ],
       "title": "ReasoningRawContentDeltaEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: agent spawn begin.",
+      "properties": {
+        "call_id": {
+          "description": "Identifier for the collab tool call.",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
+          "type": "string"
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "type": {
+          "enum": [
+            "collab_agent_spawn_begin"
+          ],
+          "title": "CollabAgentSpawnBeginEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "prompt",
+        "sender_thread_id",
+        "type"
+      ],
+      "title": "CollabAgentSpawnBeginEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: agent spawn end.",
+      "properties": {
+        "call_id": {
+          "description": "Identifier for the collab tool call.",
+          "type": "string"
+        },
+        "new_thread_id": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Thread ID of the newly spawned agent, if it was created."
+        },
+        "prompt": {
+          "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
+          "type": "string"
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "status": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AgentStatus"
+            }
+          ],
+          "description": "Last known status of the new agent reported to the sender agent."
+        },
+        "type": {
+          "enum": [
+            "collab_agent_spawn_end"
+          ],
+          "title": "CollabAgentSpawnEndEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "prompt",
+        "sender_thread_id",
+        "status",
+        "type"
+      ],
+      "title": "CollabAgentSpawnEndEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: agent interaction begin.",
+      "properties": {
+        "call_id": {
+          "description": "Identifier for the collab tool call.",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
+          "type": "string"
+        },
+        "receiver_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the receiver."
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "type": {
+          "enum": [
+            "collab_agent_interaction_begin"
+          ],
+          "title": "CollabAgentInteractionBeginEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "prompt",
+        "receiver_thread_id",
+        "sender_thread_id",
+        "type"
+      ],
+      "title": "CollabAgentInteractionBeginEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: agent interaction end.",
+      "properties": {
+        "call_id": {
+          "description": "Identifier for the collab tool call.",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
+          "type": "string"
+        },
+        "receiver_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the receiver."
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "status": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AgentStatus"
+            }
+          ],
+          "description": "Last known status of the receiver agent reported to the sender agent."
+        },
+        "type": {
+          "enum": [
+            "collab_agent_interaction_end"
+          ],
+          "title": "CollabAgentInteractionEndEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "prompt",
+        "receiver_thread_id",
+        "sender_thread_id",
+        "status",
+        "type"
+      ],
+      "title": "CollabAgentInteractionEndEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: waiting begin.",
+      "properties": {
+        "call_id": {
+          "description": "ID of the waiting call.",
+          "type": "string"
+        },
+        "receiver_thread_ids": {
+          "description": "Thread ID of the receivers.",
+          "items": {
+            "$ref": "#/definitions/ThreadId"
+          },
+          "type": "array"
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "type": {
+          "enum": [
+            "collab_waiting_begin"
+          ],
+          "title": "CollabWaitingBeginEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "receiver_thread_ids",
+        "sender_thread_id",
+        "type"
+      ],
+      "title": "CollabWaitingBeginEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: waiting end.",
+      "properties": {
+        "call_id": {
+          "description": "ID of the waiting call.",
+          "type": "string"
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "statuses": {
+          "additionalProperties": {
+            "$ref": "#/definitions/AgentStatus"
+          },
+          "description": "Last known status of the receiver agents reported to the sender agent.",
+          "type": "object"
+        },
+        "type": {
+          "enum": [
+            "collab_waiting_end"
+          ],
+          "title": "CollabWaitingEndEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "sender_thread_id",
+        "statuses",
+        "type"
+      ],
+      "title": "CollabWaitingEndEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: close begin.",
+      "properties": {
+        "call_id": {
+          "description": "Identifier for the collab tool call.",
+          "type": "string"
+        },
+        "receiver_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the receiver."
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "type": {
+          "enum": [
+            "collab_close_begin"
+          ],
+          "title": "CollabCloseBeginEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "receiver_thread_id",
+        "sender_thread_id",
+        "type"
+      ],
+      "title": "CollabCloseBeginEventMsg",
+      "type": "object"
+    },
+    {
+      "description": "Collab interaction: close end.",
+      "properties": {
+        "call_id": {
+          "description": "Identifier for the collab tool call.",
+          "type": "string"
+        },
+        "receiver_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the receiver."
+        },
+        "sender_thread_id": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            }
+          ],
+          "description": "Thread ID of the sender."
+        },
+        "status": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AgentStatus"
+            }
+          ],
+          "description": "Last known status of the receiver agent reported to the sender agent before the close."
+        },
+        "type": {
+          "enum": [
+            "collab_close_end"
+          ],
+          "title": "CollabCloseEndEventMsgType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "receiver_thread_id",
+        "sender_thread_id",
+        "status",
+        "type"
+      ],
+      "title": "CollabCloseEndEventMsg",
       "type": "object"
     }
   ],
