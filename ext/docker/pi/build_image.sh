@@ -168,6 +168,25 @@ rm -f dist/openai-codex-*.tgz dist/codex.tgz
 pnpm pack --pack-destination dist
 mv dist/openai-codex-*.tgz dist/codex.tgz
 
+function cleanup_existing_image() {
+  if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+    return
+  fi
+
+  local containers
+  containers=$(docker ps -a --filter "ancestor=$IMAGE_TAG" -q)
+  if [[ -n "$containers" ]]; then
+    echo "Stopping containers using image $IMAGE_TAG"
+    docker stop $containers
+    docker rm $containers
+  fi
+
+  echo "Removing existing image $IMAGE_TAG"
+  docker rmi "$IMAGE_TAG"
+}
+
+cleanup_existing_image
+
 docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$REPO_ROOT"
 
 cat <<EOF
