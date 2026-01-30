@@ -42,6 +42,25 @@ Debug builds reuse `target/debug` artifacts; release builds pull from `target/re
 
 > **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). After obtaining it, copy the file into the container's `.codex` directory, for example with `docker cp ~/.codex/auth.json my-codex-docker-container:/home/node/.codex/auth.json` (adjust the container name if you used a different one).
 
+### Landlock support
+
+The Codex sandbox uses Linux Landlock for file system restrictions. Docker's
+default seccomp profile blocks Landlock syscalls, so you must relax the
+container seccomp profile when you want Landlock enforcement (the host kernel
+still needs Landlock enabled).
+
+Run with an unconfined seccomp profile, for example:
+
+```shell
+docker run -it --rm \
+  --name codex-proxy \
+  --network codex-net \
+  --security-opt seccomp=unconfined \
+  -v "$PWD:/home/node/workdir" \
+  my-codex-docker-image \
+  bash
+```
+
 Create a shared Docker network so the proxy and any client containers can talk without publishing ports on the host. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
 
 ```shell
