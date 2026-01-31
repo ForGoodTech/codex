@@ -108,10 +108,16 @@ serverLines.on('line', (line) => {
   }
 
   if (Object.prototype.hasOwnProperty.call(message, 'id')) {
-    const resolver = pending.get(message.id);
-    if (resolver) {
+    const pendingRequest = pending.get(message.id);
+    if (pendingRequest) {
       pending.delete(message.id);
-      resolver.resolve(message.result ?? message.error);
+      if (message.error) {
+        console.warn(
+          `Request failed (${pendingRequest.method}, id=${message.id}):`,
+          message.error,
+        );
+      }
+      pendingRequest.resolve(message.result ?? message.error);
     } else {
       console.warn('Unmatched response', message);
     }
@@ -197,7 +203,7 @@ function request(method, params = {}) {
   serverInput.write(`${JSON.stringify(payload)}\n`);
 
   return new Promise((resolve) => {
-    pending.set(id, { resolve });
+    pending.set(id, { resolve, method });
   });
 }
 
