@@ -36,6 +36,8 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
+const verbose =
+  process.argv.includes('--verbose') || process.env.APP_SERVER_PROXY_VERBOSE === '1';
 const defaultPort = 9395;
 const port = (() => {
   const raw = process.env.APP_SERVER_PORT;
@@ -57,6 +59,9 @@ const appServerCmd = process.env.APP_SERVER_CMD?.trim() || defaultAppServerCmd;
 const appServerArgs = process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? [];
 
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
+if (verbose) {
+  console.log('Proxy verbose logging enabled.');
+}
 const appServer = spawn(appServerCmd, appServerArgs, {
   stdio: ['pipe', 'pipe', 'inherit'],
 });
@@ -72,6 +77,50 @@ appServer.on('error', (error) => {
 });
 
 let activeSocket = null;
+let clientBuffer = '';
+let serverBuffer = '';
+
+function logJsonLine(prefix, line) {
+  if (!verbose) {
+    return;
+  }
+
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Object.prototype.hasOwnProperty.call(parsed, 'id')) {
+      const method = parsed.method ?? 'response';
+      const error = parsed.error ? ` error=${JSON.stringify(parsed.error)}` : '';
+      console.log(`${prefix} id=${parsed.id} method=${method}${error}`);
+      return;
+    }
+
+    if (parsed.method) {
+      console.log(`${prefix} notify method=${parsed.method}`);
+      return;
+    }
+  } catch (error) {
+    console.log(`${prefix} non-JSON line: ${trimmed}`);
+    return;
+  }
+
+  console.log(`${prefix} ${trimmed}`);
+}
+
+function ingestLines(label, buffer, chunk) {
+  const text = chunk.toString('utf8');
+  const nextBuffer = `${buffer}${text}`;
+  const lines = nextBuffer.split('\n');
+  const remainder = lines.pop() ?? '';
+  for (const line of lines) {
+    logJsonLine(label, line);
+  }
+  return remainder;
+}
 
 const server = net.createServer((socket) => {
   if (activeSocket) {
@@ -81,12 +130,20 @@ const server = net.createServer((socket) => {
 
   console.log(`Client connected from ${socket.remoteAddress}:${socket.remotePort}`);
   activeSocket = socket;
+  clientBuffer = '';
+  serverBuffer = '';
 
   const forwardStdout = (chunk) => {
+    if (verbose) {
+      serverBuffer = ingestLines('server->client', serverBuffer, chunk);
+    }
     socket.write(chunk);
   };
 
   const handleSocketData = (chunk) => {
+    if (verbose) {
+      clientBuffer = ingestLines('client->server', clientBuffer, chunk);
+    }
     const writeOk = appServer.stdin.write(chunk);
     if (!writeOk) {
       socket.pause();
