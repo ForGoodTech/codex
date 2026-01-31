@@ -79,6 +79,10 @@ appServer.on('error', (error) => {
 let activeSocket = null;
 let clientBuffer = '';
 let serverBuffer = '';
+let forwardedClientLines = 0;
+let forwardedServerLines = 0;
+let forwardedClientBytes = 0;
+let forwardedServerBytes = 0;
 
 function logJsonLine(prefix, line) {
   if (!verbose) {
@@ -95,12 +99,12 @@ function logJsonLine(prefix, line) {
     if (Object.prototype.hasOwnProperty.call(parsed, 'id')) {
       const method = parsed.method ?? 'response';
       const error = parsed.error ? ` error=${JSON.stringify(parsed.error)}` : '';
-      console.log(`${prefix} id=${parsed.id} method=${method}${error}`);
+      console.log(`${prefix} id=${parsed.id} method=${method}${error} raw=${trimmed}`);
       return;
     }
 
     if (parsed.method) {
-      console.log(`${prefix} notify method=${parsed.method}`);
+      console.log(`${prefix} notify method=${parsed.method} raw=${trimmed}`);
       return;
     }
   } catch (error) {
@@ -113,6 +117,9 @@ function logJsonLine(prefix, line) {
 
 function ingestLines(label, buffer, chunk) {
   const text = chunk.toString('utf8');
+  if (verbose) {
+    console.log(`${label} chunk bytes=${text.length}`);
+  }
   const nextBuffer = `${buffer}${text}`;
   const lines = nextBuffer.split('\n');
   const remainder = lines.pop() ?? '';
@@ -132,11 +139,17 @@ const server = net.createServer((socket) => {
   activeSocket = socket;
   clientBuffer = '';
   serverBuffer = '';
+  forwardedClientLines = 0;
+  forwardedServerLines = 0;
+  forwardedClientBytes = 0;
+  forwardedServerBytes = 0;
 
   const forwardStdout = (chunk) => {
     if (verbose) {
       serverBuffer = ingestLines('server->client', serverBuffer, chunk);
     }
+    forwardedServerBytes += chunk.length;
+    forwardedServerLines += chunk.toString('utf8').split('\n').length - 1;
     socket.write(chunk);
   };
 
@@ -144,6 +157,8 @@ const server = net.createServer((socket) => {
     if (verbose) {
       clientBuffer = ingestLines('client->server', clientBuffer, chunk);
     }
+    forwardedClientBytes += chunk.length;
+    forwardedClientLines += chunk.toString('utf8').split('\n').length - 1;
     const writeOk = appServer.stdin.write(chunk);
     if (!writeOk) {
       socket.pause();
@@ -171,6 +186,14 @@ const server = net.createServer((socket) => {
     }
 
     activeSocket = null;
+    if (verbose) {
+      console.log(
+        `Forwarded client->server: ${forwardedClientLines} lines, ${forwardedClientBytes} bytes.`,
+      );
+      console.log(
+        `Forwarded server->client: ${forwardedServerLines} lines, ${forwardedServerBytes} bytes.`,
+      );
+    }
     console.log('Client disconnected; proxy is idle and ready for the next connection.');
   };
 
