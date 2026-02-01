@@ -189,7 +189,7 @@ async function run({ request, connectionMode }) {
   const sessionId = process.env.CODEX_SESSION_ID
     ? `(client env) ${process.env.CODEX_SESSION_ID}`
     : '(not provided by protocol)';
-  const connection = connectionMode === 'tcp' ? '(client) TCP proxy' : '(client) FIFOs';
+  const connection = '(client) TCP proxy';
 
   const directory = '(not provided by protocol)';
   const agentsFile = '(not provided by protocol)';
