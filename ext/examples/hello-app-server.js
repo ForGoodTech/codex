@@ -9,14 +9,11 @@
  * - Starts a new conversation thread and kicks off one turn with a simple text prompt.
  * - Streams and prints server notifications until the turn completes, then exits.
  *
- * How to run (host app server)
- * ----------------------------
- * 1) In a separate terminal, start the app server and expose its stdio via FIFOs:
- *      mkfifo /tmp/codex-app-server.in /tmp/codex-app-server.out
- *      # Start the server via cargo without changing directories
- *      cargo run --manifest-path codex-rs/Cargo.toml -p codex-app-server < /tmp/codex-app-server.in > /tmp/codex-app-server.out
- * 2) From the repo root, run the client against those pipes (overridable via env vars):
- *      APP_SERVER_IN=/tmp/codex-app-server.in APP_SERVER_OUT=/tmp/codex-app-server.out \\
+ * How to run (host app server proxy)
+ * ---------------------------------
+ * 1) In a separate terminal, start the app server proxy:
+ *      codex-app-server-proxy
+ * 2) From the repo root, run the client against the TCP proxy:
  *      node ext/examples/hello-app-server.js
  *
  * How to run (server inside Docker container)
@@ -32,26 +29,19 @@
  * ---------------------
  * - APP_SERVER_TCP_HOST (optional): TCP host for the proxy. Defaults to codex-proxy.
  * - APP_SERVER_TCP_PORT (optional): TCP port for the proxy. Defaults to 9395.
- * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults to /tmp/codex-app-server.in when set.
- * - APP_SERVER_OUT (optional): path to the FIFO to read server responses/notifications from. Defaults to /tmp/codex-app-server.out when set.
  *
  * Notes
  * -----
- * - TCP proxy mode is the default; set APP_SERVER_IN/APP_SERVER_OUT to use host FIFOs instead.
- * - Host FIFO mode: the script is a pure client and expects the server to be running already.
- * - Container TCP proxy mode: start the proxy separately in the container; this client connects over the
+ * - Start the proxy separately in the container; this client connects over the
  *   forwarded TCP port and does not manage the server lifecycle.
  * - JSON-RPC responses are matched to the requests issued below; notifications are logged as they arrive.
  * - The example keeps the scope intentionally small so future examples can focus on other flows (auth, approvals, etc.).
  */
 
-const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
 
-const fifoInPath = process.env.APP_SERVER_IN;
-const fifoOutPath = process.env.APP_SERVER_OUT;
 const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
 const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
 const tcpPort = (() => {
@@ -65,25 +55,15 @@ const tcpPort = (() => {
 
 let serverInput;
 let serverOutput;
-let socket = null;
+const socket = net.connect({ host: tcpHost, port: tcpPort });
+socket.setKeepAlive(true);
+serverInput = socket;
+serverOutput = socket;
 
-if (!fifoInPath && !fifoOutPath) {
-  console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
-  socket = net.connect({ host: tcpHost, port: tcpPort });
-  socket.setKeepAlive(true);
-  serverInput = socket;
-  serverOutput = socket;
-
-  socket.on('error', (error) => {
-    console.error('TCP connection error:', error);
-    process.exitCode = 1;
-  });
-} else {
-  const serverInPath = fifoInPath ?? '/tmp/codex-app-server.in';
-  const serverOutPath = fifoOutPath ?? '/tmp/codex-app-server.out';
-  serverInput = fs.createWriteStream(serverInPath, { flags: 'a' });
-  serverOutput = fs.createReadStream(serverOutPath, { encoding: 'utf8' });
-}
+socket.on('error', (error) => {
+  console.error('TCP connection error:', error);
+  process.exitCode = 1;
+});
 
 let nextId = 1;
 const pending = new Map();
@@ -189,11 +169,7 @@ function notify(method, params = {}) {
 async function main() {
   console.log('Connecting to codex app-server...');
 
-  if (socket) {
-    await once(socket, 'connect');
-  } else {
-    await Promise.all([once(serverInput, 'open'), once(serverOutput, 'open')]);
-  }
+  await once(socket, 'connect');
 
   const initializeResult = await request('initialize', {
     clientInfo: {

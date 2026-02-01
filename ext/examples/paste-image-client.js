@@ -20,11 +20,6 @@
  * - APP_SERVER_TCP_HOST (optional): TCP host for the proxy. Defaults to
  *   codex-proxy.
  * - APP_SERVER_TCP_PORT (optional): TCP port for the proxy. Defaults to 9395.
- * - APP_SERVER_IN  (optional): path to the FIFO to write requests to. Defaults
- *   to /tmp/codex-app-server.in when set.
- * - APP_SERVER_OUT (optional): path to the FIFO to read server
- *   responses/notifications from. Defaults to /tmp/codex-app-server.out when
- *   set.
  */
 
 const fs = require('node:fs');
@@ -34,8 +29,6 @@ const readline = require('node:readline');
 const net = require('node:net');
 const path = require('node:path');
 
-const fifoInPath = process.env.APP_SERVER_IN;
-const fifoOutPath = process.env.APP_SERVER_OUT;
 const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
 const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
 const tcpPort = (() => {
@@ -49,25 +42,16 @@ const tcpPort = (() => {
 
 let serverInput;
 let serverOutput;
-let socket = null;
+console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
+const socket = net.connect({ host: tcpHost, port: tcpPort });
+socket.setKeepAlive(true);
+serverInput = socket;
+serverOutput = socket;
 
-if (!fifoInPath && !fifoOutPath) {
-  console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
-  socket = net.connect({ host: tcpHost, port: tcpPort });
-  socket.setKeepAlive(true);
-  serverInput = socket;
-  serverOutput = socket;
-
-  socket.on('error', (error) => {
-    console.error('TCP connection error:', error);
-    process.exitCode = 1;
-  });
-} else {
-  const serverInPath = fifoInPath ?? '/tmp/codex-app-server.in';
-  const serverOutPath = fifoOutPath ?? '/tmp/codex-app-server.out';
-  serverInput = fs.createWriteStream(serverInPath, { flags: 'a' });
-  serverOutput = fs.createReadStream(serverOutPath, { encoding: 'utf8' });
-}
+socket.on('error', (error) => {
+  console.error('TCP connection error:', error);
+  process.exitCode = 1;
+});
 
 let nextId = 1;
 const pending = new Map();
@@ -284,11 +268,7 @@ function waitForTurnCompletion(turnId) {
 async function main() {
   console.log('Connecting to codex app-server...');
 
-  if (socket) {
-    await once(socket, 'connect');
-  } else {
-    await Promise.all([once(serverInput, 'open'), once(serverOutput, 'open')]);
-  }
+  await once(socket, 'connect');
 
   const initializeResult = await request('initialize', {
     clientInfo: {
