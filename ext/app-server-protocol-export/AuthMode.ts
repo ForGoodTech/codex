@@ -4,9 +4,5 @@
 
 /**
  * Authentication mode for OpenAI-backed providers.
- *
- * This is used internally to determine the base URL for generating responses, and to gate
- * ChatGPT-only behaviors like rate limits and available models (as opposed to API key-based
- * auth).
  */
 export type AuthMode = "apikey" | "chatgpt" | "chatgptAuthTokens";
