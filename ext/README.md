@@ -132,3 +132,9 @@ The proxy keeps the app server alive between client connections so you can recon
 
 - `app-server-protocol-export/` – Generated TypeScript bindings and JSON Schemas for the Codex app-server protocol.
 - `examples/` – Standalone scripts that demonstrate talking to the app server and the SDK proxy; point them at the proxy host/port described above.
+
+To regenerate `app-server-protocol-export/` from the Rust protocol definitions, run:
+
+```shell
+cargo run -p codex-app-server-protocol --bin export -- --out ../ext/app-server-protocol-export/
+```
