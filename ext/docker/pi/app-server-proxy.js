@@ -33,10 +33,36 @@
  */
 
 const net = require('node:net');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+
+const proxyTokenDerivationLabel = 'codex-gateway-proxy-token-v1';
+const authJsonPath = process.env.APP_SERVER_PROXY_AUTH_JSON_PATH?.trim() || '/home/node/.codex/auth.json';
+
+const deriveProxyToken = () => {
+  let authSeed = '';
+  try {
+    authSeed = fs.readFileSync(authJsonPath, 'utf8').trim();
+  } catch (error) {
+    console.error(`Failed to read auth seed from ${authJsonPath}:`, error);
+    process.exit(1);
+  }
+
+  if (!authSeed) {
+    console.error(`Auth seed at ${authJsonPath} is empty; refusing to start proxy.`);
+    process.exit(1);
+  }
+
+  return crypto.createHmac('sha256', authSeed).update(proxyTokenDerivationLabel).digest('hex');
+};
+
+const proxyToken = deriveProxyToken();
 
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
 const defaultPort = 9395;
+const authTimeoutMs = 3000;
+const maxHandshakeBytes = 8 * 1024;
 const port = (() => {
   const raw = process.env.APP_SERVER_PORT;
   if (!raw) {
@@ -91,12 +117,58 @@ const server = net.createServer((socket) => {
 
   console.log(`Client connected from ${socket.remoteAddress}:${socket.remotePort}`);
   activeSocket = socket;
+  let isAuthenticated = false;
+  let authBuffer = Buffer.alloc(0);
+  const authTimeout = setTimeout(() => {
+    if (isAuthenticated) {
+      return;
+    }
+    socket.destroy(new Error(`Authentication timeout after ${authTimeoutMs}ms.`));
+  }, authTimeoutMs);
 
   const forwardStdout = (chunk) => {
     socket.write(chunk);
   };
 
   const handleSocketData = (chunk) => {
+    if (!isAuthenticated) {
+      authBuffer = Buffer.concat([authBuffer, chunk]);
+      if (authBuffer.length > maxHandshakeBytes) {
+        socket.destroy(new Error('Authentication handshake exceeds maximum size.'));
+        return;
+      }
+      const newlineIndex = authBuffer.indexOf(0x0a);
+      if (newlineIndex < 0) {
+        return;
+      }
+
+      const authLine = authBuffer.subarray(0, newlineIndex).toString('utf8').trim();
+      let authFrame;
+      try {
+        authFrame = JSON.parse(authLine);
+      } catch {
+        socket.destroy(new Error('Invalid authentication handshake.'));
+        return;
+      }
+
+      if (authFrame?.type !== 'auth' || authFrame?.token !== proxyToken) {
+        socket.destroy(new Error('Authentication failed.'));
+        return;
+      }
+
+      isAuthenticated = true;
+      clearTimeout(authTimeout);
+      const remaining = authBuffer.subarray(newlineIndex + 1);
+      authBuffer = Buffer.alloc(0);
+      if (remaining.length > 0) {
+        const writeOk = appServer.stdin.write(remaining);
+        if (!writeOk) {
+          socket.pause();
+        }
+      }
+      return;
+    }
+
     const writeOk = appServer.stdin.write(chunk);
     if (!writeOk) {
       socket.pause();
@@ -114,6 +186,7 @@ const server = net.createServer((socket) => {
 
     appServer.stdout.off('data', forwardStdout);
     appServer.stdin.off('drain', resumeSocket);
+    clearTimeout(authTimeout);
 
     socket.off('data', handleSocketData);
     socket.off('close', teardown);
