@@ -20,6 +20,7 @@ CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
 CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
 GITHUB_MCP_PACKAGE=${GITHUB_MCP_PACKAGE:-@modelcontextprotocol/server-github}
 GITHUB_MCP_VERSION=${GITHUB_MCP_VERSION:-latest}
+OPENAI_DOCS_MCP_URL=${OPENAI_DOCS_MCP_URL:-https://developers.openai.com/mcp}
 
 if [[ $# -gt 3 ]]; then
   echo "Usage: $(basename "$0") [image-tag] [build-profile] [--force]" >&2
@@ -278,6 +279,7 @@ docker build \
   --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
   --build-arg GITHUB_MCP_PACKAGE="$GITHUB_MCP_PACKAGE" \
   --build-arg GITHUB_MCP_VERSION="$GITHUB_MCP_VERSION" \
+  --build-arg OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
   -t "$IMAGE_TAG" \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$REPO_ROOT"

@@ -9,6 +9,7 @@ ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
 ARG CHROME_MCP_VERSION="latest"
 ARG GITHUB_MCP_PACKAGE="@modelcontextprotocol/server-github"
 ARG GITHUB_MCP_VERSION="latest"
+ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
 
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -76,12 +77,11 @@ RUN if [ "$ENABLE_DEFAULT_MCP_SERVERS" = "1" ]; then \
         label=${spec%%|*}; \
         package_spec=${spec#*|}; \
         echo "Installing optional ${label} MCP package (${package_spec})"; \
-        if npm install -g "$package_spec"; then \
-          echo "Installed ${label} MCP package (${package_spec})"; \
-        else \
-          echo "WARNING: failed to install ${label} MCP package (${package_spec}); Codex can still run it via npx at runtime."; \
-        fi; \
+        npm install -g "$package_spec"; \
+        echo "Installed ${label} MCP package (${package_spec})"; \
       done; \
+    else \
+      echo "Skipping default MCP package installation (ENABLE_DEFAULT_MCP_SERVERS=${ENABLE_DEFAULT_MCP_SERVERS})"; \
     fi
 
 # Make the TCP proxy available inside the image and accessible from the default home directory.
@@ -112,22 +112,22 @@ USER node
 # Default workspace under the user's home directory so it can be bind-mounted easily.
 WORKDIR /home/node/workdir
 RUN mkdir -p /home/node/workdir && \
-  cat <<'EOF' > /home/node/.codex/config.toml
+  cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
 
 [mcp_servers.openai_docs]
-url = "https://developers.openai.com/mcp"
+url = "${OPENAI_DOCS_MCP_URL}"
 
 [mcp_servers.playwright]
 command = "npx"
-args = ["-y", "@playwright/mcp@latest"]
+args = ["-y", "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}"]
 
 [mcp_servers.chrome_devtools]
 command = "npx"
-args = ["-y", "chrome-devtools-mcp@latest"]
+args = ["-y", "${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}"]
 
 [mcp_servers.github]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github@latest"]
+args = ["-y", "${GITHUB_MCP_PACKAGE}@${GITHUB_MCP_VERSION}"]
 bearer_token_env_var = "CODEX_GITHUB_PERSONAL_ACCESS_TOKEN"
 EOF
