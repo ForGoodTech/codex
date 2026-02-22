@@ -13,6 +13,13 @@ SDK_ROOT="$REPO_ROOT/sdk/typescript"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
+ENABLE_DEFAULT_MCP_SERVERS=${ENABLE_DEFAULT_MCP_SERVERS:-1}
+PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
+PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
+CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
+CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
+GITHUB_MCP_PACKAGE=${GITHUB_MCP_PACKAGE:-@modelcontextprotocol/server-github}
+GITHUB_MCP_VERSION=${GITHUB_MCP_VERSION:-latest}
 
 if [[ $# -gt 3 ]]; then
   echo "Usage: $(basename "$0") [image-tag] [build-profile] [--force]" >&2
@@ -263,7 +270,17 @@ function cleanup_existing_image() {
 
 cleanup_existing_image
 
-docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$REPO_ROOT"
+docker build \
+  --build-arg ENABLE_DEFAULT_MCP_SERVERS="$ENABLE_DEFAULT_MCP_SERVERS" \
+  --build-arg PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
+  --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
+  --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
+  --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
+  --build-arg GITHUB_MCP_PACKAGE="$GITHUB_MCP_PACKAGE" \
+  --build-arg GITHUB_MCP_VERSION="$GITHUB_MCP_VERSION" \
+  -t "$IMAGE_TAG" \
+  -f "$SCRIPT_DIR/Dockerfile" \
+  "$REPO_ROOT"
 
 cat <<EOF
 
