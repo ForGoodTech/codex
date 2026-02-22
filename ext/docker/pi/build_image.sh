@@ -257,15 +257,40 @@ function cleanup_existing_image() {
   fi
 
   local containers
-  containers=$(docker ps -a --filter "ancestor=$IMAGE_TAG" -q)
-  if [[ -n "$containers" ]]; then
-    echo "Stopping containers using image $IMAGE_TAG"
-    docker stop $containers
-    docker rm $containers
+  mapfile -t containers < <(docker ps -a --filter "ancestor=$IMAGE_TAG" -q)
+  if [[ ${#containers[@]} -gt 0 ]]; then
+    echo "Stopping and removing containers using image $IMAGE_TAG"
+    for container_id in "${containers[@]}"; do
+      docker stop "$container_id" >/dev/null 2>&1 || true
+      for _ in $(seq 1 10); do
+        if docker rm -f "$container_id" >/dev/null 2>&1; then
+          break
+        fi
+        if ! docker container inspect "$container_id" >/dev/null 2>&1; then
+          break
+        fi
+        sleep 1
+      done
+      if docker container inspect "$container_id" >/dev/null 2>&1; then
+        echo "Failed to remove container $container_id while cleaning image $IMAGE_TAG" >&2
+        exit 1
+      fi
+    done
   fi
 
   echo "Removing existing image $IMAGE_TAG"
-  docker rmi "$IMAGE_TAG"
+  for _ in $(seq 1 10); do
+    if docker rmi "$IMAGE_TAG" >/dev/null 2>&1; then
+      return
+    fi
+    if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+
+  echo "Failed to remove image $IMAGE_TAG after retries" >&2
+  exit 1
 }
 
 cleanup_existing_image
