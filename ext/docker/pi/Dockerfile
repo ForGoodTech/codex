@@ -77,8 +77,11 @@ RUN if [ "$ENABLE_DEFAULT_MCP_SERVERS" = "1" ]; then \
         label=${spec%%|*}; \
         package_spec=${spec#*|}; \
         echo "Installing optional ${label} MCP package (${package_spec})"; \
-        npm install -g "$package_spec"; \
-        echo "Installed ${label} MCP package (${package_spec})"; \
+        if npm install -g "$package_spec"; then \
+          echo "Installed ${label} MCP package (${package_spec})"; \
+        else \
+          echo "WARNING: failed to install ${label} MCP package (${package_spec}); Codex will still use npx fallback at runtime."; \
+        fi; \
       done; \
     else \
       echo "Skipping default MCP package installation (ENABLE_DEFAULT_MCP_SERVERS=${ENABLE_DEFAULT_MCP_SERVERS})"; \
