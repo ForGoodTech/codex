@@ -13,7 +13,6 @@ SDK_ROOT="$REPO_ROOT/sdk/typescript"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
-ENABLE_DEFAULT_MCP_SERVERS=${ENABLE_DEFAULT_MCP_SERVERS:-1}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -272,7 +271,6 @@ function cleanup_existing_image() {
 cleanup_existing_image
 
 docker build \
-  --build-arg ENABLE_DEFAULT_MCP_SERVERS="$ENABLE_DEFAULT_MCP_SERVERS" \
   --build-arg PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
   --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
   --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
@@ -283,6 +281,38 @@ docker build \
   -t "$IMAGE_TAG" \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$REPO_ROOT"
+
+docker run --rm \
+  -e PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
+  -e CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
+  -e GITHUB_MCP_PACKAGE="$GITHUB_MCP_PACKAGE" \
+  -e IMAGE_TAG="$IMAGE_TAG" \
+  "$IMAGE_TAG" bash -lc '
+set -euo pipefail
+
+config_file=/home/node/.codex/config.toml
+if [[ ! -f "$config_file" ]]; then
+  echo "Missing default Codex MCP config file: $config_file" >&2
+  exit 1
+fi
+
+for server in openai_docs playwright chrome_devtools github; do
+  if ! rg -q "^\\[mcp_servers\\.${server}\\]" "$config_file"; then
+    echo "Missing MCP server configuration for $server in $config_file" >&2
+    exit 1
+  fi
+done
+
+npm_root=$(npm root -g)
+for package in "$PLAYWRIGHT_MCP_PACKAGE" "$CHROME_MCP_PACKAGE" "$GITHUB_MCP_PACKAGE"; do
+  if [[ ! -d "$npm_root/$package" ]]; then
+    echo "Missing globally installed MCP package: $package" >&2
+    exit 1
+  fi
+done
+
+echo "Verified MCP server config and package installation in image $IMAGE_TAG"
+'
 
 cat <<EOF
 
