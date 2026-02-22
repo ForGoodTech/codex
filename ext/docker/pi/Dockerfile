@@ -2,7 +2,6 @@ FROM node:24-bookworm
 
 ARG TZ
 ENV TZ="$TZ"
-ARG ENABLE_DEFAULT_MCP_SERVERS=1
 ARG PLAYWRIGHT_MCP_PACKAGE="@playwright/mcp"
 ARG PLAYWRIGHT_MCP_VERSION="latest"
 ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
@@ -68,24 +67,23 @@ RUN npm install -g codex.tgz \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/tests \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/docs
 
-RUN if [ "$ENABLE_DEFAULT_MCP_SERVERS" = "1" ]; then \
-      set -eux; \
-      for spec in \
-        "Playwright|${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}" \
-        "Chrome DevTools|${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}" \
-        "GitHub|${GITHUB_MCP_PACKAGE}@${GITHUB_MCP_VERSION}"; do \
-        label=${spec%%|*}; \
-        package_spec=${spec#*|}; \
-        echo "Installing optional ${label} MCP package (${package_spec})"; \
-        if npm install -g "$package_spec"; then \
-          echo "Installed ${label} MCP package (${package_spec})"; \
-        else \
-          echo "WARNING: failed to install ${label} MCP package (${package_spec}); Codex will still use npx fallback at runtime."; \
-        fi; \
-      done; \
-    else \
-      echo "Skipping default MCP package installation (ENABLE_DEFAULT_MCP_SERVERS=${ENABLE_DEFAULT_MCP_SERVERS})"; \
-    fi
+RUN set -eux; \
+    for spec in \
+      "Playwright|${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}|${PLAYWRIGHT_MCP_PACKAGE}" \
+      "Chrome DevTools|${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}|${CHROME_MCP_PACKAGE}" \
+      "GitHub|${GITHUB_MCP_PACKAGE}@${GITHUB_MCP_VERSION}|${GITHUB_MCP_PACKAGE}"; do \
+      label=${spec%%|*}; \
+      rest=${spec#*|}; \
+      package_spec=${rest%%|*}; \
+      package_name=${rest#*|}; \
+      echo "Installing ${label} MCP package (${package_spec})"; \
+      npm install -g "$package_spec"; \
+      if [ ! -d "$(npm root -g)/${package_name}" ]; then \
+        echo "Expected MCP package ${package_name} not found after install" >&2; \
+        exit 1; \
+      fi; \
+      echo "Installed ${label} MCP package (${package_spec})"; \
+    done
 
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-proxy.js
