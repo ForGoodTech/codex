@@ -9,6 +9,13 @@ ARG CHROME_MCP_VERSION="latest"
 ARG GITHUB_MCP_PACKAGE="@modelcontextprotocol/server-github"
 ARG GITHUB_MCP_VERSION="latest"
 ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
+ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
+ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
+ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
+ENV CHROME_MCP_VERSION="${CHROME_MCP_VERSION}"
+ENV GITHUB_MCP_PACKAGE="${GITHUB_MCP_PACKAGE}"
+ENV GITHUB_MCP_VERSION="${GITHUB_MCP_VERSION}"
+ENV OPENAI_DOCS_MCP_URL="${OPENAI_DOCS_MCP_URL}"
 
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -105,7 +112,9 @@ ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 # Copy and set up firewall script as root.
 USER root
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
-RUN chmod 500 /usr/local/bin/init_firewall.sh
+COPY ext/docker/pi/codex-pi-entrypoint.sh /usr/local/bin/
+RUN chmod 500 /usr/local/bin/init_firewall.sh && \
+  chmod 755 /usr/local/bin/codex-pi-entrypoint.sh
 
 # Drop back to non-root.
 USER node
@@ -132,3 +141,6 @@ command = "npx"
 args = ["-y", "${GITHUB_MCP_PACKAGE}@${GITHUB_MCP_VERSION}"]
 bearer_token_env_var = "CODEX_GITHUB_PERSONAL_ACCESS_TOKEN"
 EOF
+
+ENTRYPOINT ["/usr/local/bin/codex-pi-entrypoint.sh"]
+CMD ["bash"]
