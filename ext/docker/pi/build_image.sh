@@ -17,8 +17,6 @@ PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
 CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
-GITHUB_MCP_PACKAGE=${GITHUB_MCP_PACKAGE:-@modelcontextprotocol/server-github}
-GITHUB_MCP_VERSION=${GITHUB_MCP_VERSION:-latest}
 OPENAI_DOCS_MCP_URL=${OPENAI_DOCS_MCP_URL:-https://developers.openai.com/mcp}
 
 if [[ $# -gt 3 ]]; then
@@ -300,8 +298,6 @@ docker build \
   --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
   --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
-  --build-arg GITHUB_MCP_PACKAGE="$GITHUB_MCP_PACKAGE" \
-  --build-arg GITHUB_MCP_VERSION="$GITHUB_MCP_VERSION" \
   --build-arg OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
   -t "$IMAGE_TAG" \
   -f "$SCRIPT_DIR/Dockerfile" \
@@ -310,7 +306,6 @@ docker build \
 docker run --rm \
   -e PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
   -e CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
-  -e GITHUB_MCP_PACKAGE="$GITHUB_MCP_PACKAGE" \
   -e IMAGE_TAG="$IMAGE_TAG" \
   "$IMAGE_TAG" bash -lc '
 set -euo pipefail
@@ -321,7 +316,7 @@ if [[ ! -f "$config_file" ]]; then
   exit 1
 fi
 
-for server in openai_docs playwright chrome_devtools github; do
+for server in openai_docs playwright chrome_devtools; do
   if ! rg -q "^\\[mcp_servers\\.${server}\\]" "$config_file"; then
     echo "Missing MCP server configuration for $server in $config_file" >&2
     exit 1
@@ -329,7 +324,7 @@ for server in openai_docs playwright chrome_devtools github; do
 done
 
 npm_root=$(npm root -g)
-for package in "$PLAYWRIGHT_MCP_PACKAGE" "$CHROME_MCP_PACKAGE" "$GITHUB_MCP_PACKAGE"; do
+for package in "$PLAYWRIGHT_MCP_PACKAGE" "$CHROME_MCP_PACKAGE"; do
   if [[ ! -d "$npm_root/$package" ]]; then
     echo "Missing globally installed MCP package: $package" >&2
     exit 1

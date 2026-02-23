@@ -6,15 +6,11 @@ ARG PLAYWRIGHT_MCP_PACKAGE="@playwright/mcp"
 ARG PLAYWRIGHT_MCP_VERSION="latest"
 ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
 ARG CHROME_MCP_VERSION="latest"
-ARG GITHUB_MCP_PACKAGE="@modelcontextprotocol/server-github"
-ARG GITHUB_MCP_VERSION="latest"
 ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
 ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
 ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
 ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
 ENV CHROME_MCP_VERSION="${CHROME_MCP_VERSION}"
-ENV GITHUB_MCP_PACKAGE="${GITHUB_MCP_PACKAGE}"
-ENV GITHUB_MCP_VERSION="${GITHUB_MCP_VERSION}"
 ENV OPENAI_DOCS_MCP_URL="${OPENAI_DOCS_MCP_URL}"
 
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
@@ -77,8 +73,7 @@ RUN npm install -g codex.tgz \
 RUN set -eux; \
     for spec in \
       "Playwright|${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}|${PLAYWRIGHT_MCP_PACKAGE}" \
-      "Chrome DevTools|${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}|${CHROME_MCP_PACKAGE}" \
-      "GitHub|${GITHUB_MCP_PACKAGE}@${GITHUB_MCP_VERSION}|${GITHUB_MCP_PACKAGE}"; do \
+      "Chrome DevTools|${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}|${CHROME_MCP_PACKAGE}"; do \
       label=${spec%%|*}; \
       rest=${spec#*|}; \
       package_spec=${rest%%|*}; \
@@ -112,9 +107,7 @@ ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 # Copy and set up firewall script as root.
 USER root
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
-COPY ext/docker/pi/codex-pi-entrypoint.sh /usr/local/bin/
-RUN chmod 500 /usr/local/bin/init_firewall.sh && \
-  chmod 755 /usr/local/bin/codex-pi-entrypoint.sh
+RUN chmod 500 /usr/local/bin/init_firewall.sh
 
 # Drop back to non-root.
 USER node
@@ -136,11 +129,5 @@ args = ["-y", "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}"]
 command = "npx"
 args = ["-y", "${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}"]
 
-[mcp_servers.github]
-command = "npx"
-args = ["-y", "${GITHUB_MCP_PACKAGE}@${GITHUB_MCP_VERSION}"]
-bearer_token_env_var = "CODEX_GITHUB_PERSONAL_ACCESS_TOKEN"
 EOF
 
-ENTRYPOINT ["/usr/local/bin/codex-pi-entrypoint.sh"]
-CMD ["bash"]
