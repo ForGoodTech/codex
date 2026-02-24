@@ -38,6 +38,24 @@ The optional arguments are positional: the first sets the image tag; the second 
 
 Debug builds reuse `target/debug` artifacts; release builds pull from `target/release`. Pass an image tag as the first argument to name the resulting image (defaults to `my-codex-docker-image`).
 
+### MCP startup timeout tuning (Playwright)
+
+The generated image now sets a default Playwright MCP startup timeout in `/home/node/.codex/config.toml`:
+
+```toml
+[mcp_servers.playwright]
+startup_timeout_sec = 30
+```
+
+If you see startup warnings on slower hosts, set `PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC` when building to increase the value:
+
+```shell
+cd ext/docker/pi
+PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC=60 ./build_image.sh codex-dev
+```
+
+Pick any integer number of seconds that matches your environment. You can also edit `/home/node/.codex/config.toml` in an existing container and change `startup_timeout_sec` directly.
+
 ## Running Codex and the app server in a container
 
 > **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). After obtaining it, copy the file into the container's `.codex` directory, for example with `docker cp ~/.codex/auth.json my-codex-docker-container:/home/node/.codex/auth.json` (adjust the container name if you used a different one).

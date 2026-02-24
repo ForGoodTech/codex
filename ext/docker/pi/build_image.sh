@@ -18,6 +18,7 @@ PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
 CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
 OPENAI_DOCS_MCP_URL=${OPENAI_DOCS_MCP_URL:-https://developers.openai.com/mcp}
+PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC=${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC:-30}
 
 if [[ $# -gt 3 ]]; then
   echo "Usage: $(basename "$0") [image-tag] [build-profile] [--force]" >&2
@@ -299,6 +300,7 @@ docker build \
   --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
   --build-arg OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
+  --build-arg PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="$PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC" \
   -t "$IMAGE_TAG" \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$REPO_ROOT"
@@ -322,6 +324,11 @@ for server in openai_docs playwright chrome_devtools; do
     exit 1
   fi
 done
+
+if ! rg -q "^startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}$" "$config_file"; then
+  echo "Expected Playwright startup timeout not found in $config_file" >&2
+  exit 1
+fi
 
 npm_root=$(npm root -g)
 for package in "$PLAYWRIGHT_MCP_PACKAGE" "$CHROME_MCP_PACKAGE"; do

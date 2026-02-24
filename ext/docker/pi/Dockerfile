@@ -7,11 +7,13 @@ ARG PLAYWRIGHT_MCP_VERSION="latest"
 ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
 ARG CHROME_MCP_VERSION="latest"
 ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
+ARG PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="30"
 ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
 ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
 ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
 ENV CHROME_MCP_VERSION="${CHROME_MCP_VERSION}"
 ENV OPENAI_DOCS_MCP_URL="${OPENAI_DOCS_MCP_URL}"
+ENV PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}"
 
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -124,10 +126,10 @@ url = "${OPENAI_DOCS_MCP_URL}"
 [mcp_servers.playwright]
 command = "npx"
 args = ["-y", "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}"]
+startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}
 
 [mcp_servers.chrome_devtools]
 command = "npx"
 args = ["-y", "${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}"]
 
 EOF
-
