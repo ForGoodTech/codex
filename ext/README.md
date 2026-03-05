@@ -60,6 +60,38 @@ Pick any integer number of seconds that matches your environment. You can also e
 
 > **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). After obtaining it, copy the file into the container's `.codex` directory, for example with `docker cp ~/.codex/auth.json my-codex-docker-container:/home/node/.codex/auth.json` (adjust the container name if you used a different one).
 
+### App server proxy token (required)
+
+`codex-app-server-proxy` now requires an authentication handshake token. The
+proxy reads it from `APP_SERVER_PROXY_TOKEN`, and app-server clients must send
+this first JSONL frame right after TCP connect:
+
+```json
+{"type":"auth","token":"<APP_SERVER_PROXY_TOKEN>"}
+```
+
+For the examples, use the same source of truth as runtime auth (`auth.json`) and
+derive the token from the ChatGPT account id and access token:
+
+```shell
+AUTH_JSON_PATH="${CODEX_AUTH_PATH:-$HOME/.codex/auth.json}"
+
+APP_SERVER_PROXY_TOKEN="$(node -e '
+const fs = require("node:fs");
+const crypto = require("node:crypto");
+const auth = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const accessToken = auth?.tokens?.access_token;
+const accountId = auth?.tokens?.account_id;
+if (!accessToken || !accountId) {
+  console.error("auth.json must include tokens.access_token and tokens.account_id");
+  process.exit(1);
+}
+process.stdout.write(crypto.createHash("sha256").update(`${accountId}:${accessToken}`, "utf8").digest("hex"));
+' "$AUTH_JSON_PATH")"
+```
+
+Pass this same token to the proxy container and to any non-example clients.
+
 ### Landlock support
 
 The Codex sandbox uses Linux Landlock for file system restrictions. Docker's
@@ -108,6 +140,7 @@ If you want a detached proxy container, pass the proxy command directly:
 docker run -d \
   --name codex-proxy \
   --network codex-net \
+  -e APP_SERVER_PROXY_TOKEN="$APP_SERVER_PROXY_TOKEN" \
   -v "$PWD:/home/node/workdir" \
   my-codex-docker-image \
   codex-app-server-proxy
@@ -117,13 +150,28 @@ docker run -d \
 
 The sample clients default to `codex-proxy` for the proxy host, so run them in a second container on the same network.
 
+For app-server examples (`hello-app-server.js`, `reasoning-client.js`,
+`resume-client.js`, `paste-image-client.js`, `slash-commands.js`):
+
+- The scripts send the required proxy auth frame automatically.
+- They also read `auth.json` directly (via `CODEX_AUTH_PATH` or
+  `~/.codex/auth.json`) and forward ChatGPT auth token info to app-server using
+  `account/login/start` with `type: "chatgptAuthTokens"`.
+
+When running the examples container, mount the same `auth.json` so the scripts
+can derive both pieces.
+
 ```shell
 cd ext/examples
 # Build a Node image with the sample scripts.
 ./build_image.sh codex-examples
 
 # Run any example on the shared network.
-docker run --rm --network codex-net codex-examples node /examples/hello-app-server.js
+docker run --rm \
+  --network codex-net \
+  -v "$HOME/.codex/auth.json:/home/node/.codex/auth.json:ro" \
+  codex-examples node /examples/hello-app-server.js
+
 docker run --rm --network codex-net codex-examples node /examples/sdk-proxy-ping.js
 ```
 
