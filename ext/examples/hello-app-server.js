@@ -125,16 +125,6 @@ function logNotification(method, params) {
       console.log(`Turn started: ${params.turn?.id ?? 'unknown'}`);
       break;
     case 'item/agentMessage/delta':
-      if (params.delta?.content?.length) {
-        console.log(params.delta.content.map((c) => c.text ?? '').join(''));
-        break;
-      }
-
-      if (typeof params.delta?.text === 'string') {
-        console.log(params.delta.text);
-        break;
-      }
-
       if (typeof params.delta === 'string') {
         console.log(params.delta);
         break;
@@ -145,6 +135,13 @@ function logNotification(method, params) {
         break;
       }
 
+      console.log('Notification', method, params);
+      break;
+    case 'item/completed':
+      if (params.item?.type === 'agentMessage' && typeof params.item.text === 'string') {
+        console.log(params.item.text);
+        break;
+      }
       console.log('Notification', method, params);
       break;
     case 'turn/completed':

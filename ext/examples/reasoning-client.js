@@ -133,6 +133,15 @@ function handleNotification(method, params) {
       latestAgentMessageId = itemId;
       break;
     }
+    case 'item/completed': {
+      const { item } = params;
+      if (item?.type !== 'agentMessage' || typeof item.id !== 'string' || typeof item.text !== 'string') {
+        break;
+      }
+      agentMessageText.set(item.id, item.text);
+      latestAgentMessageId = item.id;
+      break;
+    }
     case 'item/reasoning/summaryPartAdded':
       process.stdout.write('.');
       reasoningState.sections += 1;
@@ -154,7 +163,7 @@ function handleNotification(method, params) {
 
       const finalMessage = latestAgentMessageId
         ? agentMessageText.get(latestAgentMessageId)
-        : null;
+        : params.turn?.items?.find((item) => item.type === 'agentMessage')?.text;
       if (finalMessage) {
         process.stdout.write('\n\n');
         console.log(finalMessage.trim());

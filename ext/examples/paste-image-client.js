@@ -146,20 +146,16 @@ function handleNotification(method, params) {
       break;
     }
     case 'item/agentMessage/delta': {
-      const turnId = params.turn?.id ?? params.item?.turnId ?? watchedTurnId;
-      if (params.delta?.content?.length) {
-        appendTurnOutput(turnId, params.delta.content.map((c) => c.text ?? '').join(''));
-        break;
-      }
-
-      if (typeof params.delta?.text === 'string') {
-        appendTurnOutput(turnId, params.delta.text);
-        break;
-      }
-
+      const turnId = params.turnId ?? watchedTurnId;
       if (typeof params.delta === 'string') {
         appendTurnOutput(turnId, params.delta);
-        break;
+      }
+      break;
+    }
+    case 'item/completed': {
+      const turnId = params.turnId ?? watchedTurnId;
+      if (params.item?.type === 'agentMessage' && typeof params.item.text === 'string') {
+        appendTurnOutput(turnId, params.item.text);
       }
       break;
     }
