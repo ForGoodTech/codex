@@ -58,7 +58,7 @@ Pick any integer number of seconds that matches your environment. You can also e
 
 ## Running Codex and the app server in a container
 
-> **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). After obtaining it, copy the file into the container's `.codex` directory, for example with `docker cp ~/.codex/auth.json my-codex-docker-container:/home/node/.codex/auth.json` (adjust the container name if you used a different one).
+> **Reminder:** Follow the official OpenAI Codex login process for headless console access to generate your `auth.json` (by default saved as `~/.codex/auth.json`). For the app-server proxy flow, keep this file on the client side (host/examples container) so auth is delivered on demand; the proxy container does not need `auth.json` at rest.
 
 ### App server proxy token (required)
 
@@ -74,6 +74,10 @@ this first JSONL frame right after TCP connect:
 Use the helper script in `ext/examples/app-server-auth.js` to derive this value
 from `auth.json`, then pass it to the proxy container. App-server clients must
 send the same token in their first auth frame.
+
+The app-server examples do not copy `auth.json` into the proxy container.
+Instead, they read auth on the client side and forward runtime auth material to
+app-server via `account/login/start` (`type: "chatgptAuthTokens"`).
 
 You can also run the helper standalone to print the token for quick verification
 or testing:
