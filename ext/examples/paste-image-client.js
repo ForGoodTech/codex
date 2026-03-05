@@ -161,6 +161,12 @@ function handleNotification(method, params) {
     }
     case 'turn/completed': {
       const turnId = params.turn?.id ?? watchedTurnId;
+      const finalAgentMessage = params.turn?.items?.find(
+        (item) => item.type === 'AgentMessage' || item.type === 'agentMessage',
+      )?.text;
+      if (typeof finalAgentMessage === 'string' && finalAgentMessage.length) {
+        turnOutputs.set(turnId, [finalAgentMessage]);
+      }
       emitTurnResult(turnId, params.turn?.status);
       if (watchedTurnId && turnId === watchedTurnId) {
         watchedTurnId = null;

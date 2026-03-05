@@ -144,9 +144,16 @@ function logNotification(method, params) {
       }
       console.log('Notification', method, params);
       break;
-    case 'turn/completed':
+    case 'turn/completed': {
+      const finalAgentMessage = params.turn?.items?.find(
+        (item) => item.type === 'AgentMessage' || item.type === 'agentMessage',
+      )?.text;
+      if (typeof finalAgentMessage === 'string' && finalAgentMessage.length) {
+        console.log(finalAgentMessage);
+      }
       console.log(`Turn completed with status: ${params.turn?.status}`);
       break;
+    }
     default:
       console.log('Notification', method, params);
   }

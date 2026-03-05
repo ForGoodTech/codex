@@ -155,7 +155,7 @@ function handleNotification(method, params) {
 
       const finalMessage = latestAgentMessageId
         ? agentMessageText.get(latestAgentMessageId)
-        : params.turn?.items?.find((item) => item.type === 'agentMessage')?.text;
+        : params.turn?.items?.find((item) => item.type === 'AgentMessage' || item.type === 'agentMessage')?.text;
       if (finalMessage) {
         process.stdout.write('\n\n');
         console.log(finalMessage.trim());
