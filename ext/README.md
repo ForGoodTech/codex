@@ -70,27 +70,9 @@ this first JSONL frame right after TCP connect:
 {"type":"auth","token":"<APP_SERVER_PROXY_TOKEN>"}
 ```
 
-For the examples, use the same source of truth as runtime auth (`auth.json`) and
-derive the token from the ChatGPT account id and access token:
-
-```shell
-AUTH_JSON_PATH="${CODEX_AUTH_PATH:-$HOME/.codex/auth.json}"
-
-APP_SERVER_PROXY_TOKEN="$(node -e '
-const fs = require("node:fs");
-const crypto = require("node:crypto");
-const auth = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-const accessToken = auth?.tokens?.access_token;
-const accountId = auth?.tokens?.account_id;
-if (!accessToken || !accountId) {
-  console.error("auth.json must include tokens.access_token and tokens.account_id");
-  process.exit(1);
-}
-process.stdout.write(crypto.createHash("sha256").update(`${accountId}:${accessToken}`, "utf8").digest("hex"));
-' "$AUTH_JSON_PATH")"
-```
-
-Pass this same token to the proxy container and to any non-example clients.
+Use the helper script in `ext/examples/app-server-auth.js` to derive this value
+from `auth.json`, then pass it to the proxy container. App-server clients must
+send the same token in their first auth frame.
 
 ### Landlock support
 
@@ -116,9 +98,13 @@ Create a shared Docker network so the proxy and any client containers can talk w
 ```shell
 docker network create codex-net
 
+# Derive the required proxy token from auth.json on the host
+APP_SERVER_PROXY_TOKEN="$(node ext/examples/app-server-auth.js --print-proxy-token)"
+
 docker run -it --rm \
   --name codex-proxy \
   --network codex-net \
+  -e APP_SERVER_PROXY_TOKEN="$APP_SERVER_PROXY_TOKEN" \
   -v "$PWD:/home/node/workdir" \
   my-codex-docker-image \
   bash
@@ -159,7 +145,7 @@ For app-server examples (`hello-app-server.js`, `reasoning-client.js`,
   `account/login/start` with `type: "chatgptAuthTokens"`.
 
 When running the examples container, mount the same `auth.json` so the scripts
-can derive both pieces.
+can derive the handshake token and forward auth to app-server.
 
 ```shell
 cd ext/examples

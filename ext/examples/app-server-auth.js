@@ -101,3 +101,21 @@ module.exports = {
   loadAuthInfo,
   resolveProxyToken,
 };
+
+
+if (require.main === module) {
+  const command = process.argv[2];
+  const authInfo = loadAuthInfo();
+
+  if (command === '--print-proxy-token') {
+    if (!authInfo) {
+      console.error('Unable to load auth info from CODEX_AUTH_PATH or ~/.codex/auth.json');
+      process.exit(1);
+    }
+    process.stdout.write(`${resolveProxyToken(authInfo)}\n`);
+    process.exit(0);
+  }
+
+  console.error('Usage: node app-server-auth.js --print-proxy-token');
+  process.exit(1);
+}
