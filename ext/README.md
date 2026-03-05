@@ -70,9 +70,17 @@ this first JSONL frame right after TCP connect:
 {"type":"auth","token":"<APP_SERVER_PROXY_TOKEN>"}
 ```
 
+
 Use the helper script in `ext/examples/app-server-auth.js` to derive this value
 from `auth.json`, then pass it to the proxy container. App-server clients must
 send the same token in their first auth frame.
+
+You can also run the helper standalone to print the token for quick verification
+or testing:
+
+```shell
+node ext/examples/app-server-auth.js --print-proxy-token
+```
 
 ### Landlock support
 
