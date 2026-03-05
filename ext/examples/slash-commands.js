@@ -34,6 +34,7 @@
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
+const { buildExternalAuthLoginParams, loadAuthInfo, resolveProxyToken } = require('./app-server-auth');
 const path = require('node:path');
 
 const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
@@ -49,6 +50,8 @@ const tcpPort = (() => {
 
 let serverInput;
 let serverOutput;
+const authInfo = loadAuthInfo();
+const proxyToken = resolveProxyToken(authInfo);
 console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
 const socket = net.connect({ host: tcpHost, port: tcpPort });
 socket.setKeepAlive(true);
@@ -197,6 +200,7 @@ async function main() {
   console.log('Connecting to codex app-server...');
 
   await once(socket, 'connect');
+  socket.write(`${JSON.stringify({ type: 'auth', token: proxyToken })}\n`);
 
   const initializeResult = await request('initialize', {
     clientInfo: {
@@ -214,6 +218,12 @@ async function main() {
   }
 
   notify('initialized');
+
+  const externalAuthParams = buildExternalAuthLoginParams(authInfo);
+  if (externalAuthParams) {
+    await request('account/login/start', externalAuthParams);
+    console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
+  }
 
   await runCommandLoop({ request, notify, connectionMode: 'tcp' });
 }
