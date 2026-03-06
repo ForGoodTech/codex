@@ -27,6 +27,7 @@ const fsp = require('node:fs/promises');
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
+const { buildExternalAuthLoginParams, loadAuthInfo, resolveProxyToken } = require('./app-server-auth');
 const path = require('node:path');
 
 const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
@@ -42,6 +43,8 @@ const tcpPort = (() => {
 
 let serverInput;
 let serverOutput;
+const authInfo = loadAuthInfo();
+const proxyToken = resolveProxyToken(authInfo);
 console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
 const socket = net.connect({ host: tcpHost, port: tcpPort });
 socket.setKeepAlive(true);
@@ -143,25 +146,27 @@ function handleNotification(method, params) {
       break;
     }
     case 'item/agentMessage/delta': {
-      const turnId = params.turn?.id ?? params.item?.turnId ?? watchedTurnId;
-      if (params.delta?.content?.length) {
-        appendTurnOutput(turnId, params.delta.content.map((c) => c.text ?? '').join(''));
-        break;
-      }
-
-      if (typeof params.delta?.text === 'string') {
-        appendTurnOutput(turnId, params.delta.text);
-        break;
-      }
-
+      const turnId = params.turnId ?? watchedTurnId;
       if (typeof params.delta === 'string') {
         appendTurnOutput(turnId, params.delta);
-        break;
+      }
+      break;
+    }
+    case 'item/completed': {
+      const turnId = params.turnId ?? watchedTurnId;
+      if (params.item?.type === 'agentMessage' && typeof params.item.text === 'string') {
+        appendTurnOutput(turnId, params.item.text);
       }
       break;
     }
     case 'turn/completed': {
       const turnId = params.turn?.id ?? watchedTurnId;
+      const finalAgentMessage = params.turn?.items?.find(
+        (item) => item.type === 'AgentMessage' || item.type === 'agentMessage',
+      )?.text;
+      if (typeof finalAgentMessage === 'string' && finalAgentMessage.length) {
+        turnOutputs.set(turnId, [finalAgentMessage]);
+      }
       emitTurnResult(turnId, params.turn?.status);
       if (watchedTurnId && turnId === watchedTurnId) {
         watchedTurnId = null;
@@ -269,6 +274,7 @@ async function main() {
   console.log('Connecting to codex app-server...');
 
   await once(socket, 'connect');
+  socket.write(`${JSON.stringify({ type: 'auth', token: proxyToken })}\n`);
 
   const initializeResult = await request('initialize', {
     clientInfo: {
@@ -276,10 +282,19 @@ async function main() {
       title: 'Paste image example',
       version: '0.0.1',
     },
+    capabilities: {
+      experimentalApi: true,
+    },
   });
 
   console.log('Server user agent:', initializeResult?.userAgent);
   notify('initialized');
+
+  const externalAuthParams = buildExternalAuthLoginParams(authInfo);
+  if (externalAuthParams) {
+    await request('account/login/start', externalAuthParams);
+    console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
+  }
 
   const threadResult = await request('thread/start', {});
   threadId = threadResult?.thread?.id;
