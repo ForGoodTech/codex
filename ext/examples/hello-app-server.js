@@ -100,7 +100,11 @@ rl.on('line', (line) => {
     const resolver = pending.get(message.id);
     if (resolver) {
       pending.delete(message.id);
-      resolver.resolve(message.result ?? message.error);
+      if (Object.prototype.hasOwnProperty.call(message, 'error')) {
+        resolver.reject(new Error(`JSON-RPC error for id ${message.id}: ${JSON.stringify(message.error)}`));
+      } else {
+        resolver.resolve(message.result);
+      }
     } else {
       console.warn('Unmatched response', message);
     }
@@ -173,8 +177,8 @@ function request(method, params = {}) {
   const payload = { method, params, id };
   serverInput.write(`${JSON.stringify(payload)}\n`);
 
-  return new Promise((resolve) => {
-    pending.set(id, { resolve });
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
   });
 }
 
@@ -208,8 +212,11 @@ async function main() {
       externalAuthParams.chatgptPlanType ?? '',
     ].join('|').length;
     console.log(`TEMP: hello-app-server auth material length=${authMaterialLength}`);
-    await request('account/login/start', externalAuthParams);
+    const loginResult = await request('account/login/start', externalAuthParams);
     console.log(`TEMP: hello-app-server sent chatgptAuthTokens auth material length=${authMaterialLength}`);
+    console.log('TEMP: hello-app-server login/start result', loginResult);
+    const accountRead = await request('account/read', { refreshToken: false });
+    console.log('TEMP: hello-app-server account/read after login', accountRead);
     console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
   }
 
