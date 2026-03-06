@@ -40,6 +40,7 @@
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
+const { buildExternalAuthLoginParams, loadAuthInfo, resolveProxyToken } = require('./app-server-auth');
 
 const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
 const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
@@ -54,6 +55,8 @@ const tcpPort = (() => {
 
 let serverInput;
 let serverOutput;
+const authInfo = loadAuthInfo();
+const proxyToken = resolveProxyToken(authInfo);
 console.log(`Connecting to app server proxy at ${tcpHost}:${tcpPort} ...`);
 const socket = net.connect({ host: tcpHost, port: tcpPort });
 socket.setKeepAlive(true);
@@ -130,6 +133,15 @@ function handleNotification(method, params) {
       latestAgentMessageId = itemId;
       break;
     }
+    case 'item/completed': {
+      const { item } = params;
+      if (item?.type !== 'agentMessage' || typeof item.id !== 'string' || typeof item.text !== 'string') {
+        break;
+      }
+      agentMessageText.set(item.id, item.text);
+      latestAgentMessageId = item.id;
+      break;
+    }
     case 'item/reasoning/summaryPartAdded':
       process.stdout.write('.');
       reasoningState.sections += 1;
@@ -151,7 +163,7 @@ function handleNotification(method, params) {
 
       const finalMessage = latestAgentMessageId
         ? agentMessageText.get(latestAgentMessageId)
-        : null;
+        : params.turn?.items?.find((item) => item.type === 'AgentMessage' || item.type === 'agentMessage')?.text;
       if (finalMessage) {
         process.stdout.write('\n\n');
         console.log(finalMessage.trim());
@@ -244,12 +256,16 @@ async function main() {
   console.log('Connecting to codex app-server...');
 
   await once(socket, 'connect');
+  socket.write(`${JSON.stringify({ type: 'auth', token: proxyToken })}\n`);
 
   const initializeResult = await request('initialize', {
     clientInfo: {
       name: 'ext-example',
       title: 'Reasoning App Server example',
       version: '0.0.1',
+    },
+    capabilities: {
+      experimentalApi: true,
     },
   });
 
@@ -260,6 +276,12 @@ async function main() {
     console.log('Server user agent: (not provided by server)');
   }
   notify('initialized');
+
+  const externalAuthParams = buildExternalAuthLoginParams(authInfo);
+  if (externalAuthParams) {
+    await request('account/login/start', externalAuthParams);
+    console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
+  }
 
   const threadResult = await request('thread/start', {});
   threadId = threadResult?.thread?.id;
