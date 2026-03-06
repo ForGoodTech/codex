@@ -169,6 +169,11 @@ RUN mkdir -p /home/node/workdir && \
   cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
 
+# Some container/proxy paths do not support the Responses websocket upgrade.
+# Force HTTP Responses transport by disabling websocket support on OpenAI.
+[model_providers.openai]
+supports_websockets = false
+
 [mcp_servers.openai_docs]
 url = "${OPENAI_DOCS_MCP_URL}"
 
