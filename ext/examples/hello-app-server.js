@@ -38,9 +38,11 @@
  * - The example keeps the scope intentionally small so future examples can focus on other flows (auth, approvals, etc.).
  */
 
+const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
+const { buildExternalAuthLoginParams, loadAuthInfo, resolveProxyToken } = require('./app-server-auth');
 
 const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
 const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
@@ -56,6 +58,16 @@ const tcpPort = (() => {
 let serverInput;
 let serverOutput;
 const socket = net.connect({ host: tcpHost, port: tcpPort });
+const authInfo = loadAuthInfo();
+const proxyToken = resolveProxyToken(authInfo);
+if (authInfo?.authPath) {
+  try {
+    const authJsonLength = fs.readFileSync(authInfo.authPath, 'utf8').length;
+    console.log(`TEMP: hello-app-server auth.json length=${authJsonLength}`);
+  } catch (error) {
+    console.log(`TEMP: hello-app-server failed to read auth.json for length: ${error.message}`);
+  }
+}
 socket.setKeepAlive(true);
 serverInput = socket;
 serverOutput = socket;
@@ -88,7 +100,11 @@ rl.on('line', (line) => {
     const resolver = pending.get(message.id);
     if (resolver) {
       pending.delete(message.id);
-      resolver.resolve(message.result ?? message.error);
+      if (Object.prototype.hasOwnProperty.call(message, 'error')) {
+        resolver.reject(new Error(`JSON-RPC error for id ${message.id}: ${JSON.stringify(message.error)}`));
+      } else {
+        resolver.resolve(message.result);
+      }
     } else {
       console.warn('Unmatched response', message);
     }
@@ -122,16 +138,6 @@ function logNotification(method, params) {
       console.log(`Turn started: ${params.turn?.id ?? 'unknown'}`);
       break;
     case 'item/agentMessage/delta':
-      if (params.delta?.content?.length) {
-        console.log(params.delta.content.map((c) => c.text ?? '').join(''));
-        break;
-      }
-
-      if (typeof params.delta?.text === 'string') {
-        console.log(params.delta.text);
-        break;
-      }
-
       if (typeof params.delta === 'string') {
         console.log(params.delta);
         break;
@@ -144,9 +150,23 @@ function logNotification(method, params) {
 
       console.log('Notification', method, params);
       break;
-    case 'turn/completed':
+    case 'item/completed':
+      if (params.item?.type === 'agentMessage' && typeof params.item.text === 'string') {
+        console.log(params.item.text);
+        break;
+      }
+      console.log('Notification', method, params);
+      break;
+    case 'turn/completed': {
+      const finalAgentMessage = params.turn?.items?.find(
+        (item) => item.type === 'AgentMessage' || item.type === 'agentMessage',
+      )?.text;
+      if (typeof finalAgentMessage === 'string' && finalAgentMessage.length) {
+        console.log(finalAgentMessage);
+      }
       console.log(`Turn completed with status: ${params.turn?.status}`);
       break;
+    }
     default:
       console.log('Notification', method, params);
   }
@@ -157,8 +177,8 @@ function request(method, params = {}) {
   const payload = { method, params, id };
   serverInput.write(`${JSON.stringify(payload)}\n`);
 
-  return new Promise((resolve) => {
-    pending.set(id, { resolve });
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
   });
 }
 
@@ -170,6 +190,8 @@ async function main() {
   console.log('Connecting to codex app-server...');
 
   await once(socket, 'connect');
+  console.log(`TEMP: hello-app-server sending proxy auth frame tokenLength=${proxyToken.length}`);
+  socket.write(`${JSON.stringify({ type: 'auth', token: proxyToken })}\n`);
 
   const initializeResult = await request('initialize', {
     clientInfo: {
@@ -177,10 +199,29 @@ async function main() {
       title: 'Hello App Server example',
       version: '0.0.1',
     },
+    capabilities: {
+      experimentalApi: true,
+    },
   });
 
   console.log('Server user agent:', initializeResult?.userAgent);
   notify('initialized');
+
+  const externalAuthParams = buildExternalAuthLoginParams(authInfo);
+  if (externalAuthParams) {
+    const authMaterialLength = [
+      externalAuthParams.accessToken,
+      externalAuthParams.chatgptAccountId,
+      externalAuthParams.chatgptPlanType ?? '',
+    ].join('|').length;
+    console.log(`TEMP: hello-app-server auth material length=${authMaterialLength}`);
+    const loginResult = await request('account/login/start', externalAuthParams);
+    console.log(`TEMP: hello-app-server sent chatgptAuthTokens auth material length=${authMaterialLength}`);
+    console.log('TEMP: hello-app-server login/start result', loginResult);
+    const accountRead = await request('account/read', { refreshToken: false });
+    console.log('TEMP: hello-app-server account/read after login', accountRead);
+    console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
+  }
 
   const threadResult = await request('thread/start', {});
   const threadId = threadResult?.thread?.id;
@@ -189,12 +230,14 @@ async function main() {
   }
   console.log('Started thread', threadId);
 
+  console.log('TEMP: hello-app-server sending turn/start to app-server');
   const turnResult = await request('turn/start', {
     threadId,
-    input: [{ type: 'text', text: 'Say hello back with one short sentence.' }],
+    input: [{ type: 'text', text: 'Describe the folder.' }],
   });
 
   watchedTurnId = turnResult?.turn?.id;
+  console.log('TEMP: hello-app-server prompt text=Describe the folder.');
   console.log('Waiting for turn', watchedTurnId, 'to complete...');
 }
 
