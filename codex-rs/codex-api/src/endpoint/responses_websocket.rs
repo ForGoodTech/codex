@@ -354,7 +354,17 @@ async fn connect_websocket(
             (stream, response)
         }
         Err(err) => {
-            error!("failed to connect to websocket: {err}, url: {url}");
+            if let WsError::Http(response) = &err {
+                if response.status() == StatusCode::UPGRADE_REQUIRED {
+                    info!(
+                        "websocket upgrade required by server; falling back to HTTP transport, url: {url}"
+                    );
+                } else {
+                    error!("failed to connect to websocket: {err}, url: {url}");
+                }
+            } else {
+                error!("failed to connect to websocket: {err}, url: {url}");
+            }
             return Err(map_ws_error(err, &url));
         }
     };
