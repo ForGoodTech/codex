@@ -325,15 +325,15 @@ for server in openai_docs playwright chrome_devtools; do
   fi
 done
 
-if ! rg -q '^model_provider = "openai"$' "$config_file"; then
+if ! rg -q "^model_provider = \"openai\"$" "$config_file"; then
   echo "Expected model_provider = \"openai\" in $config_file" >&2
   exit 1
 fi
 
 for required_line in \
-  '^\\[model_providers\\.openai\\]$' \
-  '^base_url = "https://api.openai.com/v1"$' \
-  '^wire_api = "responses"$'; do
+  "^\\[model_providers\\.openai\\]$" \
+  "^base_url = \"https://api.openai.com/v1\"$" \
+  "^wire_api = \"responses\"$"; do
   if ! rg -q "$required_line" "$config_file"; then
     echo "Missing OpenAI model provider setting ($required_line) in $config_file" >&2
     exit 1
