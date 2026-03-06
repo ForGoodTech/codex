@@ -56,17 +56,14 @@ PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC=60 ./build_image.sh codex-dev
 
 Pick any integer number of seconds that matches your environment. You can also edit `/home/node/.codex/config.toml` in an existing container and change `startup_timeout_sec` directly.
 
-The same generated `config.toml` also pins Codex to the OpenAI Responses HTTP endpoint via:
+The generated `config.toml` also forces HTTP transport for the default OpenAI provider by disabling websocket support:
 
 ```toml
-model_provider = "openai"
-
 [model_providers.openai]
-base_url = "https://api.openai.com/v1"
-wire_api = "responses"
+supports_websockets = false
 ```
 
-This avoids defaulting to ChatGPT backend websocket transport in containerized flows where `wss://chatgpt.com/backend-api/codex/responses` can return HTTP 426.
+This avoids websocket upgrade failures in containerized/proxied flows where `wss://chatgpt.com/backend-api/codex/responses` can return HTTP 426.
 
 ## Running Codex and the app server in a container
 
