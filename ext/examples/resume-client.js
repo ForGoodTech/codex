@@ -388,6 +388,9 @@ async function main() {
       title: 'Resume App Server example',
       version: '0.0.1',
     },
+    capabilities: {
+      experimentalApi: true,
+    },
   });
 
   const userAgent = initializeResult?.userAgent;

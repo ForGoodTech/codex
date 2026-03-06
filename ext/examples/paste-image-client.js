@@ -282,6 +282,9 @@ async function main() {
       title: 'Paste image example',
       version: '0.0.1',
     },
+    capabilities: {
+      experimentalApi: true,
+    },
   });
 
   console.log('Server user agent:', initializeResult?.userAgent);

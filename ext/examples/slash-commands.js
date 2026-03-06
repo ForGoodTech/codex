@@ -208,6 +208,9 @@ async function main() {
       title: 'Slash command client example',
       version: '0.0.1',
     },
+    capabilities: {
+      experimentalApi: true,
+    },
   });
 
   const userAgent = initializeResult?.userAgent;
