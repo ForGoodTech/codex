@@ -38,6 +38,7 @@
  * - The example keeps the scope intentionally small so future examples can focus on other flows (auth, approvals, etc.).
  */
 
+const fs = require('node:fs');
 const { once } = require('node:events');
 const readline = require('node:readline');
 const net = require('node:net');
@@ -59,6 +60,14 @@ let serverOutput;
 const socket = net.connect({ host: tcpHost, port: tcpPort });
 const authInfo = loadAuthInfo();
 const proxyToken = resolveProxyToken(authInfo);
+if (authInfo?.authPath) {
+  try {
+    const authJsonLength = fs.readFileSync(authInfo.authPath, 'utf8').length;
+    console.log(`TEMP: hello-app-server auth.json length=${authJsonLength}`);
+  } catch (error) {
+    console.log(`TEMP: hello-app-server failed to read auth.json for length: ${error.message}`);
+  }
+}
 socket.setKeepAlive(true);
 serverInput = socket;
 serverOutput = socket;
@@ -177,6 +186,7 @@ async function main() {
   console.log('Connecting to codex app-server...');
 
   await once(socket, 'connect');
+  console.log(`TEMP: hello-app-server sending proxy auth frame tokenLength=${proxyToken.length}`);
   socket.write(`${JSON.stringify({ type: 'auth', token: proxyToken })}\n`);
 
   const initializeResult = await request('initialize', {
@@ -192,7 +202,14 @@ async function main() {
 
   const externalAuthParams = buildExternalAuthLoginParams(authInfo);
   if (externalAuthParams) {
+    const authMaterialLength = [
+      externalAuthParams.accessToken,
+      externalAuthParams.chatgptAccountId,
+      externalAuthParams.chatgptPlanType ?? '',
+    ].join('|').length;
+    console.log(`TEMP: hello-app-server auth material length=${authMaterialLength}`);
     await request('account/login/start', externalAuthParams);
+    console.log(`TEMP: hello-app-server sent chatgptAuthTokens auth material length=${authMaterialLength}`);
     console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
   }
 
@@ -203,12 +220,14 @@ async function main() {
   }
   console.log('Started thread', threadId);
 
+  console.log('TEMP: hello-app-server sending turn/start to app-server');
   const turnResult = await request('turn/start', {
     threadId,
-    input: [{ type: 'text', text: 'Say hello back with one short sentence.' }],
+    input: [{ type: 'text', text: 'Describe the folder.' }],
   });
 
   watchedTurnId = turnResult?.turn?.id;
+  console.log('TEMP: hello-app-server prompt text=Describe the folder.');
   console.log('Waiting for turn', watchedTurnId, 'to complete...');
 }
 
