@@ -170,6 +170,9 @@ RUN mkdir -p /home/node/workdir && \
 sandbox_mode = "danger-full-access"
 
 [model_providers.openai]
+name = "OpenAI"
+wire_api = "responses"
+requires_openai_auth = true
 supports_websockets = false
 
 [mcp_servers.openai_docs]

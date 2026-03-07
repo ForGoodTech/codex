@@ -60,6 +60,9 @@ The generated `config.toml` also forces HTTP transport for the default OpenAI pr
 
 ```toml
 [model_providers.openai]
+name = "OpenAI"
+wire_api = "responses"
+requires_openai_auth = true
 supports_websockets = false
 ```
 
