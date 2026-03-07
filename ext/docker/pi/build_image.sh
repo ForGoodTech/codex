@@ -325,15 +325,6 @@ for server in openai_docs playwright chrome_devtools; do
   fi
 done
 
-for required_line in \
-  "^\\[model_providers\\.openai\\]$" \
-  "^supports_websockets = false$"; do
-  if ! rg -q "$required_line" "$config_file"; then
-    echo "Missing OpenAI model provider setting ($required_line) in $config_file" >&2
-    exit 1
-  fi
-done
-
 if ! rg -q "^startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}$" "$config_file"; then
   echo "Expected Playwright startup timeout not found in $config_file" >&2
   exit 1
