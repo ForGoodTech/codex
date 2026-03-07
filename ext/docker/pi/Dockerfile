@@ -169,11 +169,6 @@ RUN mkdir -p /home/node/workdir && \
   cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
 
-[model_providers.openai]
-name = "OpenAI"
-wire_api = "responses"
-requires_openai_auth = true
-supports_websockets = false
 
 [mcp_servers.openai_docs]
 url = "${OPENAI_DOCS_MCP_URL}"
