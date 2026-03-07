@@ -17,6 +17,7 @@ PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
 CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
+GITHUB_MCP_URL=${GITHUB_MCP_URL:-https://api.githubcopilot.com/mcp/}
 OPENAI_DOCS_MCP_URL=${OPENAI_DOCS_MCP_URL:-https://developers.openai.com/mcp}
 PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC=${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC:-30}
 
@@ -299,6 +300,7 @@ docker build \
   --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
   --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
+  --build-arg GITHUB_MCP_URL="$GITHUB_MCP_URL" \
   --build-arg OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
   --build-arg PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="$PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC" \
   -t "$IMAGE_TAG" \
@@ -308,6 +310,7 @@ docker build \
 docker run --rm \
   -e PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
   -e CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
+  -e GITHUB_MCP_URL="$GITHUB_MCP_URL" \
   -e IMAGE_TAG="$IMAGE_TAG" \
   "$IMAGE_TAG" bash -lc '
 set -euo pipefail
@@ -318,12 +321,22 @@ if [[ ! -f "$config_file" ]]; then
   exit 1
 fi
 
-for server in openai_docs playwright chrome_devtools; do
+for server in openai_docs playwright chrome_devtools github; do
   if ! rg -q "^\\[mcp_servers\\.${server}\\]" "$config_file"; then
     echo "Missing MCP server configuration for $server in $config_file" >&2
     exit 1
   fi
 done
+
+if ! rg -q "^url = \"${GITHUB_MCP_URL}\"$" "$config_file"; then
+  echo "Expected GitHub MCP URL not found in $config_file" >&2
+  exit 1
+fi
+
+if rg -q "(?i)(github[_-]?token|authorization|GITHUB_TOKEN|\$\{?GITHUB_TOKEN\}?)" "$config_file"; then
+  echo "GitHub MCP server config must not include token or token env references in $config_file" >&2
+  exit 1
+fi
 
 if ! rg -q "^startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}$" "$config_file"; then
   echo "Expected Playwright startup timeout not found in $config_file" >&2
