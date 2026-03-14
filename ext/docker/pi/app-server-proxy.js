@@ -28,8 +28,9 @@
  * --------
  * - Single-client TCP bridge; additional connection attempts are rejected until the active client
  *   disconnects.
- * - Data is forwarded byte-for-byte between the client socket and the app server stdin/stdout; the
- *   client should speak the same JSONL protocol the app server expects (see hello-app-server.js).
+ * - Data is forwarded as JSONL between the client socket and the app server stdin/stdout; the proxy
+ *   may augment selected request frames (for example, default developer instructions).
+ * - The client should speak the same JSONL protocol the app server expects (see hello-app-server.js).
  */
 const net = require('node:net');
 const { spawn } = require('node:child_process');
@@ -43,6 +44,11 @@ if (!envProxyToken) {
   console.log('Using APP_SERVER_PROXY_TOKEN from environment for proxy auth handshake.');
 }
 const proxyToken = envProxyToken;
+const mathJaxDeveloperInstructions = [
+  'If your response includes mathematics, format all math in LaTeX for MathJax rendering.',
+  'Use \\( ... \\) for inline math and \\[ ... \\] for display math.',
+  'Do not output plain-text equations without LaTeX math delimiters.',
+].join(' ');
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
 const defaultPort = 9395;
 const authTimeoutMs = 3000;
@@ -85,6 +91,32 @@ appServer.on('error', (error) => {
   process.exitCode = 1;
 });
 let activeSocket = null;
+
+function appendDeveloperInstructions(frame) {
+  if (!frame || typeof frame !== 'object') {
+    return frame;
+  }
+  const method = frame.method;
+  if (method !== 'thread/start' && method !== 'thread/resume') {
+    return frame;
+  }
+  const params = frame.params && typeof frame.params === 'object' ? frame.params : {};
+  const existing =
+    params.developerInstructions === undefined || params.developerInstructions === null
+      ? ''
+      : params.developerInstructions.toString().trim();
+  const combined = existing
+    ? `${existing}\n\n${mathJaxDeveloperInstructions}`
+    : mathJaxDeveloperInstructions;
+  return {
+    ...frame,
+    params: {
+      ...params,
+      developerInstructions: combined,
+    },
+  };
+}
+
 const server = net.createServer((socket) => {
   if (activeSocket) {
     socket.destroy(new Error('Proxy already has an active client; try again later.'));
@@ -94,7 +126,7 @@ const server = net.createServer((socket) => {
   activeSocket = socket;
   let isAuthenticated = false;
   let authBuffer = Buffer.alloc(0);
-  let loggedLineBuffer = '';
+  let frameLineBuffer = '';
   let lastAuthMaterialLength = null;
   const authTimeout = setTimeout(() => {
     if (isAuthenticated) {
@@ -150,16 +182,18 @@ const server = net.createServer((socket) => {
       }
       return;
     }
-    loggedLineBuffer += chunk.toString('utf8');
-    const lines = loggedLineBuffer.split('\n');
-    loggedLineBuffer = lines.pop() ?? '';
+    frameLineBuffer += chunk.toString('utf8');
+    const lines = frameLineBuffer.split('\n');
+    frameLineBuffer = lines.pop() ?? '';
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) {
+        appServer.stdin.write('\n');
         continue;
       }
       try {
-        const frame = JSON.parse(line);
+        const frame = appendDeveloperInstructions(JSON.parse(line));
+        const encodedLine = `${JSON.stringify(frame)}\n`;
         if (frame.method === 'turn/start') {
           const prompt = Array.isArray(frame.params?.input)
             ? frame.params.input.find((entry) => entry.type === 'text')?.text
@@ -180,15 +214,17 @@ const server = net.createServer((socket) => {
           lastAuthMaterialLength = authMaterialLength;
           console.log(`TEMP: proxy auth material length=${authMaterialLength}`);
         }
+        const writeOk = appServer.stdin.write(encodedLine);
+        if (!writeOk) {
+          socket.pause();
+        }
       } catch {
-        // Ignore non-JSON lines in TEMP logging path.
+        const passthroughLine = `${rawLine}\n`;
+        const writeOk = appServer.stdin.write(passthroughLine);
+        if (!writeOk) {
+          socket.pause();
+        }
       }
-    }
-    console.log(`TEMP: proxy forwarding chunk to app-server bytes=${chunk.length}`);
-    const writeOk = appServer.stdin.write(chunk);
-    console.log('TEMP: proxy sent chunk to codex-app-server');
-    if (!writeOk) {
-      socket.pause();
     }
   };
   const resumeSocket = () => {
@@ -205,6 +241,13 @@ const server = net.createServer((socket) => {
     socket.off('close', teardown);
     socket.off('error', teardown);
     if (!socket.destroyed) {
+      if (frameLineBuffer.length > 0) {
+        const writeOk = appServer.stdin.write(frameLineBuffer);
+        if (!writeOk) {
+          socket.pause();
+        }
+        frameLineBuffer = '';
+      }
       socket.end();
     }
     activeSocket = null;
