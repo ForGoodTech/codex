@@ -112,6 +112,44 @@ function ensure_musl_compiler() {
   fi
 }
 
+function ensure_linux_sandbox_build_deps() {
+  if ! command -v pkg-config >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+      if [[ $(id -u) -eq 0 ]]; then
+        DEBIAN_FRONTEND=noninteractive apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev
+      elif command -v sudo >/dev/null 2>&1; then
+        sudo DEBIAN_FRONTEND=noninteractive apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev
+      else
+        echo "pkg-config is required and sudo is unavailable; install pkg-config and libcap-dev manually." >&2
+        exit 1
+      fi
+    else
+      echo "pkg-config is required; install pkg-config and libcap-dev manually." >&2
+      exit 1
+    fi
+  fi
+
+  if ! pkg-config --exists libcap; then
+    if command -v apt-get >/dev/null 2>&1; then
+      if [[ $(id -u) -eq 0 ]]; then
+        DEBIAN_FRONTEND=noninteractive apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libcap-dev
+      elif command -v sudo >/dev/null 2>&1; then
+        sudo DEBIAN_FRONTEND=noninteractive apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libcap-dev
+      else
+        echo "libcap development headers are required and sudo is unavailable; install libcap-dev manually." >&2
+        exit 1
+      fi
+    else
+      echo "libcap development headers are required; install libcap-dev manually." >&2
+      exit 1
+    fi
+  fi
+}
+
 # Determine the target triple expected by the CLI launcher.
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -130,6 +168,7 @@ esac
 RUST_TOOLCHAIN=$(resolve_rust_toolchain)
 ensure_toolchain "$RUST_TOOLCHAIN"
 ensure_musl_compiler
+ensure_linux_sandbox_build_deps
 
 pushd "$CLI_ROOT" > /dev/null
 
@@ -173,11 +212,15 @@ function ensure_binary() {
     CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
       PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
+      PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
+      PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       cargo +"$RUST_TOOLCHAIN" build --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   else
     CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
       PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
+      PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
+      PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       cargo +"$RUST_TOOLCHAIN" build --release --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   fi
   popd > /dev/null
