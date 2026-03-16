@@ -114,39 +114,13 @@ function ensure_musl_compiler() {
 
 function ensure_linux_sandbox_build_deps() {
   if ! command -v pkg-config >/dev/null 2>&1; then
-    if command -v apt-get >/dev/null 2>&1; then
-      if [[ $(id -u) -eq 0 ]]; then
-        DEBIAN_FRONTEND=noninteractive apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev
-      elif command -v sudo >/dev/null 2>&1; then
-        sudo DEBIAN_FRONTEND=noninteractive apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev
-      else
-        echo "pkg-config is required and sudo is unavailable; install pkg-config and libcap-dev manually." >&2
-        exit 1
-      fi
-    else
-      echo "pkg-config is required; install pkg-config and libcap-dev manually." >&2
-      exit 1
-    fi
+    echo "pkg-config is required to build codex-linux-sandbox; install pkg-config and libcap-dev manually." >&2
+    exit 1
   fi
 
   if ! pkg-config --exists libcap; then
-    if command -v apt-get >/dev/null 2>&1; then
-      if [[ $(id -u) -eq 0 ]]; then
-        DEBIAN_FRONTEND=noninteractive apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libcap-dev
-      elif command -v sudo >/dev/null 2>&1; then
-        sudo DEBIAN_FRONTEND=noninteractive apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libcap-dev
-      else
-        echo "libcap development headers are required and sudo is unavailable; install libcap-dev manually." >&2
-        exit 1
-      fi
-    else
-      echo "libcap development headers are required; install libcap-dev manually." >&2
-      exit 1
-    fi
+    echo "libcap development headers are required to build codex-linux-sandbox; install libcap-dev manually." >&2
+    exit 1
   fi
 }
 
