@@ -172,10 +172,12 @@ function ensure_binary() {
   if [[ "$BUILD_PROFILE" == "debug" ]]; then
     CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
+      PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
       cargo +"$RUST_TOOLCHAIN" build --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   else
     CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
+      PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
       cargo +"$RUST_TOOLCHAIN" build --release --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   fi
   popd > /dev/null
