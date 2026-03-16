@@ -182,12 +182,24 @@ function ensure_binary() {
 
   pushd "$RUST_ROOT" > /dev/null
   local v_cc_musl=${CC_aarch64_unknown_linux_musl:-musl-gcc}
+  local target_cflags=${CFLAGS_aarch64_unknown_linux_musl:-}
+  if [[ "$v_cc_musl" == "musl-gcc" ]]; then
+    local gcc_multiarch
+    gcc_multiarch=$(gcc -print-multiarch 2>/dev/null || true)
+    if [[ -n "$gcc_multiarch" && -d "/usr/include/$gcc_multiarch" ]]; then
+      if [[ -n "$target_cflags" ]]; then
+        target_cflags+=" "
+      fi
+      target_cflags+="-idirafter/usr/include/$gcc_multiarch"
+    fi
+  fi
   if [[ "$BUILD_PROFILE" == "debug" ]]; then
     CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
       PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
       PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
+      CFLAGS_aarch64_unknown_linux_musl="$target_cflags" \
       cargo +"$RUST_TOOLCHAIN" build --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   else
     CC="$v_cc_musl" \
@@ -195,6 +207,7 @@ function ensure_binary() {
       PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
       PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
+      CFLAGS_aarch64_unknown_linux_musl="$target_cflags" \
       cargo +"$RUST_TOOLCHAIN" build --release --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   fi
   popd > /dev/null
