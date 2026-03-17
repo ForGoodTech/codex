@@ -139,6 +139,42 @@ function resolve_target_cflags() {
   echo "$target_cflags"
 }
 
+function resolve_target_linker_env_var() {
+  if [[ "$TARGET_TRIPLE" == "aarch64-unknown-linux-musl" ]]; then
+    echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER"
+  elif [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-musl" ]]; then
+    echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"
+  else
+    echo ""
+  fi
+}
+
+function precheck_rust_target_linker() {
+  local v_cc_musl
+  v_cc_musl=$(resolve_musl_compiler)
+  local linker_env_var
+  linker_env_var=$(resolve_target_linker_env_var)
+  if [[ -z "$linker_env_var" ]]; then
+    return
+  fi
+  local precheck_rs
+  precheck_rs=$(mktemp)
+  local precheck_bin
+  precheck_bin=$(mktemp)
+  cat > "$precheck_rs" <<'EOF'
+fn main() {}
+EOF
+  if ! env "$linker_env_var=$v_cc_musl" rustc +"$RUST_TOOLCHAIN" --target "$TARGET_TRIPLE" "$precheck_rs" -o "$precheck_bin" >/dev/null 2>&1; then
+    rm -f "$precheck_rs" "$precheck_bin"
+    echo "Rust target linker precheck failed before cargo build." >&2
+    echo "Target: $TARGET_TRIPLE" >&2
+    echo "Compiler/linker: $v_cc_musl" >&2
+    echo "Set $linker_env_var or install/fix the target musl toolchain, then re-run." >&2
+    exit 1
+  fi
+  rm -f "$precheck_rs" "$precheck_bin"
+}
+
 function precheck_linux_sandbox_compile_conditions() {
   local v_cc_musl
   v_cc_musl=$(resolve_musl_compiler)
@@ -190,15 +226,7 @@ ensure_toolchain "$RUST_TOOLCHAIN"
 ensure_musl_compiler
 ensure_linux_sandbox_build_deps
 precheck_linux_sandbox_compile_conditions
-
-pushd "$CLI_ROOT" > /dev/null
-
-pnpm install
-
-pushd "$SDK_ROOT" > /dev/null
-pnpm install
-pnpm run build
-popd > /dev/null
+precheck_rust_target_linker
 
 # Build (or reuse) the native Codex binary from the local workspace.
 case "$BUILD_PROFILE" in
@@ -232,8 +260,11 @@ function ensure_binary() {
   v_cc_musl=$(resolve_musl_compiler)
   local target_cflags
   target_cflags=$(resolve_target_cflags)
+  local linker_env_var
+  linker_env_var=$(resolve_target_linker_env_var)
   if [[ "$BUILD_PROFILE" == "debug" ]]; then
-    CC="$v_cc_musl" \
+    env "$linker_env_var=$v_cc_musl" \
+      CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
       PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
       PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
@@ -241,7 +272,8 @@ function ensure_binary() {
       CFLAGS_aarch64_unknown_linux_musl="$target_cflags" \
       cargo +"$RUST_TOOLCHAIN" build --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   else
-    CC="$v_cc_musl" \
+    env "$linker_env_var=$v_cc_musl" \
+      CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
       PKG_CONFIG_ALLOW_CROSS="${PKG_CONFIG_ALLOW_CROSS:-1}" \
       PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
@@ -257,9 +289,18 @@ function ensure_binary() {
   fi
 }
 
+ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
 ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
 ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
-ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
+
+pushd "$CLI_ROOT" > /dev/null
+
+pnpm install
+
+pushd "$SDK_ROOT" > /dev/null
+pnpm install
+pnpm run build
+popd > /dev/null
 
 function ensure_rg_binary() {
   local rg_path
