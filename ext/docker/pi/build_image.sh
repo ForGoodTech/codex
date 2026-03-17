@@ -126,16 +126,28 @@ function resolve_musl_compiler() {
 
 function resolve_target_cflags() {
   local target_cflags=${CFLAGS_aarch64_unknown_linux_musl:-}
+  local include_candidates=()
   local gcc_multiarch
   gcc_multiarch=$(gcc -print-multiarch 2>/dev/null || true)
-  if [[ -n "$gcc_multiarch" && -d "/usr/include/$gcc_multiarch" ]]; then
-    if [[ "$target_cflags" != *"-idirafter/usr/include/$gcc_multiarch"* ]]; then
+  if [[ -n "$gcc_multiarch" ]]; then
+    include_candidates+=("/usr/include/$gcc_multiarch")
+  fi
+  if [[ "$TARGET_TRIPLE" == "aarch64-unknown-linux-musl" ]]; then
+    include_candidates+=("/usr/include/aarch64-linux-gnu")
+  elif [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-musl" ]]; then
+    include_candidates+=("/usr/include/x86_64-linux-gnu")
+  fi
+
+  local include_dir
+  for include_dir in "${include_candidates[@]}"; do
+    if [[ -d "$include_dir" && "$target_cflags" != *"-idirafter$include_dir"* ]]; then
       if [[ -n "$target_cflags" ]]; then
         target_cflags+=" "
       fi
-      target_cflags+="-idirafter/usr/include/$gcc_multiarch"
+      target_cflags+="-idirafter$include_dir"
     fi
-  fi
+  done
+
   echo "$target_cflags"
 }
 
@@ -319,6 +331,7 @@ function ensure_binary() {
       PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       CFLAGS_aarch64_unknown_linux_musl="$target_cflags" \
+      TARGET_CFLAGS="$target_cflags" \
       cargo +"$RUST_TOOLCHAIN" build --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   else
     env "$linker_env_var=$v_cc_musl" \
@@ -328,6 +341,7 @@ function ensure_binary() {
       PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_aarch64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl="${PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl:-${PKG_CONFIG_ALLOW_CROSS:-1}}" \
       CFLAGS_aarch64_unknown_linux_musl="$target_cflags" \
+      TARGET_CFLAGS="$target_cflags" \
       cargo +"$RUST_TOOLCHAIN" build --release --target "$TARGET_TRIPLE" "${cargo_args[@]}"
   fi
   popd > /dev/null
