@@ -86,30 +86,18 @@ function ensure_musl_compiler() {
   if [[ "$TARGET_TRIPLE" != *-musl ]]; then
     return
   fi
-  if command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
+  if [[ "$TARGET_TRIPLE" == "aarch64-unknown-linux-musl" ]] && command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
+    return
+  fi
+  if [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-musl" ]] && command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
     return
   fi
   if command -v musl-gcc >/dev/null 2>&1; then
     return
   fi
-  if ! command -v apt-get >/dev/null 2>&1; then
-    echo "musl-gcc not found and apt-get is unavailable; install musl-tools manually." >&2
-    exit 1
-  fi
-  if [[ $(id -u) -eq 0 ]]; then
-    DEBIAN_FRONTEND=noninteractive apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends musl-tools u-boot-tools
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends musl-tools u-boot-tools
-  else
-    echo "musl-gcc not found and sudo is unavailable; install musl-tools manually." >&2
-    exit 1
-  fi
-  if ! command -v musl-gcc >/dev/null 2>&1; then
-    echo "musl-gcc is still unavailable after installing musl-tools." >&2
-    exit 1
-  fi
+  echo "No musl C compiler found for $TARGET_TRIPLE." >&2
+  echo "Install a target compiler (preferred) or musl-gcc manually, then re-run." >&2
+  exit 1
 }
 
 function ensure_linux_sandbox_build_deps() {
