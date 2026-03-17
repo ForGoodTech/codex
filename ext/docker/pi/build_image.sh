@@ -139,6 +139,14 @@ function ensure_musl_static_libcap() {
   fi
   echo "codex-linux-sandbox links with -static and needs a musl-linkable libcap.a." >&2
   echo "Install/provide musl-target libcap static library (or proper sysroot/pkg-config path), then re-run." >&2
+  echo "Suggested setup commands:" >&2
+  echo "  sudo apt-get update && sudo apt-get install -y musl-tools pkg-config make git" >&2
+  echo "  git clone https://git.kernel.org/pub/scm/libs/libcap/libcap.git /tmp/libcap-musl" >&2
+  echo "  make -C /tmp/libcap-musl lib=lib prefix=$HOME/.local/musl-libcap CC=aarch64-linux-musl-gcc" >&2
+  echo "  make -C /tmp/libcap-musl install lib=lib prefix=$HOME/.local/musl-libcap CC=aarch64-linux-musl-gcc" >&2
+  echo "  export PKG_CONFIG_PATH=$HOME/.local/musl-libcap/lib/pkgconfig" >&2
+  echo "  export LIBRARY_PATH=$HOME/.local/musl-libcap/lib" >&2
+  echo "  export CFLAGS_aarch64_unknown_linux_musl=\"${CFLAGS_aarch64_unknown_linux_musl:-} -I$HOME/.local/musl-libcap/include\"" >&2
   exit 1
 }
 
@@ -290,6 +298,8 @@ EOF
     echo "pkg-config --libs libcap: $pkg_libs" >&2
     echo "The discovered libcap library is not linkable for $TARGET_TRIPLE." >&2
     echo "Install a musl-compatible libcap toolchain/sysroot or set pkg-config vars to one, then re-run." >&2
+    echo "Quick verify command:" >&2
+    echo "  $v_cc_musl -x c -o /tmp/cap-link-check -static -idirafter/usr/include ${cflags_args[*]} /tmp/cap-link-check.c $(pkg-config --cflags --libs libcap)" >&2
     exit 1
   fi
   rm -f "$precheck_src" "$precheck_bin"
