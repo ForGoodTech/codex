@@ -146,8 +146,10 @@ function ensure_musl_static_libcap() {
   echo "  sudo apt-get -f install" >&2
   echo "  # ensure these tools exist first: aarch64-linux-musl-gcc, pkg-config, make, git" >&2
   echo "  git clone https://git.kernel.org/pub/scm/libs/libcap/libcap.git /tmp/libcap-musl" >&2
-  echo "  make -C /tmp/libcap-musl lib=lib prefix=$HOME/.local/musl-libcap CC=aarch64-linux-musl-gcc" >&2
-  echo "  make -C /tmp/libcap-musl install lib=lib prefix=$HOME/.local/musl-libcap CC=aarch64-linux-musl-gcc" >&2
+  echo "  make -C /tmp/libcap-musl/libcap clean" >&2
+  echo "  make -C /tmp/libcap-musl/libcap libcap.a libpsx.a CC=aarch64-linux-musl-gcc" >&2
+  echo "  make -C /tmp/libcap-musl/libcap install-static install-static-psx lib=lib prefix=$HOME/.local/musl-libcap CC=aarch64-linux-musl-gcc" >&2
+  echo "  # do NOT use top-level \"make install\" (it builds extra progs/go targets and may fail)" >&2
   echo "  export PKG_CONFIG_PATH=$HOME/.local/musl-libcap/lib/pkgconfig" >&2
   echo "  export LIBRARY_PATH=$HOME/.local/musl-libcap/lib" >&2
   echo "  export CFLAGS_aarch64_unknown_linux_musl=\"${CFLAGS_aarch64_unknown_linux_musl:-} -I$HOME/.local/musl-libcap/include\"" >&2
