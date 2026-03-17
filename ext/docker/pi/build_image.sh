@@ -399,10 +399,12 @@ function ensure_binary() {
   fi
 }
 
+echo "==> Building Rust binaries"
 ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
 ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
 ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
 
+echo "==> Building and packaging Node artifacts"
 pushd "$CLI_ROOT" > /dev/null
 
 pnpm install
@@ -420,21 +422,12 @@ function ensure_rg_binary() {
     return
   fi
 
-  if command -v cargo >/dev/null 2>&1; then
-    local rg_root="$RUST_ROOT/target/ripgrep-install"
-    mkdir -p "$rg_root"
-    cargo install --locked ripgrep --root "$rg_root"
-    if [[ -x "$rg_root/bin/rg" ]]; then
-      echo "$rg_root/bin/rg"
-      return
-    fi
-  fi
-
-  echo "ripgrep (rg) not found in PATH and automatic installation failed." >&2
-  echo "Install ripgrep manually (or use cargo install ripgrep) and re-run." >&2
+  echo "ripgrep (rg) is required but not found in PATH." >&2
+  echo "Install ripgrep manually, then re-run (example: sudo apt-get install -y ripgrep)." >&2
   exit 1
 }
 
+echo "==> Resolving ripgrep binary"
 RG_BIN_SRC=$(ensure_rg_binary)
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
@@ -505,6 +498,7 @@ function cleanup_existing_image() {
   exit 1
 }
 
+echo "==> Preparing Docker image"
 cleanup_existing_image
 
 docker build \
