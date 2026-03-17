@@ -140,7 +140,11 @@ function ensure_musl_static_libcap() {
   echo "codex-linux-sandbox links with -static and needs a musl-linkable libcap.a." >&2
   echo "Install/provide musl-target libcap static library (or proper sysroot/pkg-config path), then re-run." >&2
   echo "Suggested setup commands:" >&2
-  echo "  sudo apt-get update && sudo apt-get install -y musl-tools pkg-config make git" >&2
+  echo "If apt/dpkg is currently broken on Ubuntu Pi (flash-kernel/initramfs error), recover first:" >&2
+  echo "  sudo apt-get install -y u-boot-tools" >&2
+  echo "  sudo dpkg --configure -a" >&2
+  echo "  sudo apt-get -f install" >&2
+  echo "  # ensure these tools exist first: aarch64-linux-musl-gcc, pkg-config, make, git" >&2
   echo "  git clone https://git.kernel.org/pub/scm/libs/libcap/libcap.git /tmp/libcap-musl" >&2
   echo "  make -C /tmp/libcap-musl lib=lib prefix=$HOME/.local/musl-libcap CC=aarch64-linux-musl-gcc" >&2
   echo "  make -C /tmp/libcap-musl install lib=lib prefix=$HOME/.local/musl-libcap CC=aarch64-linux-musl-gcc" >&2
@@ -414,16 +418,6 @@ function ensure_rg_binary() {
     return
   fi
 
-  if command -v apt-get >/dev/null 2>&1 && [[ $(id -u) -eq 0 ]]; then
-    apt-get update
-    apt-get install -y --no-install-recommends ripgrep
-    rg_path=$(command -v rg || true)
-    if [[ -n "$rg_path" ]]; then
-      echo "$rg_path"
-      return
-    fi
-  fi
-
   if command -v cargo >/dev/null 2>&1; then
     local rg_root="$RUST_ROOT/target/ripgrep-install"
     mkdir -p "$rg_root"
@@ -435,7 +429,7 @@ function ensure_rg_binary() {
   fi
 
   echo "ripgrep (rg) not found in PATH and automatic installation failed." >&2
-  echo "Install ripgrep manually (e.g., via apt or cargo install ripgrep) and re-run." >&2
+  echo "Install ripgrep manually (or use cargo install ripgrep) and re-run." >&2
   exit 1
 }
 
