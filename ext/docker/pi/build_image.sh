@@ -112,6 +112,36 @@ function ensure_linux_sandbox_build_deps() {
   fi
 }
 
+function ensure_musl_static_libcap() {
+  local libcap_libdir
+  libcap_libdir=$(pkg-config --variable=libdir libcap 2>/dev/null || true)
+  local candidates=()
+  if [[ -n "$libcap_libdir" ]]; then
+    candidates+=("$libcap_libdir/libcap.a")
+  fi
+  candidates+=(
+    "/usr/lib/aarch64-linux-gnu/libcap.a"
+    "/usr/lib/x86_64-linux-gnu/libcap.a"
+    "/usr/lib/libcap.a"
+    "/usr/local/lib/libcap.a"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      return
+    fi
+  done
+
+  echo "No static libcap archive (libcap.a) found for musl link step." >&2
+  if [[ -n "$libcap_libdir" ]]; then
+    echo "pkg-config libdir for libcap: $libcap_libdir" >&2
+  fi
+  echo "codex-linux-sandbox links with -static and needs a musl-linkable libcap.a." >&2
+  echo "Install/provide musl-target libcap static library (or proper sysroot/pkg-config path), then re-run." >&2
+  exit 1
+}
+
 function resolve_musl_compiler() {
   local v_cc_musl
   if [[ "$TARGET_TRIPLE" == "aarch64-unknown-linux-musl" ]] && command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
@@ -285,6 +315,7 @@ RUST_TOOLCHAIN=$(resolve_rust_toolchain)
 ensure_toolchain "$RUST_TOOLCHAIN"
 ensure_musl_compiler
 ensure_linux_sandbox_build_deps
+ensure_musl_static_libcap
 precheck_linux_sandbox_compile_conditions
 precheck_linux_sandbox_link_conditions
 precheck_rust_target_linker
