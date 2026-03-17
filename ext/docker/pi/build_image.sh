@@ -178,10 +178,10 @@ function ensure_binary() {
     v_cc_musl=${CC_aarch64_unknown_linux_musl:-musl-gcc}
   fi
   local target_cflags=${CFLAGS_aarch64_unknown_linux_musl:-}
-  if [[ "$v_cc_musl" == "musl-gcc" ]]; then
-    local gcc_multiarch
-    gcc_multiarch=$(gcc -print-multiarch 2>/dev/null || true)
-    if [[ -n "$gcc_multiarch" && -d "/usr/include/$gcc_multiarch" ]]; then
+  local gcc_multiarch
+  gcc_multiarch=$(gcc -print-multiarch 2>/dev/null || true)
+  if [[ -n "$gcc_multiarch" && -d "/usr/include/$gcc_multiarch" ]]; then
+    if [[ "$target_cflags" != *"-idirafter/usr/include/$gcc_multiarch"* ]]; then
       if [[ -n "$target_cflags" ]]; then
         target_cflags+=" "
       fi
