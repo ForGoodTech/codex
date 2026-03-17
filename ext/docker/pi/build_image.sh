@@ -112,6 +112,64 @@ function ensure_linux_sandbox_build_deps() {
   fi
 }
 
+function resolve_musl_compiler() {
+  local v_cc_musl
+  if [[ "$TARGET_TRIPLE" == "aarch64-unknown-linux-musl" ]] && command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
+    v_cc_musl=${CC_aarch64_unknown_linux_musl:-aarch64-linux-musl-gcc}
+  elif [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-musl" ]] && command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
+    v_cc_musl=${CC_x86_64_unknown_linux_musl:-x86_64-linux-musl-gcc}
+  else
+    v_cc_musl=${CC_aarch64_unknown_linux_musl:-musl-gcc}
+  fi
+  echo "$v_cc_musl"
+}
+
+function resolve_target_cflags() {
+  local target_cflags=${CFLAGS_aarch64_unknown_linux_musl:-}
+  local gcc_multiarch
+  gcc_multiarch=$(gcc -print-multiarch 2>/dev/null || true)
+  if [[ -n "$gcc_multiarch" && -d "/usr/include/$gcc_multiarch" ]]; then
+    if [[ "$target_cflags" != *"-idirafter/usr/include/$gcc_multiarch"* ]]; then
+      if [[ -n "$target_cflags" ]]; then
+        target_cflags+=" "
+      fi
+      target_cflags+="-idirafter/usr/include/$gcc_multiarch"
+    fi
+  fi
+  echo "$target_cflags"
+}
+
+function precheck_linux_sandbox_compile_conditions() {
+  local v_cc_musl
+  v_cc_musl=$(resolve_musl_compiler)
+  local target_cflags
+  target_cflags=$(resolve_target_cflags)
+  local precheck_src
+  precheck_src=$(mktemp)
+  cat > "$precheck_src" <<'EOF'
+#include <sys/capability.h>
+#include <linux/types.h>
+#include <linux/loop.h>
+int main(void) {
+  return 0;
+}
+EOF
+  local cflags_args=()
+  if [[ -n "$target_cflags" ]]; then
+    read -r -a cflags_args <<< "$target_cflags"
+  fi
+  if ! "$v_cc_musl" -fsyntax-only -x c -idirafter/usr/include "${cflags_args[@]}" "$precheck_src" >/dev/null 2>&1; then
+    rm -f "$precheck_src"
+    echo "codex-linux-sandbox precheck failed before cargo build." >&2
+    echo "Compiler: $v_cc_musl" >&2
+    echo "CFLAGS_aarch64_unknown_linux_musl: $target_cflags" >&2
+    echo "Missing linux/libcap headers for musl compile path (e.g. asm/types.h)." >&2
+    echo "Install/fix target headers or override CC/CFLAGS, then re-run." >&2
+    exit 1
+  fi
+  rm -f "$precheck_src"
+}
+
 # Determine the target triple expected by the CLI launcher.
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -131,6 +189,7 @@ RUST_TOOLCHAIN=$(resolve_rust_toolchain)
 ensure_toolchain "$RUST_TOOLCHAIN"
 ensure_musl_compiler
 ensure_linux_sandbox_build_deps
+precheck_linux_sandbox_compile_conditions
 
 pushd "$CLI_ROOT" > /dev/null
 
@@ -170,24 +229,9 @@ function ensure_binary() {
 
   pushd "$RUST_ROOT" > /dev/null
   local v_cc_musl
-  if [[ "$TARGET_TRIPLE" == "aarch64-unknown-linux-musl" ]] && command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
-    v_cc_musl=${CC_aarch64_unknown_linux_musl:-aarch64-linux-musl-gcc}
-  elif [[ "$TARGET_TRIPLE" == "x86_64-unknown-linux-musl" ]] && command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
-    v_cc_musl=${CC_x86_64_unknown_linux_musl:-x86_64-linux-musl-gcc}
-  else
-    v_cc_musl=${CC_aarch64_unknown_linux_musl:-musl-gcc}
-  fi
-  local target_cflags=${CFLAGS_aarch64_unknown_linux_musl:-}
-  local gcc_multiarch
-  gcc_multiarch=$(gcc -print-multiarch 2>/dev/null || true)
-  if [[ -n "$gcc_multiarch" && -d "/usr/include/$gcc_multiarch" ]]; then
-    if [[ "$target_cflags" != *"-idirafter/usr/include/$gcc_multiarch"* ]]; then
-      if [[ -n "$target_cflags" ]]; then
-        target_cflags+=" "
-      fi
-      target_cflags+="-idirafter/usr/include/$gcc_multiarch"
-    fi
-  fi
+  v_cc_musl=$(resolve_musl_compiler)
+  local target_cflags
+  target_cflags=$(resolve_target_cflags)
   if [[ "$BUILD_PROFILE" == "debug" ]]; then
     CC="$v_cc_musl" \
       CC_aarch64_unknown_linux_musl="$v_cc_musl" \
