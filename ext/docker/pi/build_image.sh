@@ -206,6 +206,54 @@ EOF
   rm -f "$precheck_src"
 }
 
+function precheck_linux_sandbox_link_conditions() {
+  local v_cc_musl
+  v_cc_musl=$(resolve_musl_compiler)
+  local target_cflags
+  target_cflags=$(resolve_target_cflags)
+  local precheck_src
+  precheck_src=$(mktemp)
+  local precheck_bin
+  precheck_bin=$(mktemp)
+  cat > "$precheck_src" <<'EOF'
+#include <sys/capability.h>
+int main(void) {
+  cap_t caps = cap_get_proc();
+  if (caps) {
+    cap_free(caps);
+  }
+  return 0;
+}
+EOF
+  local cflags_args=()
+  if [[ -n "$target_cflags" ]]; then
+    read -r -a cflags_args <<< "$target_cflags"
+  fi
+  local libcap_cflags=()
+  local libcap_libs=()
+  local pkg_cflags
+  pkg_cflags=$(pkg-config --cflags libcap)
+  if [[ -n "$pkg_cflags" ]]; then
+    read -r -a libcap_cflags <<< "$pkg_cflags"
+  fi
+  local pkg_libs
+  pkg_libs=$(pkg-config --libs libcap)
+  if [[ -n "$pkg_libs" ]]; then
+    read -r -a libcap_libs <<< "$pkg_libs"
+  fi
+  if ! "$v_cc_musl" -x c "$precheck_src" -o "$precheck_bin" -static -idirafter/usr/include "${cflags_args[@]}" "${libcap_cflags[@]}" "${libcap_libs[@]}" >/dev/null 2>&1; then
+    rm -f "$precheck_src" "$precheck_bin"
+    echo "codex-linux-sandbox link precheck failed before cargo build." >&2
+    echo "Compiler/linker: $v_cc_musl" >&2
+    echo "pkg-config --libs libcap: $pkg_libs" >&2
+    echo "The discovered libcap library is not linkable for $TARGET_TRIPLE." >&2
+    echo "Install a musl-compatible libcap toolchain/sysroot or set pkg-config vars to one, then re-run." >&2
+    exit 1
+  fi
+  rm -f "$precheck_src" "$precheck_bin"
+}
+
+
 # Determine the target triple expected by the CLI launcher.
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -226,6 +274,7 @@ ensure_toolchain "$RUST_TOOLCHAIN"
 ensure_musl_compiler
 ensure_linux_sandbox_build_deps
 precheck_linux_sandbox_compile_conditions
+precheck_linux_sandbox_link_conditions
 precheck_rust_target_linker
 
 # Build (or reuse) the native Codex binary from the local workspace.
