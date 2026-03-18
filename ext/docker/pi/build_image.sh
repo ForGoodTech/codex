@@ -147,15 +147,19 @@ case "$ARCH" in
     ;;
 esac
 
-RUST_TOOLCHAIN=$(resolve_rust_toolchain)
-ensure_toolchain "$RUST_TOOLCHAIN"
-ensure_musl_compiler
+RUST_TOOLCHAIN=""
+if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
+  RUST_TOOLCHAIN=$(resolve_rust_toolchain)
+  ensure_toolchain "$RUST_TOOLCHAIN"
+  ensure_musl_compiler
+fi
 
 echo "Build configuration:"
 echo "  image_tag: $IMAGE_TAG"
 echo "  build_profile: $BUILD_PROFILE"
 echo "  force_build: $FORCE_BUILD"
 echo "  include_linux_sandbox: $INCLUDE_LINUX_SANDBOX"
+echo "  rust_rebuilds_enabled: $INCLUDE_LINUX_SANDBOX"
 
 pushd "$CLI_ROOT" > /dev/null
 
