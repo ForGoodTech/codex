@@ -13,6 +13,7 @@ SDK_ROOT="$REPO_ROOT/sdk/typescript"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
+INCLUDE_LINUX_SANDBOX=${INCLUDE_LINUX_SANDBOX:-0}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -188,7 +189,11 @@ function ensure_binary() {
 
 ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
 ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
-ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
+if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
+  ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
+else
+  echo "Skipping codex-linux-sandbox build (set INCLUDE_LINUX_SANDBOX=1 to include it)."
+fi
 
 function ensure_rg_binary() {
   local rg_path
@@ -227,7 +232,10 @@ RG_BIN_SRC=$(ensure_rg_binary)
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
-mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/codex-linux-sandbox" "$TARGET_VENDOR/path"
+mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
+if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
+  mkdir -p "$TARGET_VENDOR/codex-linux-sandbox"
+fi
 
 function stage_binary() {
   local src=$1
@@ -243,7 +251,9 @@ function stage_binary() {
 
 stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
 stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
-stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
+if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
+  stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
+fi
 stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
 mkdir -p dist
