@@ -212,19 +212,30 @@ function ensure_binary() {
   fi
 }
 
-CODEX_CARGO_ARGS=(-p codex-cli --bin codex)
-APP_SERVER_CARGO_ARGS=(-p codex-app-server --bin codex-app-server)
+function require_existing_binary() {
+  local label=$1
+  local binary_path=$2
 
-if [[ "$INCLUDE_LINUX_SANDBOX" -eq 0 ]]; then
-  CODEX_CARGO_ARGS+=(--no-default-features)
-  APP_SERVER_CARGO_ARGS+=(--no-default-features)
-fi
+  if [[ -x "$binary_path" ]]; then
+    return
+  fi
 
-ensure_binary "Codex" "$CODEX_BIN_SRC" "${CODEX_CARGO_ARGS[@]}"
-ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" "${APP_SERVER_CARGO_ARGS[@]}"
+  echo "Missing prebuilt $label binary at $binary_path" >&2
+  echo "Build it on the host first (or rerun with INCLUDE_LINUX_SANDBOX=1)." >&2
+  exit 1
+}
+
 if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
+  ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
+  ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
   ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
 else
+  if [[ "$FORCE_BUILD" -eq 1 ]]; then
+    echo "FORCE_BUILD requested, but INCLUDE_LINUX_SANDBOX=0 disables Rust rebuilds in this script." >&2
+    echo "Reusing host-built codex and codex-app-server binaries instead." >&2
+  fi
+  require_existing_binary "Codex" "$CODEX_BIN_SRC"
+  require_existing_binary "codex-app-server" "$APP_SERVER_BIN_SRC"
   echo "Skipping codex-linux-sandbox build (set INCLUDE_LINUX_SANDBOX=1 to include it)."
 fi
 
