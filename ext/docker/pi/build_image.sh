@@ -212,8 +212,16 @@ function ensure_binary() {
   fi
 }
 
-ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
-ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
+CODEX_CARGO_ARGS=(-p codex-cli --bin codex)
+APP_SERVER_CARGO_ARGS=(-p codex-app-server --bin codex-app-server)
+
+if [[ "$INCLUDE_LINUX_SANDBOX" -eq 0 ]]; then
+  CODEX_CARGO_ARGS+=(--no-default-features)
+  APP_SERVER_CARGO_ARGS+=(--no-default-features)
+fi
+
+ensure_binary "Codex" "$CODEX_BIN_SRC" "${CODEX_CARGO_ARGS[@]}"
+ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" "${APP_SERVER_CARGO_ARGS[@]}"
 if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
   ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
 else
