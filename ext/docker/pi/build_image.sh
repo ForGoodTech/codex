@@ -13,6 +13,7 @@ SDK_ROOT="$REPO_ROOT/sdk/typescript"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
+INCLUDE_LINUX_SANDBOX_RAW=${INCLUDE_LINUX_SANDBOX:-0}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -42,6 +43,25 @@ if [[ $# -ge 3 ]]; then
   fi
 fi
 VENDOR_DIR="$CLI_ROOT/vendor"
+
+function parse_bool() {
+  local raw=$1
+  local normalized=${raw,,}
+  case "$normalized" in
+    1|true|yes|on)
+      echo 1
+      ;;
+    0|false|no|off|"")
+      echo 0
+      ;;
+    *)
+      echo "Invalid boolean value: '$raw'. Use one of: 0/1, true/false, yes/no, on/off." >&2
+      exit 1
+      ;;
+  esac
+}
+
+INCLUDE_LINUX_SANDBOX=$(parse_bool "$INCLUDE_LINUX_SANDBOX_RAW")
 
 if [[ ! -d "$CLI_ROOT" ]]; then
   echo "Codex CLI directory not found at: $CLI_ROOT" >&2
@@ -127,14 +147,18 @@ case "$ARCH" in
     ;;
 esac
 
-RUST_TOOLCHAIN=$(resolve_rust_toolchain)
-ensure_toolchain "$RUST_TOOLCHAIN"
-ensure_musl_compiler
+RUST_TOOLCHAIN=""
+if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
+  RUST_TOOLCHAIN=$(resolve_rust_toolchain)
+  ensure_toolchain "$RUST_TOOLCHAIN"
+  ensure_musl_compiler
+fi
 
 echo "Build configuration:"
 echo "  image_tag: $IMAGE_TAG"
 echo "  build_profile: $BUILD_PROFILE"
 echo "  force_build: $FORCE_BUILD"
+echo "  include_linux_sandbox: $INCLUDE_LINUX_SANDBOX"
 
 pushd "$CLI_ROOT" > /dev/null
 
@@ -189,8 +213,29 @@ function ensure_binary() {
   fi
 }
 
-ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
-ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
+function require_existing_binary() {
+  local label=$1
+  local binary_path=$2
+  if [[ -x "$binary_path" ]]; then
+    return
+  fi
+
+  echo "Missing prebuilt $label binary at $binary_path" >&2
+  echo "Build on host first or set INCLUDE_LINUX_SANDBOX=1 to allow in-script Rust rebuilds." >&2
+  exit 1
+}
+
+if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
+  ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
+  ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
+else
+  if [[ "$FORCE_BUILD" -eq 1 ]]; then
+    echo "FORCE_BUILD requested, but INCLUDE_LINUX_SANDBOX=0 reuses host-built codex binaries." >&2
+    echo "Reason: codex-cli/codex-app-server builds currently compile codex-linux-sandbox transitively." >&2
+  fi
+  require_existing_binary "Codex" "$CODEX_BIN_SRC"
+  require_existing_binary "codex-app-server" "$APP_SERVER_BIN_SRC"
+fi
 
 function ensure_rg_binary() {
   local rg_path
