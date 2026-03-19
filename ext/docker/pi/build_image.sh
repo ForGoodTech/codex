@@ -13,7 +13,6 @@ SDK_ROOT="$REPO_ROOT/sdk/typescript"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
-INCLUDE_LINUX_SANDBOX_RAW=${INCLUDE_LINUX_SANDBOX:-0}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -43,25 +42,6 @@ if [[ $# -ge 3 ]]; then
   fi
 fi
 VENDOR_DIR="$CLI_ROOT/vendor"
-
-function parse_bool() {
-  local raw=$1
-  local normalized=${raw,,}
-  case "$normalized" in
-    1|true|yes|on)
-      echo 1
-      ;;
-    0|false|no|off|"")
-      echo 0
-      ;;
-    *)
-      echo "Invalid boolean value: '$raw'. Use one of: 0/1, true/false, yes/no, on/off." >&2
-      exit 1
-      ;;
-  esac
-}
-
-INCLUDE_LINUX_SANDBOX=$(parse_bool "$INCLUDE_LINUX_SANDBOX_RAW")
 
 if [[ ! -d "$CLI_ROOT" ]]; then
   echo "Codex CLI directory not found at: $CLI_ROOT" >&2
@@ -147,19 +127,14 @@ case "$ARCH" in
     ;;
 esac
 
-RUST_TOOLCHAIN=""
-if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
-  RUST_TOOLCHAIN=$(resolve_rust_toolchain)
-  ensure_toolchain "$RUST_TOOLCHAIN"
-  ensure_musl_compiler
-fi
+RUST_TOOLCHAIN=$(resolve_rust_toolchain)
+ensure_toolchain "$RUST_TOOLCHAIN"
+ensure_musl_compiler
 
 echo "Build configuration:"
 echo "  image_tag: $IMAGE_TAG"
 echo "  build_profile: $BUILD_PROFILE"
 echo "  force_build: $FORCE_BUILD"
-echo "  include_linux_sandbox: $INCLUDE_LINUX_SANDBOX"
-echo "  rust_rebuilds_enabled: $INCLUDE_LINUX_SANDBOX"
 
 pushd "$CLI_ROOT" > /dev/null
 
@@ -175,12 +150,10 @@ case "$BUILD_PROFILE" in
   release)
     CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex"
     APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex-app-server"
-    LINUX_SANDBOX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex-linux-sandbox"
     ;;
   debug)
     CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex"
     APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex-app-server"
-    LINUX_SANDBOX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex-linux-sandbox"
     ;;
   *)
     echo "Unknown build profile: $BUILD_PROFILE" >&2
@@ -216,32 +189,8 @@ function ensure_binary() {
   fi
 }
 
-function require_existing_binary() {
-  local label=$1
-  local binary_path=$2
-
-  if [[ -x "$binary_path" ]]; then
-    return
-  fi
-
-  echo "Missing prebuilt $label binary at $binary_path" >&2
-  echo "Build it on the host first (or rerun with INCLUDE_LINUX_SANDBOX=1)." >&2
-  exit 1
-}
-
-if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
-  ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
-  ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
-  ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
-else
-  if [[ "$FORCE_BUILD" -eq 1 ]]; then
-    echo "FORCE_BUILD requested, but INCLUDE_LINUX_SANDBOX=0 disables Rust rebuilds in this script." >&2
-    echo "Reusing host-built codex and codex-app-server binaries instead." >&2
-  fi
-  require_existing_binary "Codex" "$CODEX_BIN_SRC"
-  require_existing_binary "codex-app-server" "$APP_SERVER_BIN_SRC"
-  echo "Skipping codex-linux-sandbox build (set INCLUDE_LINUX_SANDBOX=1 to include it)."
-fi
+ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
+ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
 
 function ensure_rg_binary() {
   local rg_path
@@ -281,9 +230,6 @@ RG_BIN_SRC=$(ensure_rg_binary)
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
 mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
-if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
-  mkdir -p "$TARGET_VENDOR/codex-linux-sandbox"
-fi
 
 function stage_binary() {
   local src=$1
@@ -299,9 +245,6 @@ function stage_binary() {
 
 stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
 stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
-if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
-  stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
-fi
 stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
 mkdir -p dist
@@ -476,14 +419,5 @@ fi
 
 echo "Verified MCP server config, packages, and Playwright Chromium launch smoke test in image $IMAGE_TAG"
 '
-
-cat <<EOF
-
-Landlock support note:
-  Docker's default seccomp profile blocks the Landlock syscalls. To enable
-  Landlock inside the container, run it with a relaxed seccomp profile, e.g.:
-    docker run --security-opt seccomp=unconfined ...
-
-EOF
 
 popd > /dev/null

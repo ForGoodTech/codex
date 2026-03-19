@@ -34,7 +34,6 @@
  */
 const net = require('node:net');
 const { spawn } = require('node:child_process');
-const { existsSync } = require('node:fs');
 const envProxyToken = process.env.APP_SERVER_PROXY_TOKEN?.trim() ?? '';
 if (!envProxyToken) {
   console.warn(
@@ -69,27 +68,10 @@ const port = (() => {
 const defaultAppServerCmd = 'codex-app-server';
 const appServerCmd = process.env.APP_SERVER_CMD?.trim() || defaultAppServerCmd;
 const appServerArgs = process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? [];
-const defaultSandboxExe = '/usr/local/share/npm-global/bin/codex-linux-sandbox';
-const explicitSandboxExe =
-  process.env.APP_SERVER_CODEX_LINUX_SANDBOX_EXE?.trim() || process.env.CODEX_LINUX_SANDBOX_EXE?.trim();
-let sandboxExe;
-if (explicitSandboxExe) {
-  sandboxExe = explicitSandboxExe;
-} else if (existsSync(defaultSandboxExe)) {
-  sandboxExe = defaultSandboxExe;
-} else {
-  console.log(
-    `No linux sandbox helper found at ${defaultSandboxExe}; running codex-app-server without CODEX_LINUX_SANDBOX_EXE.`,
-  );
-}
-const appServerEnv = { ...process.env };
-if (sandboxExe) {
-  appServerEnv.CODEX_LINUX_SANDBOX_EXE = sandboxExe;
-}
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
 const appServer = spawn(appServerCmd, appServerArgs, {
   stdio: ['pipe', 'pipe', 'inherit'],
-  env: appServerEnv,
+  env: process.env,
 });
 appServer.on('exit', (code, signal) => {
   console.error(`codex-app-server exited (code=${code}, signal=${signal ?? 'none'})`);

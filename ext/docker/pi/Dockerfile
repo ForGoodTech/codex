@@ -87,15 +87,11 @@ COPY codex-cli/dist/codex.tgz codex.tgz
 RUN npm install -g codex.tgz \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
-       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/codex-linux-sandbox/codex-linux-sandbox "${INSTALL_ROOT}"/vendor/*/path/rg; \
+       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/path/rg; \
        chown -R node:node "${INSTALL_ROOT}/vendor"; \
        APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-app-server -perm -111 | head -n 1); \
        if [ -n "$APP_SERVER_BIN" ]; then \
          ln -sf "$APP_SERVER_BIN" /usr/local/share/npm-global/bin/codex-app-server; \
-       fi; \
-       LINUX_SANDBOX_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-linux-sandbox -perm -111 | head -n 1); \
-       if [ -n "$LINUX_SANDBOX_BIN" ]; then \
-         ln -sf "$LINUX_SANDBOX_BIN" /usr/local/share/npm-global/bin/codex-linux-sandbox; \
        fi; \
      fi \
   && npm cache clean --force \
