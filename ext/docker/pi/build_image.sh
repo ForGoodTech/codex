@@ -98,48 +98,16 @@ function ensure_toolchain() {
     exit 1
   fi
   rustup toolchain install "$toolchain"
-  rustup target add "$TARGET_TRIPLE" --toolchain "$toolchain"
-  rustup component add rust-src --toolchain "$toolchain"
 }
 
-function ensure_musl_compiler() {
-  if [[ "$TARGET_TRIPLE" != *-musl ]]; then
-    return
-  fi
-  if command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
-    return
-  fi
-  if command -v musl-gcc >/dev/null 2>&1; then
-    return
-  fi
-  if ! command -v apt-get >/dev/null 2>&1; then
-    echo "musl-gcc not found and apt-get is unavailable; install musl-tools manually." >&2
-    exit 1
-  fi
-  if [[ $(id -u) -eq 0 ]]; then
-    DEBIAN_FRONTEND=noninteractive apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends musl-tools u-boot-tools
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends musl-tools u-boot-tools
-  else
-    echo "musl-gcc not found and sudo is unavailable; install musl-tools manually." >&2
-    exit 1
-  fi
-  if ! command -v musl-gcc >/dev/null 2>&1; then
-    echo "musl-gcc is still unavailable after installing musl-tools." >&2
-    exit 1
-  fi
-}
-
-# Determine the target triple expected by the CLI launcher.
+# Determine the vendor target triple expected by the CLI launcher.
 ARCH=$(uname -m)
 case "$ARCH" in
   aarch64)
-    TARGET_TRIPLE="aarch64-unknown-linux-musl"
+    VENDOR_TRIPLE="aarch64-unknown-linux-musl"
     ;;
   x86_64)
-    TARGET_TRIPLE="x86_64-unknown-linux-musl"
+    VENDOR_TRIPLE="x86_64-unknown-linux-musl"
     ;;
   *)
     echo "Unsupported architecture: $ARCH" >&2
@@ -151,7 +119,6 @@ RUST_TOOLCHAIN=""
 if [[ "$INCLUDE_LINUX_SANDBOX" -eq 1 ]]; then
   RUST_TOOLCHAIN=$(resolve_rust_toolchain)
   ensure_toolchain "$RUST_TOOLCHAIN"
-  ensure_musl_compiler
 fi
 
 echo "Build configuration:"
@@ -172,12 +139,12 @@ popd > /dev/null
 # Build (or reuse) the native Codex binary from the local workspace.
 case "$BUILD_PROFILE" in
   release)
-    CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex"
-    APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex-app-server"
+    CODEX_BIN_SRC="$RUST_ROOT/target/release/codex"
+    APP_SERVER_BIN_SRC="$RUST_ROOT/target/release/codex-app-server"
     ;;
   debug)
-    CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex"
-    APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex-app-server"
+    CODEX_BIN_SRC="$RUST_ROOT/target/debug/codex"
+    APP_SERVER_BIN_SRC="$RUST_ROOT/target/debug/codex-app-server"
     ;;
   *)
     echo "Unknown build profile: $BUILD_PROFILE" >&2
@@ -195,15 +162,10 @@ function ensure_binary() {
   fi
 
   pushd "$RUST_ROOT" > /dev/null
-  local v_cc_musl=${CC_aarch64_unknown_linux_musl:-musl-gcc}
   if [[ "$BUILD_PROFILE" == "debug" ]]; then
-    CC="$v_cc_musl" \
-      CC_aarch64_unknown_linux_musl="$v_cc_musl" \
-      cargo +"$RUST_TOOLCHAIN" build --target "$TARGET_TRIPLE" "${cargo_args[@]}"
+    cargo +"$RUST_TOOLCHAIN" build "${cargo_args[@]}"
   else
-    CC="$v_cc_musl" \
-      CC_aarch64_unknown_linux_musl="$v_cc_musl" \
-      cargo +"$RUST_TOOLCHAIN" build --release --target "$TARGET_TRIPLE" "${cargo_args[@]}"
+    cargo +"$RUST_TOOLCHAIN" build --release "${cargo_args[@]}"
   fi
   popd > /dev/null
 
@@ -272,7 +234,7 @@ function ensure_rg_binary() {
 
 RG_BIN_SRC=$(ensure_rg_binary)
 
-TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
+TARGET_VENDOR="$VENDOR_DIR/$VENDOR_TRIPLE"
 rm -rf "$TARGET_VENDOR"
 mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
 
