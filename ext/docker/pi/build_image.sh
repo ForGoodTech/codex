@@ -242,7 +242,7 @@ function build_binary() {
   if [[ "$ARCH" == "x86_64" ]]; then
     cflags_target="${CFLAGS_x86_64_unknown_linux_musl:-}"
   fi
-  if [[ -z "$cflags_target" && "$cc_bin" == "musl-gcc" && -d "$default_sys_include_dir" ]]; then
+  if [[ -z "$cflags_target" && -d "$default_sys_include_dir" ]]; then
     cflags_target="-idirafter${default_sys_include_dir}"
   fi
   CC="$cc_bin" \
