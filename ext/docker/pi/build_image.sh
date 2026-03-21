@@ -14,8 +14,10 @@ IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
 CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}
-BUILD_INSIDE_CONTAINER=${BUILD_INSIDE_CONTAINER:-1}
 PREBUILD_IMAGE=${PREBUILD_IMAGE:-node:24-bookworm}
+# Internal phase flag: 0 = outer wrapper, 1 = running inside prebuild container.
+PREBUILD_PHASE=${PREBUILD_PHASE:-0}
+SKIP_LOCAL_BUILD=0
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -61,13 +63,12 @@ if [[ ! -d "$RUST_ROOT" ]]; then
   exit 1
 fi
 
-if [[ "$BUILD_INSIDE_CONTAINER" == "1" && -z "${PI_BUILD_INNER:-}" ]]; then
+if [[ "$PREBUILD_PHASE" == "0" ]]; then
   docker run --rm \
     -v "$REPO_ROOT":/workspace/codex \
     -w /workspace/codex/ext/docker/pi \
-    -e PI_BUILD_INNER=1 \
-    -e SKIP_DOCKER_BUILD=1 \
-    -e BUILD_INSIDE_CONTAINER=0 \
+    -e PREBUILD_PHASE=1 \
+    -e PREBUILD_ONLY=1 \
     -e FORCE_BUILD="$FORCE_BUILD" \
     -e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" \
     "$PREBUILD_IMAGE" bash -lc '
@@ -90,6 +91,7 @@ if [[ "$BUILD_INSIDE_CONTAINER" == "1" && -z "${PI_BUILD_INNER:-}" ]]; then
         ./build_image.sh '"$IMAGE_TAG"' '"$BUILD_PROFILE"'
       fi
     '
+  SKIP_LOCAL_BUILD=1
 fi
 
 function resolve_rust_toolchain() {
@@ -162,40 +164,41 @@ esac
 
 VENDOR_TRIPLE="$TARGET_TRIPLE"
 
-RUST_TOOLCHAIN=$(resolve_rust_toolchain)
-ensure_toolchain "$RUST_TOOLCHAIN"
-ensure_musl_compiler
+if [[ "$SKIP_LOCAL_BUILD" == "0" ]]; then
+  RUST_TOOLCHAIN=$(resolve_rust_toolchain)
+  ensure_toolchain "$RUST_TOOLCHAIN"
+  ensure_musl_compiler
 
-echo "Build configuration:"
-echo "  image_tag: $IMAGE_TAG"
-echo "  build_profile: $BUILD_PROFILE"
-echo "  force_build: $FORCE_BUILD"
-echo "  cargo_build_jobs: $CARGO_BUILD_JOBS"
+  echo "Build configuration:"
+  echo "  image_tag: $IMAGE_TAG"
+  echo "  build_profile: $BUILD_PROFILE"
+  echo "  force_build: $FORCE_BUILD"
+  echo "  cargo_build_jobs: $CARGO_BUILD_JOBS"
 
-pushd "$CLI_ROOT" > /dev/null
+  pushd "$CLI_ROOT" > /dev/null
 
-pnpm install
+  pnpm install
 
-pushd "$SDK_ROOT" > /dev/null
-pnpm install
-pnpm run build
-popd > /dev/null
+  pushd "$SDK_ROOT" > /dev/null
+  pnpm install
+  pnpm run build
+  popd > /dev/null
 
-# Build (or reuse) Codex binaries from the musl target directory.
-case "$BUILD_PROFILE" in
-  release)
-    CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex"
-    APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex-app-server"
-    ;;
-  debug)
-    CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex"
-    APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex-app-server"
-    ;;
-  *)
-    echo "Unknown build profile: $BUILD_PROFILE" >&2
-    exit 1
-    ;;
-esac
+  # Build (or reuse) Codex binaries from the musl target directory.
+  case "$BUILD_PROFILE" in
+    release)
+      CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex"
+      APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex-app-server"
+      ;;
+    debug)
+      CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex"
+      APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex-app-server"
+      ;;
+    *)
+      echo "Unknown build profile: $BUILD_PROFILE" >&2
+      exit 1
+      ;;
+  esac
 
 function build_binary() {
   local label=$1
@@ -256,14 +259,14 @@ function build_binary() {
   fi
 }
 
-if [[ "$FORCE_BUILD" -eq 1 ]]; then
-  pushd "$RUST_ROOT" > /dev/null
-  cargo +"$RUST_TOOLCHAIN" clean
-  popd > /dev/null
-fi
+  if [[ "$FORCE_BUILD" -eq 1 ]]; then
+    pushd "$RUST_ROOT" > /dev/null
+    cargo +"$RUST_TOOLCHAIN" clean
+    popd > /dev/null
+  fi
 
-build_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
-build_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
+  build_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
+  build_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
 
 function ensure_rg_binary() {
   local rg_path
@@ -298,11 +301,11 @@ function ensure_rg_binary() {
   exit 1
 }
 
-RG_BIN_SRC=$(ensure_rg_binary)
+  RG_BIN_SRC=$(ensure_rg_binary)
 
-TARGET_VENDOR="$VENDOR_DIR/$VENDOR_TRIPLE"
-rm -rf "$TARGET_VENDOR"
-mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
+  TARGET_VENDOR="$VENDOR_DIR/$VENDOR_TRIPLE"
+  rm -rf "$TARGET_VENDOR"
+  mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
 
 function stage_binary() {
   local src=$1
@@ -316,14 +319,15 @@ function stage_binary() {
   chmod 755 "$dest" 2>/dev/null || true
 }
 
-stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
-stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
-stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
+  stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
+  stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
+  stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
-mkdir -p dist
-rm -f dist/openai-codex-*.tgz dist/codex.tgz
-pnpm pack --pack-destination dist
-mv dist/openai-codex-*.tgz dist/codex.tgz
+  mkdir -p dist
+  rm -f dist/openai-codex-*.tgz dist/codex.tgz
+  pnpm pack --pack-destination dist
+  mv dist/openai-codex-*.tgz dist/codex.tgz
+fi
 
 function cleanup_existing_image() {
   if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
@@ -369,7 +373,7 @@ function cleanup_existing_image() {
 
 cleanup_existing_image
 
-if [[ "${SKIP_DOCKER_BUILD:-0}" == "1" ]]; then
+if [[ "${PREBUILD_ONLY:-0}" == "1" ]]; then
   popd > /dev/null
   exit 0
 fi
