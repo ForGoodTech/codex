@@ -171,13 +171,24 @@ function build_binary() {
   local cargo_cmd=(cargo +"$RUST_TOOLCHAIN" build -j "$CARGO_BUILD_JOBS")
   local cc_bin=musl-gcc
   local default_pkg_config_path=""
+  local default_sys_include_dir=""
 
   if [[ "$ARCH" == "aarch64" ]]; then
-    cc_bin=${CC_aarch64_unknown_linux_musl:-$cc_bin}
+    if command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
+      cc_bin=${CC_aarch64_unknown_linux_musl:-aarch64-linux-musl-gcc}
+    else
+      cc_bin=${CC_aarch64_unknown_linux_musl:-$cc_bin}
+    fi
     default_pkg_config_path="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    default_sys_include_dir="/usr/include/aarch64-linux-gnu"
   elif [[ "$ARCH" == "x86_64" ]]; then
-    cc_bin=${CC_x86_64_unknown_linux_musl:-$cc_bin}
+    if command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
+      cc_bin=${CC_x86_64_unknown_linux_musl:-x86_64-linux-musl-gcc}
+    else
+      cc_bin=${CC_x86_64_unknown_linux_musl:-$cc_bin}
+    fi
     default_pkg_config_path="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    default_sys_include_dir="/usr/include/x86_64-linux-gnu"
   fi
 
   pushd "$RUST_ROOT" > /dev/null
@@ -188,9 +199,18 @@ function build_binary() {
   cargo_cmd+=("${cargo_args[@]}")
 
   local pkg_config_path="${PKG_CONFIG_PATH:-$default_pkg_config_path}"
+  local cflags_target="${CFLAGS_aarch64_unknown_linux_musl:-}"
+  if [[ "$ARCH" == "x86_64" ]]; then
+    cflags_target="${CFLAGS_x86_64_unknown_linux_musl:-}"
+  fi
+  if [[ -z "$cflags_target" && "$cc_bin" == "musl-gcc" && -d "$default_sys_include_dir" ]]; then
+    cflags_target="-idirafter${default_sys_include_dir}"
+  fi
   CC="$cc_bin" \
     CC_aarch64_unknown_linux_musl="$cc_bin" \
     CC_x86_64_unknown_linux_musl="$cc_bin" \
+    CFLAGS_aarch64_unknown_linux_musl="$cflags_target" \
+    CFLAGS_x86_64_unknown_linux_musl="$cflags_target" \
     PKG_CONFIG_ALLOW_CROSS=1 \
     PKG_CONFIG_SYSROOT_DIR="${PKG_CONFIG_SYSROOT_DIR:-/}" \
     PKG_CONFIG_PATH="$pkg_config_path" \
