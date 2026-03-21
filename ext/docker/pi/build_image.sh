@@ -14,6 +14,8 @@ IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
 CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}
+BUILD_INSIDE_CONTAINER=${BUILD_INSIDE_CONTAINER:-1}
+PREBUILD_IMAGE=${PREBUILD_IMAGE:-node:24-bookworm}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -57,6 +59,37 @@ fi
 if [[ ! -d "$RUST_ROOT" ]]; then
   echo "codex-rs directory not found at: $RUST_ROOT" >&2
   exit 1
+fi
+
+if [[ "$BUILD_INSIDE_CONTAINER" == "1" && -z "${PI_BUILD_INNER:-}" ]]; then
+  docker run --rm \
+    -v "$REPO_ROOT":/workspace/codex \
+    -w /workspace/codex/ext/docker/pi \
+    -e PI_BUILD_INNER=1 \
+    -e SKIP_DOCKER_BUILD=1 \
+    -e BUILD_INSIDE_CONTAINER=0 \
+    -e FORCE_BUILD="$FORCE_BUILD" \
+    -e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" \
+    "$PREBUILD_IMAGE" bash -lc '
+      set -euo pipefail
+      apt-get update
+      apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        musl-tools \
+        pkg-config \
+        python3
+      corepack enable
+      curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      source "$HOME/.cargo/env"
+      if [[ "$FORCE_BUILD" == "1" ]]; then
+        ./build_image.sh '"$IMAGE_TAG"' '"$BUILD_PROFILE"' --force
+      else
+        ./build_image.sh '"$IMAGE_TAG"' '"$BUILD_PROFILE"'
+      fi
+    '
 fi
 
 function resolve_rust_toolchain() {
@@ -335,6 +368,11 @@ function cleanup_existing_image() {
 }
 
 cleanup_existing_image
+
+if [[ "${SKIP_DOCKER_BUILD:-0}" == "1" ]]; then
+  popd > /dev/null
+  exit 0
+fi
 
 docker build \
   --build-arg PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
