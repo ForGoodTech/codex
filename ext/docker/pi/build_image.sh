@@ -248,6 +248,8 @@ function build_binary() {
   CC="$cc_bin" \
     CC_aarch64_unknown_linux_musl="$cc_bin" \
     CC_x86_64_unknown_linux_musl="$cc_bin" \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="$cc_bin" \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="$cc_bin" \
     CFLAGS_aarch64_unknown_linux_musl="$cflags_target" \
     CFLAGS_x86_64_unknown_linux_musl="$cflags_target" \
     PKG_CONFIG_ALLOW_CROSS=1 \
