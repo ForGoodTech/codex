@@ -150,6 +150,26 @@ function ensure_musl_compiler() {
   fi
 }
 
+function is_usable_musl_compiler() {
+  local compiler=$1
+  if ! command -v "$compiler" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local libc_path
+  libc_path=$("$compiler" -print-file-name=libc.a 2>/dev/null || true)
+  if [[ -z "$libc_path" || "$libc_path" == "libc.a" ]]; then
+    return 1
+  fi
+
+  # Guard against toolchains that report a musl-looking compiler name but resolve libc from glibc paths.
+  if [[ "$libc_path" != *musl* ]]; then
+    return 1
+  fi
+
+  return 0
+}
+
 # Determine the vendor target triple expected by the CLI launcher.
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -228,6 +248,20 @@ function build_binary() {
     fi
     default_pkg_config_path="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
     default_sys_include_dir="/usr/include/x86_64-linux-gnu"
+  fi
+
+  if ! is_usable_musl_compiler "$cc_bin"; then
+    if [[ "$cc_bin" != "musl-gcc" ]] && is_usable_musl_compiler "musl-gcc"; then
+      echo "Compiler $cc_bin resolved non-musl libc; falling back to musl-gcc." >&2
+      cc_bin="musl-gcc"
+    else
+      local resolved_libc
+      resolved_libc=$("$cc_bin" -print-file-name=libc.a 2>/dev/null || true)
+      echo "Selected compiler is not a usable musl toolchain: $cc_bin" >&2
+      echo "Resolved libc.a path: ${resolved_libc:-<unavailable>}" >&2
+      echo "Install a musl toolchain where libc.a comes from musl (not /usr/lib/*-linux-gnu)." >&2
+      exit 1
+    fi
   fi
 
   pushd "$RUST_ROOT" > /dev/null
