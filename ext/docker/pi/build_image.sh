@@ -62,6 +62,10 @@ if [[ ! -d "$RUST_ROOT" ]]; then
   exit 1
 fi
 
+if [[ "$PREBUILD_PHASE" == "1" && ! -t 1 && -z "${CI:-}" ]]; then
+  export CI=true
+fi
+
 if [[ "$PREBUILD_PHASE" == "0" ]]; then
   docker run --rm \
     -v "$REPO_ROOT":/workspace/codex \
