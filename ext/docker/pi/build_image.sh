@@ -17,7 +17,6 @@ CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}
 PREBUILD_IMAGE=${PREBUILD_IMAGE:-node:24-bookworm}
 # Internal phase flag: 0 = outer wrapper, 1 = running inside prebuild container.
 PREBUILD_PHASE=${PREBUILD_PHASE:-0}
-SKIP_LOCAL_BUILD=0
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -91,7 +90,6 @@ if [[ "$PREBUILD_PHASE" == "0" ]]; then
         ./build_image.sh '"$IMAGE_TAG"' '"$BUILD_PROFILE"'
       fi
     '
-  SKIP_LOCAL_BUILD=1
 fi
 
 function resolve_rust_toolchain() {
@@ -164,7 +162,7 @@ esac
 
 VENDOR_TRIPLE="$TARGET_TRIPLE"
 
-if [[ "$SKIP_LOCAL_BUILD" == "0" ]]; then
+if [[ "$PREBUILD_PHASE" == "1" ]]; then
   RUST_TOOLCHAIN=$(resolve_rust_toolchain)
   ensure_toolchain "$RUST_TOOLCHAIN"
   ensure_musl_compiler
