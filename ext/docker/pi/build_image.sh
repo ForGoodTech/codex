@@ -82,6 +82,7 @@ if [[ "$PREBUILD_PHASE" == "0" ]]; then
         ca-certificates \
         curl \
         git \
+        libcap-dev \
         musl-tools \
         pkg-config \
         python3
