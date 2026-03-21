@@ -14,6 +14,7 @@ IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 BUILD_PROFILE=debug
 FORCE_BUILD=0
 CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}
+SKIP_RUST_BUILD=${SKIP_RUST_BUILD:-0}
 PREBUILD_IMAGE=${PREBUILD_IMAGE:-node:24-bookworm}
 # Internal phase flag: 0 = outer wrapper, 1 = running inside prebuild container.
 PREBUILD_PHASE=${PREBUILD_PHASE:-0}
@@ -74,6 +75,7 @@ if [[ "$PREBUILD_PHASE" == "0" ]]; then
     -e PREBUILD_ONLY=1 \
     -e FORCE_BUILD="$FORCE_BUILD" \
     -e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" \
+    -e SKIP_RUST_BUILD="$SKIP_RUST_BUILD" \
     "$PREBUILD_IMAGE" bash -lc '
       set -euo pipefail
       apt-get update
@@ -188,15 +190,18 @@ esac
 VENDOR_TRIPLE="$TARGET_TRIPLE"
 
 if [[ "$PREBUILD_PHASE" == "1" ]]; then
-  RUST_TOOLCHAIN=$(resolve_rust_toolchain)
-  ensure_toolchain "$RUST_TOOLCHAIN"
-  ensure_musl_compiler
+  if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
+    RUST_TOOLCHAIN=$(resolve_rust_toolchain)
+    ensure_toolchain "$RUST_TOOLCHAIN"
+    ensure_musl_compiler
+  fi
 
   echo "Build configuration:"
   echo "  image_tag: $IMAGE_TAG"
   echo "  build_profile: $BUILD_PROFILE"
   echo "  force_build: $FORCE_BUILD"
   echo "  cargo_build_jobs: $CARGO_BUILD_JOBS"
+  echo "  skip_rust_build: $SKIP_RUST_BUILD"
 
   pushd "$CLI_ROOT" > /dev/null
 
@@ -298,14 +303,16 @@ function build_binary() {
   fi
 }
 
-  if [[ "$FORCE_BUILD" -eq 1 ]]; then
-    pushd "$RUST_ROOT" > /dev/null
-    cargo +"$RUST_TOOLCHAIN" clean
-    popd > /dev/null
-  fi
+  if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
+    if [[ "$FORCE_BUILD" -eq 1 ]]; then
+      pushd "$RUST_ROOT" > /dev/null
+      cargo +"$RUST_TOOLCHAIN" clean
+      popd > /dev/null
+    fi
 
-  build_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
-  build_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
+    build_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
+    build_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
+  fi
 
 function ensure_rg_binary() {
   local rg_path
@@ -340,11 +347,12 @@ function ensure_rg_binary() {
   exit 1
 }
 
-  RG_BIN_SRC=$(ensure_rg_binary)
-
   TARGET_VENDOR="$VENDOR_DIR/$VENDOR_TRIPLE"
-  rm -rf "$TARGET_VENDOR"
-  mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
+  if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
+    RG_BIN_SRC=$(ensure_rg_binary)
+    rm -rf "$TARGET_VENDOR"
+    mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/path"
+  fi
 
 function stage_binary() {
   local src=$1
@@ -358,9 +366,21 @@ function stage_binary() {
   chmod 755 "$dest" 2>/dev/null || true
 }
 
-  stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
-  stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
-  stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
+  if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
+    stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
+    stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
+    stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
+  else
+    for required_binary in \
+      "$TARGET_VENDOR/codex/codex" \
+      "$TARGET_VENDOR/codex-app-server/codex-app-server" \
+      "$TARGET_VENDOR/path/rg"; do
+      if [[ ! -x "$required_binary" ]]; then
+        echo "SKIP_RUST_BUILD=1 requires pre-staged binary: $required_binary" >&2
+        exit 1
+      fi
+    done
+  fi
 
   mkdir -p dist
   rm -f dist/openai-codex-*.tgz dist/codex.tgz
