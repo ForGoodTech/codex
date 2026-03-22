@@ -153,7 +153,10 @@ CODEX_BIN_SRC="$STAGED_BIN_ROOT/codex"
 LINUX_SANDBOX_BIN_SRC="$STAGED_BIN_ROOT/codex-linux-sandbox"
 
 fetch_release_binary "codex" "$TARGET_TRIPLE" "$CODEX_BIN_SRC"
-fetch_release_binary "codex-linux-sandbox" "$TARGET_TRIPLE" "$LINUX_SANDBOX_BIN_SRC"
+if ! fetch_release_binary "codex-linux-sandbox" "$TARGET_TRIPLE" "$LINUX_SANDBOX_BIN_SRC" 0; then
+  LINUX_SANDBOX_BIN_SRC=""
+  echo "codex-linux-sandbox release asset is unavailable for $TARGET_TRIPLE; will generate a shim that runs 'codex linux-sandbox'." >&2
+fi
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
@@ -178,7 +181,16 @@ set -eu
 exec "$(dirname "$0")/../codex/codex" app-server "$@"
 EOF
 chmod 755 "$TARGET_VENDOR/codex-app-server/codex-app-server" 2>/dev/null || true
-stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
+if [[ -n "$LINUX_SANDBOX_BIN_SRC" ]]; then
+  stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
+else
+  cat > "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" <<'EOF'
+#!/bin/sh
+set -eu
+exec "$(dirname "$0")/../codex/codex" linux-sandbox "$@"
+EOF
+  chmod 755 "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" 2>/dev/null || true
+fi
 stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
 mkdir -p dist
