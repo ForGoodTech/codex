@@ -1,18 +1,16 @@
 #!/bin/bash
 
 # Build a Codex Docker image for Raspberry Pi/Ubuntu.
-# This script builds the Codex binary from the local repository and stages vendor assets without
-# relying on published npm artifacts.
+# This script stages runtime binaries from an upstream Codex release and bundles them into the
+# local Docker image together with repository-local proxy/config assets.
 set -euo pipefail
 
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
-RUST_ROOT="$REPO_ROOT/codex-rs"
-SDK_ROOT="$REPO_ROOT/sdk/typescript"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
-BUILD_PROFILE=debug
-FORCE_BUILD=0
+DEFAULT_CODEX_RELEASE_TAG="rust-v0.116.0"
+CODEX_RELEASE_TAG=${CODEX_RELEASE_TAG:-$DEFAULT_CODEX_RELEASE_TAG}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
@@ -21,8 +19,8 @@ GITHUB_MCP_URL=${GITHUB_MCP_URL:-https://api.githubcopilot.com/mcp/}
 OPENAI_DOCS_MCP_URL=${OPENAI_DOCS_MCP_URL:-https://developers.openai.com/mcp}
 PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC=${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC:-30}
 
-if [[ $# -gt 3 ]]; then
-  echo "Usage: $(basename "$0") [image-tag] [build-profile] [--force]" >&2
+if [[ $# -gt 2 ]]; then
+  echo "Usage: $(basename "$0") [image-tag] [release-tag]" >&2
   exit 1
 fi
 
@@ -31,15 +29,7 @@ if [[ $# -ge 1 ]]; then
 fi
 
 if [[ $# -ge 2 ]]; then
-  BUILD_PROFILE=$2
-fi
-if [[ $# -ge 3 ]]; then
-  if [[ "$3" == "--force" ]]; then
-    FORCE_BUILD=1
-  else
-    echo "Unknown option: $3" >&2
-    exit 1
-  fi
+  CODEX_RELEASE_TAG=$2
 fi
 VENDOR_DIR="$CLI_ROOT/vendor"
 
@@ -47,70 +37,6 @@ if [[ ! -d "$CLI_ROOT" ]]; then
   echo "Codex CLI directory not found at: $CLI_ROOT" >&2
   exit 1
 fi
-
-if [[ ! -d "$SDK_ROOT" ]]; then
-  echo "Codex SDK directory not found at: $SDK_ROOT" >&2
-  exit 1
-fi
-
-if [[ ! -d "$RUST_ROOT" ]]; then
-  echo "codex-rs directory not found at: $RUST_ROOT" >&2
-  exit 1
-fi
-
-function resolve_rust_toolchain() {
-  local toolchain_file="$RUST_ROOT/rust-toolchain.toml"
-  if [[ -f "$toolchain_file" ]]; then
-    local channel
-    channel=$(grep -E '^[[:space:]]*channel[[:space:]]*=' "$toolchain_file" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-    if [[ -n "$channel" ]]; then
-      echo "$channel"
-      return
-    fi
-  fi
-  echo "stable"
-}
-
-function ensure_toolchain() {
-  local toolchain=$1
-  if ! command -v rustup >/dev/null 2>&1; then
-    echo "rustup is required to install the Rust toolchain and targets." >&2
-    exit 1
-  fi
-  rustup toolchain install "$toolchain"
-  rustup target add "$TARGET_TRIPLE" --toolchain "$toolchain"
-  rustup component add rust-src --toolchain "$toolchain"
-}
-
-function ensure_musl_compiler() {
-  if [[ "$TARGET_TRIPLE" != *-musl ]]; then
-    return
-  fi
-  if command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
-    return
-  fi
-  if command -v musl-gcc >/dev/null 2>&1; then
-    return
-  fi
-  if ! command -v apt-get >/dev/null 2>&1; then
-    echo "musl-gcc not found and apt-get is unavailable; install musl-tools manually." >&2
-    exit 1
-  fi
-  if [[ $(id -u) -eq 0 ]]; then
-    DEBIAN_FRONTEND=noninteractive apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends musl-tools u-boot-tools
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends musl-tools u-boot-tools
-  else
-    echo "musl-gcc not found and sudo is unavailable; install musl-tools manually." >&2
-    exit 1
-  fi
-  if ! command -v musl-gcc >/dev/null 2>&1; then
-    echo "musl-gcc is still unavailable after installing musl-tools." >&2
-    exit 1
-  fi
-}
 
 # Determine the target triple expected by the CLI launcher.
 ARCH=$(uname -m)
@@ -127,68 +53,40 @@ case "$ARCH" in
     ;;
 esac
 
-RUST_TOOLCHAIN=$(resolve_rust_toolchain)
-ensure_toolchain "$RUST_TOOLCHAIN"
-ensure_musl_compiler
+echo "Using Codex release tag: $CODEX_RELEASE_TAG (default: $DEFAULT_CODEX_RELEASE_TAG)"
 
 pushd "$CLI_ROOT" > /dev/null
 
 pnpm install
 
-pushd "$SDK_ROOT" > /dev/null
-pnpm install
-pnpm run build
-popd > /dev/null
+function fetch_release_binary() {
+  local binary_name=$1
+  local target_triple=$2
+  local output_path=$3
+  local archive_name="${binary_name}-${target_triple}.tar.gz"
+  local download_url="https://github.com/openai/codex/releases/download/${CODEX_RELEASE_TAG}/${archive_name}"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  local archive_path="$tmpdir/$archive_name"
 
-# Build (or reuse) the native Codex binary from the local workspace.
-case "$BUILD_PROFILE" in
-  release)
-    CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex"
-    APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex-app-server"
-    LINUX_SANDBOX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/release/codex-linux-sandbox"
-    ;;
-  debug)
-    CODEX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex"
-    APP_SERVER_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex-app-server"
-    LINUX_SANDBOX_BIN_SRC="$RUST_ROOT/target/$TARGET_TRIPLE/debug/codex-linux-sandbox"
-    ;;
-  *)
-    echo "Unknown build profile: $BUILD_PROFILE" >&2
-    exit 1
-    ;;
-esac
-
-function ensure_binary() {
-  local label=$1
-  local binary_path=$2
-  local cargo_args=(${@:3})
-
-  if [[ "$FORCE_BUILD" -eq 0 && -x "$binary_path" ]]; then
-    return
-  fi
-
-  pushd "$RUST_ROOT" > /dev/null
-  local v_cc_musl=${CC_aarch64_unknown_linux_musl:-musl-gcc}
-  if [[ "$BUILD_PROFILE" == "debug" ]]; then
-    CC="$v_cc_musl" \
-      CC_aarch64_unknown_linux_musl="$v_cc_musl" \
-      cargo +"$RUST_TOOLCHAIN" build --target "$TARGET_TRIPLE" "${cargo_args[@]}"
-  else
-    CC="$v_cc_musl" \
-      CC_aarch64_unknown_linux_musl="$v_cc_musl" \
-      cargo +"$RUST_TOOLCHAIN" build --release --target "$TARGET_TRIPLE" "${cargo_args[@]}"
-  fi
-  popd > /dev/null
-
-  if [[ ! -x "$binary_path" ]]; then
-    echo "Built $label binary not found at $binary_path" >&2
+  if ! curl -fLsS "$download_url" -o "$archive_path"; then
+    rm -rf "$tmpdir"
+    echo "Failed to download $archive_name from $download_url" >&2
+    echo "If this release does not publish ${binary_name}-${target_triple}, set CODEX_RELEASE_TAG to a compatible tag." >&2
     exit 1
   fi
+
+  tar -xzf "$archive_path" -C "$tmpdir"
+  local extracted_binary="$tmpdir/$binary_name"
+  if [[ ! -f "$extracted_binary" ]]; then
+    rm -rf "$tmpdir"
+    echo "Expected binary $binary_name was not found in $archive_name" >&2
+    exit 1
+  fi
+
+  install -Dm755 "$extracted_binary" "$output_path"
+  rm -rf "$tmpdir"
 }
-
-ensure_binary "Codex" "$CODEX_BIN_SRC" -p codex-cli --bin codex
-ensure_binary "codex-app-server" "$APP_SERVER_BIN_SRC" -p codex-app-server --bin codex-app-server
-ensure_binary "codex-linux-sandbox" "$LINUX_SANDBOX_BIN_SRC" -p codex-linux-sandbox --bin codex-linux-sandbox
 
 function ensure_rg_binary() {
   local rg_path
@@ -209,7 +107,7 @@ function ensure_rg_binary() {
   fi
 
   if command -v cargo >/dev/null 2>&1; then
-    local rg_root="$RUST_ROOT/target/ripgrep-install"
+    local rg_root="$REPO_ROOT/target/ripgrep-install"
     mkdir -p "$rg_root"
     cargo install --locked ripgrep --root "$rg_root"
     if [[ -x "$rg_root/bin/rg" ]]; then
@@ -224,6 +122,15 @@ function ensure_rg_binary() {
 }
 
 RG_BIN_SRC=$(ensure_rg_binary)
+
+STAGED_BIN_ROOT="$REPO_ROOT/target/codex-release-bin/$CODEX_RELEASE_TAG/$TARGET_TRIPLE"
+CODEX_BIN_SRC="$STAGED_BIN_ROOT/codex"
+APP_SERVER_BIN_SRC="$STAGED_BIN_ROOT/codex-app-server"
+LINUX_SANDBOX_BIN_SRC="$STAGED_BIN_ROOT/codex-linux-sandbox"
+
+fetch_release_binary "codex" "$TARGET_TRIPLE" "$CODEX_BIN_SRC"
+fetch_release_binary "codex-app-server" "$TARGET_TRIPLE" "$APP_SERVER_BIN_SRC"
+fetch_release_binary "codex-linux-sandbox" "$TARGET_TRIPLE" "$LINUX_SANDBOX_BIN_SRC"
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
