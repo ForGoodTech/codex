@@ -99,7 +99,9 @@ function fetch_release_binary() {
     exit 1
   fi
 
-  install -Dm755 "$extracted_binary" "$output_path"
+  mkdir -p "$(dirname "$output_path")"
+  cp -f "$extracted_binary" "$output_path"
+  chmod 755 "$output_path" 2>/dev/null || true
   rm -rf "$tmpdir"
 }
 
