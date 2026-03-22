@@ -178,7 +178,14 @@ stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
 cat > "$TARGET_VENDOR/codex-app-server/codex-app-server" <<'EOF'
 #!/bin/sh
 set -eu
-exec "$(dirname "$0")/../codex/codex" app-server "$@"
+SELF_PATH="${0}"
+if command -v readlink >/dev/null 2>&1; then
+  RESOLVED_PATH="$(readlink -f "$SELF_PATH" 2>/dev/null || true)"
+  if [ -n "$RESOLVED_PATH" ]; then
+    SELF_PATH="$RESOLVED_PATH"
+  fi
+fi
+exec "$(dirname "$SELF_PATH")/../codex/codex" app-server "$@"
 EOF
 chmod 755 "$TARGET_VENDOR/codex-app-server/codex-app-server" 2>/dev/null || true
 if [[ -n "$LINUX_SANDBOX_BIN_SRC" ]]; then
@@ -187,7 +194,14 @@ else
   cat > "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" <<'EOF'
 #!/bin/sh
 set -eu
-exec "$(dirname "$0")/../codex/codex" linux-sandbox "$@"
+SELF_PATH="${0}"
+if command -v readlink >/dev/null 2>&1; then
+  RESOLVED_PATH="$(readlink -f "$SELF_PATH" 2>/dev/null || true)"
+  if [ -n "$RESOLVED_PATH" ]; then
+    SELF_PATH="$RESOLVED_PATH"
+  fi
+fi
+exec "$(dirname "$SELF_PATH")/../codex/codex" linux-sandbox "$@"
 EOF
   chmod 755 "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" 2>/dev/null || true
 fi
