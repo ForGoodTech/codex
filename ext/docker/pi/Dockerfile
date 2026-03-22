@@ -88,19 +88,20 @@ ENV PATH=$PATH:/usr/local/share/npm-global/bin
 # Install codex from npm
 RUN npm install -g "${CODEX_NPM_PACKAGE}@${CODEX_NPM_VERSION}" \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
+  && APP_SERVER_BIN="" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
        chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/path/rg; \
        chown -R node:node "${INSTALL_ROOT}/vendor"; \
        APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 4 -type f -name codex-app-server -perm -111 | head -n 1); \
-       printf '%s\n' \
-         '#!/bin/sh' \
-         "if [ -n \"${APP_SERVER_BIN}\" ] && [ -x \"${APP_SERVER_BIN}\" ]; then" \
-         "  exec \"${APP_SERVER_BIN}\" \"\$@\"" \
-         'fi' \
-         'exec codex app-server "$@"' \
-         > /usr/local/share/npm-global/bin/codex-app-server; \
-       chmod 755 /usr/local/share/npm-global/bin/codex-app-server; \
      fi \
+  && printf '%s\n' \
+    '#!/bin/sh' \
+    "if [ -n \"${APP_SERVER_BIN}\" ] && [ -x \"${APP_SERVER_BIN}\" ]; then" \
+    "  exec \"${APP_SERVER_BIN}\" \"\$@\"" \
+    'fi' \
+    'exec codex app-server "$@"' \
+    > /usr/local/share/npm-global/bin/codex-app-server \
+  && chmod 755 /usr/local/share/npm-global/bin/codex-app-server \
   && npm cache clean --force \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/@openai/codex/node_modules/.cache \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/@openai/codex/tests \
