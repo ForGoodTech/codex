@@ -23,6 +23,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
   aggregate \
+  bubblewrap \
   ca-certificates \
   curl \
   dbus-x11 \
