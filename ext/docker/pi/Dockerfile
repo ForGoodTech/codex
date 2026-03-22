@@ -160,6 +160,14 @@ ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 
 # Copy and set up firewall script as root.
 USER root
+RUN set -eux; \
+    INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex"; \
+    VENDORED_BWRAP=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name bwrap -perm -111 | head -n 1 || true); \
+    if [ -n "${VENDORED_BWRAP}" ]; then \
+      ln -sf "${VENDORED_BWRAP}" /usr/bin/bwrap; \
+    else \
+      echo "Warning: vendored bwrap was not found under ${INSTALL_ROOT}/vendor; /usr/bin/bwrap symlink was not created." >&2; \
+    fi
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
 RUN chmod 500 /usr/local/bin/init_firewall.sh
 

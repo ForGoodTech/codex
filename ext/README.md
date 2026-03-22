@@ -193,6 +193,17 @@ the container can authenticate.
 
 The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior. To avoid namespace/bubblewrap restrictions in locked-down Docker hosts, the proxy injects `sandboxMode: "danger-full-access"` into `thread/start` and `thread/resume` when the client omits it; override that default with `APP_SERVER_DEFAULT_SANDBOX_MODE` if needed. To point the app server at a specific `codex-linux-sandbox` binary inside the container, set `APP_SERVER_CODEX_LINUX_SANDBOX_EXE` (or `CODEX_LINUX_SANDBOX_EXE`); the proxy defaults to `/usr/local/share/npm-global/bin/codex-linux-sandbox`.
 
+To verify bubblewrap wiring manually inside a running container:
+
+```shell
+which bwrap
+ls -l /usr/bin/bwrap
+/usr/bin/bwrap --version
+codex-app-server --help >/tmp/codex-app-server-help.txt
+```
+
+Expected result: `/usr/bin/bwrap` exists and points at the vendored Codex `bwrap` under `@openai/codex/vendor/.../path/bwrap`, and `codex-app-server --help` runs without printing the “could not find system bubblewrap” error.
+
 ## Other assets
 
 - `app-server-protocol-export/` – Generated TypeScript bindings and JSON Schemas for the Codex app-server protocol.
