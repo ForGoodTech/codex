@@ -173,6 +173,9 @@ RUN mkdir -p /home/node/workdir && \
   cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
 
+[features]
+use_linux_sandbox_bwrap = false
+
 [mcp_servers.openai_docs]
 url = "${OPENAI_DOCS_MCP_URL}"
 
