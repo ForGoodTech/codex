@@ -25,6 +25,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
   aggregate \
+  bubblewrap \
   ca-certificates \
   curl \
   dbus-x11 \
@@ -68,6 +69,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        mkdir -p /opt/google/chrome; \
        printf '%s\n' '#!/bin/sh' 'if command -v xvfb-run >/dev/null 2>&1; then' '  exec xvfb-run -a --server-args="-screen 0 1280x720x24 -nolisten tcp" /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' 'fi' 'exec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' > /opt/google/chrome/chrome; \
        chmod 755 /opt/google/chrome/chrome; \
+     fi \
+  && if [ -x /usr/bin/bwrap ]; then \
+       mv /usr/bin/bwrap /usr/bin/bwrap.real; \
+       printf '%s\n' '#!/bin/sh' \
+         'if [ "${1:-}" = "--argv0" ]; then' \
+         '  shift 2' \
+         'fi' \
+         'exec /usr/bin/bwrap.real "$@"' \
+         > /usr/bin/bwrap; \
+       chmod 755 /usr/bin/bwrap; \
      fi \
   && rm -rf /var/lib/apt/lists/*
 
