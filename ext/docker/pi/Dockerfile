@@ -72,11 +72,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
      fi \
   && if [ -x /usr/bin/bwrap ]; then \
        mv /usr/bin/bwrap /usr/bin/bwrap.real; \
-       printf '%s\n' '#!/bin/sh' \
-         'if [ "${1:-}" = "--argv0" ]; then' \
-         '  shift 2' \
-         'fi' \
-         'exec /usr/bin/bwrap.real "$@"' \
+       printf '%s\n' '#!/usr/bin/env bash' \
+         'set -euo pipefail' \
+         'args=()' \
+         'while [[ $# -gt 0 ]]; do' \
+         '  if [[ "$1" == "--argv0" ]]; then' \
+         '    shift 2' \
+         '    continue' \
+         '  fi' \
+         '  args+=("$1")' \
+         '  shift' \
+         'done' \
+         'exec /usr/bin/bwrap.real "${args[@]}"' \
          > /usr/bin/bwrap; \
        chmod 755 /usr/bin/bwrap; \
      fi \
