@@ -88,10 +88,12 @@ ENV PATH=$PATH:/usr/local/share/npm-global/bin
 RUN npm install -g "${CODEX_NPM_PACKAGE}@${CODEX_NPM_VERSION}" \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
   && APP_SERVER_BIN="" \
+  && SANDBOX_BIN="" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
        chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/path/rg; \
        chown -R node:node "${INSTALL_ROOT}/vendor"; \
        APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 4 -type f -name codex-app-server -perm -111 | head -n 1); \
+       SANDBOX_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 4 -type f -name codex-linux-sandbox -perm -111 | head -n 1); \
      fi \
   && printf '%s\n' \
     '#!/bin/sh' \
@@ -101,6 +103,9 @@ RUN npm install -g "${CODEX_NPM_PACKAGE}@${CODEX_NPM_VERSION}" \
     'exec codex app-server "$@"' \
     > /usr/local/share/npm-global/bin/codex-app-server \
   && chmod 755 /usr/local/share/npm-global/bin/codex-app-server \
+  && if [ -n "${SANDBOX_BIN}" ] && [ -x "${SANDBOX_BIN}" ]; then \
+       ln -sf "${SANDBOX_BIN}" /usr/local/share/npm-global/bin/codex-linux-sandbox; \
+     fi \
   && npm cache clean --force \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/@openai/codex/node_modules/.cache \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/@openai/codex/tests \

@@ -33,7 +33,7 @@
  * - The client should speak the same JSONL protocol the app server expects (see hello-app-server.js).
  */
 const net = require('node:net');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const envProxyToken = process.env.APP_SERVER_PROXY_TOKEN?.trim() ?? '';
 if (!envProxyToken) {
   console.warn(
@@ -70,10 +70,24 @@ const defaultAppServerArgs = [];
 const appServerCmd = process.env.APP_SERVER_CMD?.trim() || defaultAppServerCmd;
 const appServerArgs =
   process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? defaultAppServerArgs;
+const resolvedSandboxExe = (() => {
+  if (process.env.CODEX_LINUX_SANDBOX_EXE?.trim()) {
+    return process.env.CODEX_LINUX_SANDBOX_EXE.trim();
+  }
+  const check = spawnSync('bash', ['-lc', 'command -v codex-linux-sandbox >/dev/null 2>&1']);
+  if (check.status === 0) {
+    return 'codex-linux-sandbox';
+  }
+  return null;
+})();
+const appServerEnv = { ...process.env };
+if (resolvedSandboxExe) {
+  appServerEnv.CODEX_LINUX_SANDBOX_EXE = resolvedSandboxExe;
+}
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
 const appServer = spawn(appServerCmd, appServerArgs, {
   stdio: ['pipe', 'pipe', 'inherit'],
-  env: process.env,
+  env: appServerEnv,
 });
 appServer.on('exit', (code, signal) => {
   console.error(`codex-app-server exited (code=${code}, signal=${signal ?? 'none'})`);
