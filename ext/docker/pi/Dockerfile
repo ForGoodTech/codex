@@ -90,7 +90,7 @@ RUN npm install -g "${CODEX_NPM_PACKAGE}@${CODEX_NPM_VERSION}" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
        chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/path/rg; \
        chown -R node:node "${INSTALL_ROOT}/vendor"; \
-       APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-app-server -perm -111 | head -n 1); \
+       APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 4 -type f -name codex-app-server -perm -111 | head -n 1); \
        if [ -n "$APP_SERVER_BIN" ]; then \
          ln -sf "$APP_SERVER_BIN" /usr/local/share/npm-global/bin/codex-app-server; \
        fi; \
