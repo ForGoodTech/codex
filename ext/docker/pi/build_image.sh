@@ -388,6 +388,21 @@ function stage_binary() {
   chmod 755 "$dest" 2>/dev/null || true
 }
 
+function validate_vendor_binary() {
+  local binary_path=$1
+
+  if [[ ! -x "$binary_path" ]]; then
+    echo "Expected executable not found: $binary_path" >&2
+    exit 1
+  fi
+
+  if command -v readelf >/dev/null 2>&1 && readelf -d "$binary_path" 2>/dev/null | rg -q 'Shared library: \[libc\.so\.6\]'; then
+    echo "Refusing to package glibc-linked binary in musl vendor slot: $binary_path" >&2
+    echo "Rebuild this binary with a musl toolchain or use a matching non-musl vendor target." >&2
+    exit 1
+  fi
+}
+
   if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
     stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
     stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
@@ -403,6 +418,10 @@ function stage_binary() {
       fi
     done
   fi
+
+  validate_vendor_binary "$TARGET_VENDOR/codex/codex"
+  validate_vendor_binary "$TARGET_VENDOR/codex-app-server/codex-app-server"
+  validate_vendor_binary "$TARGET_VENDOR/path/rg"
 
   mkdir -p dist
   rm -f dist/openai-codex-*.tgz dist/codex.tgz
