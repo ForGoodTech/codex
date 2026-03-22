@@ -20,10 +20,10 @@ ENV PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}"
 ENV CHROME_MCP_STARTUP_TIMEOUT_SEC="${CHROME_MCP_STARTUP_TIMEOUT_SEC}"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
 
-# Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
+# Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size.
+# NOTE: intentionally do not install distro `bubblewrap`; Codex's vendored bwrap is used for compatibility.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   aggregate \
-  bubblewrap \
   ca-certificates \
   curl \
   dbus-x11 \
