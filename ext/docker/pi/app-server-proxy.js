@@ -49,6 +49,7 @@ const mathJaxDeveloperInstructions = [
   'Use \\( ... \\) for inline math and \\[ ... \\] for display math.',
   'Do not output plain-text equations without LaTeX math delimiters.',
 ].join(' ');
+const defaultSandboxMode = process.env.APP_SERVER_DEFAULT_SANDBOX_MODE?.trim() || 'danger-full-access';
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
 const defaultPort = 9395;
 const authTimeoutMs = 3000;
@@ -113,6 +114,7 @@ function appendDeveloperInstructions(frame) {
     params: {
       ...params,
       developerInstructions: combined,
+      sandboxMode: params.sandboxMode ?? defaultSandboxMode,
     },
   };
 }
