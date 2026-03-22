@@ -188,8 +188,31 @@ case "$ARCH" in
 esac
 
 VENDOR_TRIPLE="$TARGET_TRIPLE"
+TARGET_VENDOR="$VENDOR_DIR/$VENDOR_TRIPLE"
 
 if [[ "$PREBUILD_PHASE" == "1" ]]; then
+  if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
+    preferred_compiler="musl-gcc"
+    if [[ "$ARCH" == "aarch64" ]] && command -v aarch64-linux-musl-gcc >/dev/null 2>&1; then
+      preferred_compiler="${CC_aarch64_unknown_linux_musl:-aarch64-linux-musl-gcc}"
+    elif [[ "$ARCH" == "x86_64" ]] && command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
+      preferred_compiler="${CC_x86_64_unknown_linux_musl:-x86_64-linux-musl-gcc}"
+    fi
+
+    if ! is_usable_musl_compiler "$preferred_compiler" && ! is_usable_musl_compiler "musl-gcc"; then
+      if [[ -x "$TARGET_VENDOR/codex/codex" ]] \
+        && [[ -x "$TARGET_VENDOR/codex-app-server/codex-app-server" ]] \
+        && [[ -x "$TARGET_VENDOR/path/rg" ]]; then
+        echo "No usable musl compiler found; using pre-staged vendor binaries (SKIP_RUST_BUILD=1)." >&2
+        SKIP_RUST_BUILD=1
+      else
+        echo "No usable musl compiler found and pre-staged vendor binaries are missing." >&2
+        echo "Either install a real musl toolchain or provide pre-staged binaries and rerun with SKIP_RUST_BUILD=1." >&2
+        exit 1
+      fi
+    fi
+  fi
+
   if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
     RUST_TOOLCHAIN=$(resolve_rust_toolchain)
     ensure_toolchain "$RUST_TOOLCHAIN"
@@ -347,7 +370,6 @@ function ensure_rg_binary() {
   exit 1
 }
 
-  TARGET_VENDOR="$VENDOR_DIR/$VENDOR_TRIPLE"
   if [[ "$SKIP_RUST_BUILD" == "0" ]]; then
     RG_BIN_SRC=$(ensure_rg_binary)
     rm -rf "$TARGET_VENDOR"
