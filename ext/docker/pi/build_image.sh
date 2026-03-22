@@ -78,9 +78,24 @@ function fetch_release_binary() {
 
   tar -xzf "$archive_path" -C "$tmpdir"
   local extracted_binary="$tmpdir/$binary_name"
+  local triple_named_binary="$tmpdir/${binary_name}-${target_triple}"
+  if [[ ! -f "$extracted_binary" && -f "$triple_named_binary" ]]; then
+    extracted_binary="$triple_named_binary"
+  fi
+
   if [[ ! -f "$extracted_binary" ]]; then
-    rm -rf "$tmpdir"
+    local found_binary
+    found_binary=$(find "$tmpdir" -maxdepth 3 -type f \( -name "$binary_name" -o -name "${binary_name}-${target_triple}" \) | head -n 1 || true)
+    if [[ -n "$found_binary" ]]; then
+      extracted_binary="$found_binary"
+    fi
+  fi
+
+  if [[ ! -f "$extracted_binary" ]]; then
     echo "Expected binary $binary_name was not found in $archive_name" >&2
+    echo "Archive contents:" >&2
+    find "$tmpdir" -maxdepth 3 -type f | sed "s|$tmpdir/||" >&2 || true
+    rm -rf "$tmpdir"
     exit 1
   fi
 
