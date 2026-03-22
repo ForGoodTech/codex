@@ -150,15 +150,10 @@ RG_BIN_SRC=$(ensure_rg_binary)
 
 STAGED_BIN_ROOT="$REPO_ROOT/target/codex-release-bin/$CODEX_RELEASE_TAG/$TARGET_TRIPLE"
 CODEX_BIN_SRC="$STAGED_BIN_ROOT/codex"
-APP_SERVER_BIN_SRC="$STAGED_BIN_ROOT/codex-app-server"
 LINUX_SANDBOX_BIN_SRC="$STAGED_BIN_ROOT/codex-linux-sandbox"
 
 fetch_release_binary "codex" "$TARGET_TRIPLE" "$CODEX_BIN_SRC"
 fetch_release_binary "codex-linux-sandbox" "$TARGET_TRIPLE" "$LINUX_SANDBOX_BIN_SRC"
-if ! fetch_release_binary "codex-app-server" "$TARGET_TRIPLE" "$APP_SERVER_BIN_SRC" 0; then
-  APP_SERVER_BIN_SRC=""
-  echo "codex-app-server release asset is unavailable for $TARGET_TRIPLE; will generate a shim that runs 'codex app-server'." >&2
-fi
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
@@ -177,16 +172,12 @@ function stage_binary() {
 }
 
 stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
-if [[ -n "$APP_SERVER_BIN_SRC" ]]; then
-  stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
-else
-  cat > "$TARGET_VENDOR/codex-app-server/codex-app-server" <<'EOF'
+cat > "$TARGET_VENDOR/codex-app-server/codex-app-server" <<'EOF'
 #!/bin/sh
 set -eu
 exec "$(dirname "$0")/../codex/codex" app-server "$@"
 EOF
-  chmod 755 "$TARGET_VENDOR/codex-app-server/codex-app-server" 2>/dev/null || true
-fi
+chmod 755 "$TARGET_VENDOR/codex-app-server/codex-app-server" 2>/dev/null || true
 stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
 stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
