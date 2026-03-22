@@ -33,7 +33,7 @@
  * - The client should speak the same JSONL protocol the app server expects (see hello-app-server.js).
  */
 const net = require('node:net');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const envProxyToken = process.env.APP_SERVER_PROXY_TOKEN?.trim() ?? '';
 if (!envProxyToken) {
   console.warn(
@@ -65,9 +65,15 @@ const port = (() => {
   }
   return parsed;
 })();
-const defaultAppServerCmd = 'codex-app-server';
+const hasCodexAppServerBinary = (() => {
+  const check = spawnSync('bash', ['-lc', 'command -v codex-app-server >/dev/null 2>&1']);
+  return check.status === 0;
+})();
+const defaultAppServerCmd = hasCodexAppServerBinary ? 'codex-app-server' : 'codex';
+const defaultAppServerArgs = hasCodexAppServerBinary ? [] : ['app-server'];
 const appServerCmd = process.env.APP_SERVER_CMD?.trim() || defaultAppServerCmd;
-const appServerArgs = process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? [];
+const appServerArgs =
+  process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? defaultAppServerArgs;
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
 const appServer = spawn(appServerCmd, appServerArgs, {
   stdio: ['pipe', 'pipe', 'inherit'],
