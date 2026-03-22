@@ -10,6 +10,8 @@ ARG GITHUB_MCP_URL="https://api.githubcopilot.com/mcp/"
 ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
 ARG PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="30"
 ARG CHROME_MCP_STARTUP_TIMEOUT_SEC="30"
+ARG CODEX_NPM_PACKAGE="@openai/codex"
+ARG CODEX_NPM_VERSION="latest"
 ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
 ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
 ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
@@ -82,9 +84,8 @@ USER node
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=$PATH:/usr/local/share/npm-global/bin
 
-# Install codex
-COPY codex-cli/dist/codex.tgz codex.tgz
-RUN npm install -g codex.tgz \
+# Install codex from npm
+RUN npm install -g "${CODEX_NPM_PACKAGE}@${CODEX_NPM_VERSION}" \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
        chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/path/rg; \
@@ -95,9 +96,9 @@ RUN npm install -g codex.tgz \
        fi; \
      fi \
   && npm cache clean --force \
-  && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/node_modules/.cache \
-  && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/tests \
-  && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/docs
+  && rm -rf /usr/local/share/npm-global/lib/node_modules/@openai/codex/node_modules/.cache \
+  && rm -rf /usr/local/share/npm-global/lib/node_modules/@openai/codex/tests \
+  && rm -rf /usr/local/share/npm-global/lib/node_modules/@openai/codex/docs
 
 RUN set -eux; \
     for spec in \
@@ -147,7 +148,6 @@ RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-
 # Stage the Codex TypeScript SDK output alongside the proxies so sdk-proxy can import it.
 COPY --chown=node:node sdk/typescript/package.json /home/node/node_modules/@openai/codex-sdk/package.json
 COPY --chown=node:node sdk/typescript/dist /home/node/node_modules/@openai/codex-sdk/dist
-COPY --chown=node:node codex-cli/vendor /home/node/node_modules/@openai/codex-sdk/vendor
 
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.

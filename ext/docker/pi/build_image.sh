@@ -22,6 +22,9 @@ PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
 CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
+CODEX_NPM_PACKAGE=${CODEX_NPM_PACKAGE:-@openai/codex}
+CODEX_NPM_VERSION=${CODEX_NPM_VERSION:-latest}
+INSTALL_CODEX_FROM_NPM=${INSTALL_CODEX_FROM_NPM:-1}
 GITHUB_MCP_URL=${GITHUB_MCP_URL:-https://api.githubcopilot.com/mcp/}
 OPENAI_DOCS_MCP_URL=${OPENAI_DOCS_MCP_URL:-https://developers.openai.com/mcp}
 PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC=${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC:-30}
@@ -67,7 +70,7 @@ if [[ "$PREBUILD_PHASE" == "1" && ! -t 1 && -z "${CI:-}" ]]; then
   export CI=true
 fi
 
-if [[ "$PREBUILD_PHASE" == "0" ]]; then
+if [[ "$PREBUILD_PHASE" == "0" && "$INSTALL_CODEX_FROM_NPM" == "0" ]]; then
   docker run --rm \
     -v "$REPO_ROOT":/workspace/codex \
     -w /workspace/codex/ext/docker/pi \
@@ -76,6 +79,7 @@ if [[ "$PREBUILD_PHASE" == "0" ]]; then
     -e FORCE_BUILD="$FORCE_BUILD" \
     -e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" \
     -e SKIP_RUST_BUILD="$SKIP_RUST_BUILD" \
+    -e INSTALL_CODEX_FROM_NPM="$INSTALL_CODEX_FROM_NPM" \
     "$PREBUILD_IMAGE" bash -lc '
       set -euo pipefail
       apt-get update
@@ -483,6 +487,8 @@ docker build \
   --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
   --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
+  --build-arg CODEX_NPM_PACKAGE="$CODEX_NPM_PACKAGE" \
+  --build-arg CODEX_NPM_VERSION="$CODEX_NPM_VERSION" \
   --build-arg GITHUB_MCP_URL="$GITHUB_MCP_URL" \
   --build-arg OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
   --build-arg PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="$PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC" \
