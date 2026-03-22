@@ -63,6 +63,7 @@ function fetch_release_binary() {
   local binary_name=$1
   local target_triple=$2
   local output_path=$3
+  local required=${4:-1}
   local archive_name="${binary_name}-${target_triple}.tar.gz"
   local download_url="https://github.com/openai/codex/releases/download/${CODEX_RELEASE_TAG}/${archive_name}"
   local tmpdir
@@ -71,9 +72,12 @@ function fetch_release_binary() {
 
   if ! curl -fLsS "$download_url" -o "$archive_path"; then
     rm -rf "$tmpdir"
-    echo "Failed to download $archive_name from $download_url" >&2
-    echo "If this release does not publish ${binary_name}-${target_triple}, set CODEX_RELEASE_TAG to a compatible tag." >&2
-    exit 1
+    if [[ "$required" -eq 1 ]]; then
+      echo "Failed to download $archive_name from $download_url" >&2
+      echo "If this release does not publish ${binary_name}-${target_triple}, set CODEX_RELEASE_TAG to a compatible tag." >&2
+      exit 1
+    fi
+    return 1
   fi
 
   tar -xzf "$archive_path" -C "$tmpdir"
@@ -92,11 +96,15 @@ function fetch_release_binary() {
   fi
 
   if [[ ! -f "$extracted_binary" ]]; then
-    echo "Expected binary $binary_name was not found in $archive_name" >&2
-    echo "Archive contents:" >&2
-    find "$tmpdir" -maxdepth 3 -type f | sed "s|$tmpdir/||" >&2 || true
+    if [[ "$required" -eq 1 ]]; then
+      echo "Expected binary $binary_name was not found in $archive_name" >&2
+      echo "Archive contents:" >&2
+      find "$tmpdir" -maxdepth 3 -type f | sed "s|$tmpdir/||" >&2 || true
+      rm -rf "$tmpdir"
+      exit 1
+    fi
     rm -rf "$tmpdir"
-    exit 1
+    return 1
   fi
 
   mkdir -p "$(dirname "$output_path")"
@@ -146,8 +154,11 @@ APP_SERVER_BIN_SRC="$STAGED_BIN_ROOT/codex-app-server"
 LINUX_SANDBOX_BIN_SRC="$STAGED_BIN_ROOT/codex-linux-sandbox"
 
 fetch_release_binary "codex" "$TARGET_TRIPLE" "$CODEX_BIN_SRC"
-fetch_release_binary "codex-app-server" "$TARGET_TRIPLE" "$APP_SERVER_BIN_SRC"
 fetch_release_binary "codex-linux-sandbox" "$TARGET_TRIPLE" "$LINUX_SANDBOX_BIN_SRC"
+if ! fetch_release_binary "codex-app-server" "$TARGET_TRIPLE" "$APP_SERVER_BIN_SRC" 0; then
+  APP_SERVER_BIN_SRC=""
+  echo "codex-app-server release asset is unavailable for $TARGET_TRIPLE; will generate a shim that runs 'codex app-server'." >&2
+fi
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
@@ -166,7 +177,16 @@ function stage_binary() {
 }
 
 stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
-stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
+if [[ -n "$APP_SERVER_BIN_SRC" ]]; then
+  stage_binary "$APP_SERVER_BIN_SRC" "$TARGET_VENDOR/codex-app-server/codex-app-server"
+else
+  cat > "$TARGET_VENDOR/codex-app-server/codex-app-server" <<'EOF'
+#!/bin/sh
+set -eu
+exec "$(dirname "$0")/../codex/codex" app-server "$@"
+EOF
+  chmod 755 "$TARGET_VENDOR/codex-app-server/codex-app-server" 2>/dev/null || true
+fi
 stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
 stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
