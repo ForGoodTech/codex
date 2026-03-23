@@ -108,6 +108,8 @@ docker run -it --rm \
 
 Create a shared Docker network so the proxy and any client containers can talk without publishing ports on the host. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
 
+This image runs as `root` by default so command execution can proceed on hosts that block unprivileged namespace creation.
+
 ```shell
 docker network create codex-net
 
