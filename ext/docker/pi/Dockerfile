@@ -167,23 +167,23 @@ RUN set -eux; \
       ln -sf "${VENDORED_BWRAP}" /usr/bin/bwrap; \
     elif [ -x /usr/bin/bwrap ]; then \
       mv /usr/bin/bwrap /usr/bin/bwrap.system; \
-      cat > /usr/bin/bwrap <<'EOF'; \
-#!/usr/bin/env bash
-set -euo pipefail
-args=()
-while (($# > 0)); do
-  if [[ "$1" == "--argv0" ]]; then
-    shift
-    if (($# > 0)); then
-      shift
-    fi
-    continue
-  fi
-  args+=("$1")
-  shift
-done
-exec /usr/bin/bwrap.system "${args[@]}"
-EOF
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -euo pipefail' \
+        'args=()' \
+        'while (($# > 0)); do' \
+        '  if [[ "$1" == "--argv0" ]]; then' \
+        '    shift' \
+        '    if (($# > 0)); then' \
+        '      shift' \
+        '    fi' \
+        '    continue' \
+        '  fi' \
+        '  args+=("$1")' \
+        '  shift' \
+        'done' \
+        'exec /usr/bin/bwrap.system "${args[@]}"' \
+        > /usr/bin/bwrap; \
       chmod 755 /usr/bin/bwrap; \
     else \
       echo "Warning: no compatible bwrap binary was found; /usr/bin/bwrap was not configured." >&2; \
