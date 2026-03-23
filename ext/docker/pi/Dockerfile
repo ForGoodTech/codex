@@ -60,7 +60,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   procps \
   unzip \
   ripgrep \
-  sudo \
   xvfb \
   xauth \
   zsh \
@@ -190,10 +189,7 @@ RUN set -eux; \
       echo "Warning: no compatible bwrap binary was found; /usr/bin/bwrap was not configured." >&2; \
     fi
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
-RUN chmod 500 /usr/local/bin/init_firewall.sh && \
-  usermod -aG root,sudo node && \
-  echo "node ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/99-node && \
-  chmod 440 /etc/sudoers.d/99-node
+RUN chmod 500 /usr/local/bin/init_firewall.sh
 
 # Default workspace under the user's home directory so it can be bind-mounted easily.
 WORKDIR /home/node/workdir
@@ -221,5 +217,5 @@ url = "${GITHUB_MCP_URL}"
 EOF
 RUN cp /home/node/.codex/config.toml /root/.codex/config.toml
 
-# Drop back to node (with passwordless sudo/root-group membership configured above).
+# Drop back to non-root.
 USER node
