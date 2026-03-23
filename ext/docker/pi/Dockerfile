@@ -194,7 +194,7 @@ RUN chmod 500 /usr/local/bin/init_firewall.sh
 # Default workspace under the user's home directory so it can be bind-mounted easily.
 WORKDIR /home/node/workdir
 ENV HOME=/home/node
-RUN mkdir -p /home/node/workdir /root/.codex && \
+RUN mkdir -p /home/node/workdir && \
   cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
 
@@ -215,7 +215,6 @@ startup_timeout_sec = ${CHROME_MCP_STARTUP_TIMEOUT_SEC}
 url = "${GITHUB_MCP_URL}"
 
 EOF
-RUN cp /home/node/.codex/config.toml /root/.codex/config.toml
 
 # Drop back to non-root.
 USER node
