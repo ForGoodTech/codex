@@ -165,8 +165,28 @@ RUN set -eux; \
     VENDORED_BWRAP=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name bwrap -perm -111 | head -n 1 || true); \
     if [ -n "${VENDORED_BWRAP}" ]; then \
       ln -sf "${VENDORED_BWRAP}" /usr/bin/bwrap; \
+    elif [ -x /usr/bin/bwrap ]; then \
+      mv /usr/bin/bwrap /usr/bin/bwrap.system; \
+      cat > /usr/bin/bwrap <<'EOF'; \
+#!/usr/bin/env bash
+set -euo pipefail
+args=()
+while (($# > 0)); do
+  if [[ "$1" == "--argv0" ]]; then
+    shift
+    if (($# > 0)); then
+      shift
+    fi
+    continue
+  fi
+  args+=("$1")
+  shift
+done
+exec /usr/bin/bwrap.system "${args[@]}"
+EOF
+      chmod 755 /usr/bin/bwrap; \
     else \
-      echo "Warning: vendored bwrap was not found under ${INSTALL_ROOT}/vendor; /usr/bin/bwrap symlink was not created." >&2; \
+      echo "Warning: no compatible bwrap binary was found; /usr/bin/bwrap was not configured." >&2; \
     fi
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
 RUN chmod 500 /usr/local/bin/init_firewall.sh

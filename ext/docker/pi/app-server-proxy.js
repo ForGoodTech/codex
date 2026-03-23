@@ -100,7 +100,7 @@ function appendDeveloperInstructions(frame) {
     return frame;
   }
   const method = frame.method;
-  if (method !== 'thread/start' && method !== 'thread/resume') {
+  if (method !== 'thread/start' && method !== 'thread/resume' && method !== 'turn/start') {
     return frame;
   }
   const params = frame.params && typeof frame.params === 'object' ? frame.params : {};
