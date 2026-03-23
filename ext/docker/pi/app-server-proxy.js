@@ -50,6 +50,18 @@ const mathJaxDeveloperInstructions = [
   'Do not output plain-text equations without LaTeX math delimiters.',
 ].join(' ');
 const forcedSandboxMode = process.env.APP_SERVER_DEFAULT_SANDBOX_MODE?.trim() || 'danger-full-access';
+function sandboxPolicyForMode(mode) {
+  switch (mode) {
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' };
+    case 'read-only':
+      return { type: 'readOnly' };
+    case 'workspace-write':
+      return { type: 'workspaceWrite' };
+    default:
+      return { type: 'dangerFullAccess' };
+  }
+}
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
 const defaultPort = 9395;
 const authTimeoutMs = 3000;
@@ -116,7 +128,9 @@ function appendDeveloperInstructions(frame) {
     params: {
       ...params,
       developerInstructions: combined,
-      sandboxMode: forcedSandboxMode,
+      ...(method === 'turn/start'
+        ? { sandboxPolicy: sandboxPolicyForMode(forcedSandboxMode) }
+        : { sandboxMode: forcedSandboxMode }),
     },
   };
 }
