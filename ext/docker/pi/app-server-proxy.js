@@ -68,7 +68,7 @@ const port = (() => {
 })();
 const defaultAppServerCmd = 'codex-app-server';
 const appServerCmd = process.env.APP_SERVER_CMD?.trim() || defaultAppServerCmd;
-const defaultAppServerArgs = ['--sandbox', 'danger-full-access'];
+const defaultAppServerArgs = ['--config', 'sandbox_mode="danger-full-access"'];
 const appServerArgs =
   process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? defaultAppServerArgs;
 const defaultSandboxExe = '/usr/local/share/npm-global/bin/codex-linux-sandbox';
