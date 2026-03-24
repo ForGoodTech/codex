@@ -193,18 +193,7 @@ When using the SDK proxy, the sample clients first try to read your local `~/.co
 variables such as `CODEX_API_KEY`, `OPENAI_API_KEY`, and optionally `OPENAI_BASE_URL`/`CODEX_BASE_URL` so the Codex CLI inside
 the container can authenticate.
 
-The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`). By default, the proxy launches the app server with `--config sandbox_mode="danger-full-access"`; set `APP_SERVER_ARGS` to override the startup flags if you need custom behavior. For request payloads, the proxy applies sandbox defaults only when the client does not provide one: it fills `sandboxMode` on `thread/start` and `thread/resume`, and fills `sandboxPolicy` (for example `{ "type": "dangerFullAccess" }`) on `turn/start`. Set `APP_SERVER_DEFAULT_SANDBOX_MODE` to change that default value. If you need strict override behavior, set `APP_SERVER_FORCE_SANDBOX_MODE=true` to force proxy-selected sandbox settings even when the client provides one. To point the app server at a specific `codex-linux-sandbox` binary inside the container, set `APP_SERVER_CODEX_LINUX_SANDBOX_EXE` (or `CODEX_LINUX_SANDBOX_EXE`); the proxy defaults to `/usr/local/share/npm-global/bin/codex-linux-sandbox`.
-
-To verify bubblewrap wiring manually inside a running container:
-
-```shell
-which bwrap
-ls -l /usr/bin/bwrap
-/usr/bin/bwrap --version
-codex-app-server --help >/tmp/codex-app-server-help.txt
-```
-
-Expected result: `/usr/bin/bwrap` exists and points at the vendored Codex `bwrap` under `@openai/codex/vendor/.../path/bwrap`, and `codex-app-server --help` runs without printing the “could not find system bubblewrap” error.
+The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`). By default the proxy starts `codex-app-server` with no extra sandbox overrides; if you need custom startup flags, set `APP_SERVER_ARGS`. To point the app server at a specific `codex-linux-sandbox` binary inside the container, set `APP_SERVER_CODEX_LINUX_SANDBOX_EXE` (or `CODEX_LINUX_SANDBOX_EXE`); the proxy defaults to `/usr/local/share/npm-global/bin/codex-linux-sandbox`.
 
 ## Other assets
 

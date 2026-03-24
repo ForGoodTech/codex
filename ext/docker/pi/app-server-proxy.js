@@ -49,21 +49,6 @@ const mathJaxDeveloperInstructions = [
   'Use \\( ... \\) for inline math and \\[ ... \\] for display math.',
   'Do not output plain-text equations without LaTeX math delimiters.',
 ].join(' ');
-const forcedSandboxMode = process.env.APP_SERVER_DEFAULT_SANDBOX_MODE?.trim() || 'danger-full-access';
-const forceSandboxMode = ['1', 'true', 'yes']
-  .includes((process.env.APP_SERVER_FORCE_SANDBOX_MODE ?? '').trim().toLowerCase());
-function sandboxPolicyForMode(mode) {
-  switch (mode) {
-    case 'danger-full-access':
-      return { type: 'dangerFullAccess' };
-    case 'read-only':
-      return { type: 'readOnly' };
-    case 'workspace-write':
-      return { type: 'workspaceWrite' };
-    default:
-      return { type: 'dangerFullAccess' };
-  }
-}
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
 const defaultPort = 9395;
 const authTimeoutMs = 3000;
@@ -82,9 +67,7 @@ const port = (() => {
 })();
 const defaultAppServerCmd = 'codex-app-server';
 const appServerCmd = process.env.APP_SERVER_CMD?.trim() || defaultAppServerCmd;
-const defaultAppServerArgs = ['--config', 'sandbox_mode="danger-full-access"'];
-const appServerArgs =
-  process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? defaultAppServerArgs;
+const appServerArgs = process.env.APP_SERVER_ARGS?.split(' ').filter((arg) => arg.length > 0) ?? [];
 const defaultSandboxExe = '/usr/local/share/npm-global/bin/codex-linux-sandbox';
 const sandboxExe =
   process.env.APP_SERVER_CODEX_LINUX_SANDBOX_EXE?.trim() ||
@@ -114,7 +97,7 @@ function appendDeveloperInstructions(frame) {
     return frame;
   }
   const method = frame.method;
-  if (method !== 'thread/start' && method !== 'thread/resume' && method !== 'turn/start') {
+  if (method !== 'thread/start' && method !== 'thread/resume') {
     return frame;
   }
   const params = frame.params && typeof frame.params === 'object' ? frame.params : {};
@@ -130,13 +113,6 @@ function appendDeveloperInstructions(frame) {
     params: {
       ...params,
       developerInstructions: combined,
-      ...(method === 'turn/start'
-        ? (forceSandboxMode || params.sandboxPolicy == null
-            ? { sandboxPolicy: sandboxPolicyForMode(forcedSandboxMode) }
-            : {})
-        : (forceSandboxMode || params.sandboxMode == null
-            ? { sandboxMode: forcedSandboxMode }
-            : {})),
     },
   };
 }
