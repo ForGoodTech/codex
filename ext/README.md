@@ -87,25 +87,6 @@ or testing:
 node ext/examples/app-server-auth.js --print-proxy-token
 ```
 
-### Landlock support
-
-The Codex sandbox uses Linux Landlock for file system restrictions. Docker's
-default seccomp profile blocks Landlock syscalls, so you must relax the
-container seccomp profile when you want Landlock enforcement (the host kernel
-still needs Landlock enabled).
-
-Run with an unconfined seccomp profile, for example:
-
-```shell
-docker run -it --rm \
-  --name codex-proxy \
-  --network codex-net \
-  --security-opt seccomp=unconfined \
-  -v "$PWD:/home/node/workdir" \
-  my-codex-docker-image \
-  bash
-```
-
 Create a shared Docker network so the proxy and any client containers can talk without publishing ports on the host. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
 
 This image runs as `node` by default.
