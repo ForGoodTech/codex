@@ -380,13 +380,4 @@ fi
 echo "Verified MCP server config, packages, and Playwright Chromium launch smoke test in image $IMAGE_TAG"
 '
 
-cat <<EOF
-
-Landlock support note:
-  Docker's default seccomp profile blocks the Landlock syscalls. To enable
-  Landlock inside the container, run it with a relaxed seccomp profile, e.g.:
-    docker run --security-opt seccomp=unconfined ...
-
-EOF
-
 popd > /dev/null
