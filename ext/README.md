@@ -14,29 +14,30 @@ The image built from `ext/docker/pi` includes:
 
 ## Building Docker images
 
-A helper script builds the npm package, stages native binaries, and produces the Docker image without relying on a published registry artifact. It supports both debug and release builds of the Rust components.
+A helper script builds the npm package, stages native binaries, and produces the Docker image. The Codex runtime binaries (`codex`, `codex-app-server`, `codex-linux-sandbox`) are downloaded from an upstream GitHub release tag (`rust-v0.116.0` by default, or an explicitly provided tag).
 
 ```shell
 cd ext/docker/pi
-# Build a debug image tagged "my-codex-docker-image" (default)
+# Build an image tagged "my-codex-docker-image" (default) using rust-v0.116.0.
 ./build_image.sh
 
-# Build a debug image with a custom tag
+# Build with a custom image tag.
 ./build_image.sh codex-dev
 
-# Build a release image with a custom tag
-./build_image.sh codex-release release
+# Build with a custom image tag and an explicit Codex release tag.
+./build_image.sh codex-release rust-v0.116.0
 ```
 
-The optional arguments are positional: the first sets the image tag; the second chooses the Rust profile (`debug` by default, `release` when specified). What the script does:
+The optional arguments are positional: the first sets the image tag; the second sets the upstream Codex release tag (for example `rust-v0.116.0`). You can also set `CODEX_RELEASE_TAG` in the environment. If no tag is provided, the script uses `rust-v0.116.0`. What the script does:
 
 1. Installs JavaScript dependencies for the CLI with `pnpm install`.
-2. Builds the native `codex` and `codex-app-server` binaries from the workspace if they are not already present, honoring the requested profile (`debug` or `release`).
-3. Gathers the binaries (and `rg`) under `codex-cli/vendor/<target-triple>/` so the npm package can ship them.
-4. Packs the CLI (`pnpm pack`) into `dist/codex.tgz` and feeds it into the Docker build.
-5. Runs `docker build` with the generated artifact to produce the final image.
-
-Debug builds reuse `target/debug` artifacts; release builds pull from `target/release`. Pass an image tag as the first argument to name the resulting image (defaults to `my-codex-docker-image`).
+2. Selects the release tag (`rust-v0.116.0` by default, unless a tag is provided explicitly).
+3. Downloads the `codex` release tarball for the current target triple.
+   - The script always creates a `codex-app-server` shim that runs `codex app-server` so the existing proxy contract is satisfied across release tags.
+   - If a standalone `codex-linux-sandbox` asset is unavailable for the tag/target, the script creates a `codex-linux-sandbox` shim that runs `codex linux-sandbox`.
+4. Gathers the binaries (and `rg`) under `codex-cli/vendor/<target-triple>/` so the npm package can ship them.
+5. Packs the CLI (`pnpm pack`) into `dist/codex.tgz` and feeds it into the Docker build.
+6. Runs `docker build` with the generated artifact to produce the final image.
 
 ### MCP startup timeout tuning (Playwright)
 
@@ -106,6 +107,8 @@ docker run -it --rm \
 ```
 
 Create a shared Docker network so the proxy and any client containers can talk without publishing ports on the host. Bind-mount a workspace so Codex can access your files and give the container an explicit name.
+
+This image runs as `node` by default.
 
 ```shell
 docker network create codex-net
@@ -190,7 +193,7 @@ When using the SDK proxy, the sample clients first try to read your local `~/.co
 variables such as `CODEX_API_KEY`, `OPENAI_API_KEY`, and optionally `OPENAI_BASE_URL`/`CODEX_BASE_URL` so the Codex CLI inside
 the container can authenticate.
 
-The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`), and you can pass extra flags to the app server via `APP_SERVER_ARGS` when launching the proxy if you need custom behavior. To point the app server at a specific `codex-linux-sandbox` binary inside the container, set `APP_SERVER_CODEX_LINUX_SANDBOX_EXE` (or `CODEX_LINUX_SANDBOX_EXE`); the proxy defaults to `/usr/local/share/npm-global/bin/codex-linux-sandbox`.
+The proxy keeps the app server alive between client connections so you can reconnect without rebuilding state. The container remains available for direct Codex CLI use (`codex --help`, `codex "<prompt>"`, or `codex resume <session-id>`). By default the proxy starts `codex-app-server` with no extra sandbox overrides; if you need custom startup flags, set `APP_SERVER_ARGS`. To point the app server at a specific `codex-linux-sandbox` binary inside the container, set `APP_SERVER_CODEX_LINUX_SANDBOX_EXE` (or `CODEX_LINUX_SANDBOX_EXE`); the proxy defaults to `/usr/local/share/npm-global/bin/codex-linux-sandbox`.
 
 ## Other assets
 
