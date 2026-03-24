@@ -20,7 +20,7 @@ ENV PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}"
 ENV CHROME_MCP_STARTUP_TIMEOUT_SEC="${CHROME_MCP_STARTUP_TIMEOUT_SEC}"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
 
-# Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size.
+# Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
   aggregate \
   ca-certificates \
@@ -162,9 +162,11 @@ USER root
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
 RUN chmod 500 /usr/local/bin/init_firewall.sh
 
+# Drop back to non-root.
+USER node
+
 # Default workspace under the user's home directory so it can be bind-mounted easily.
 WORKDIR /home/node/workdir
-ENV HOME=/home/node
 RUN mkdir -p /home/node/workdir && \
   cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
@@ -186,6 +188,3 @@ startup_timeout_sec = ${CHROME_MCP_STARTUP_TIMEOUT_SEC}
 url = "${GITHUB_MCP_URL}"
 
 EOF
-
-# Drop back to non-root.
-USER node
