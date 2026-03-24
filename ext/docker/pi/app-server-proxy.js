@@ -50,6 +50,8 @@ const mathJaxDeveloperInstructions = [
   'Do not output plain-text equations without LaTeX math delimiters.',
 ].join(' ');
 const forcedSandboxMode = process.env.APP_SERVER_DEFAULT_SANDBOX_MODE?.trim() || 'danger-full-access';
+const forceSandboxMode = ['1', 'true', 'yes']
+  .includes((process.env.APP_SERVER_FORCE_SANDBOX_MODE ?? '').trim().toLowerCase());
 function sandboxPolicyForMode(mode) {
   switch (mode) {
     case 'danger-full-access':
@@ -129,8 +131,12 @@ function appendDeveloperInstructions(frame) {
       ...params,
       developerInstructions: combined,
       ...(method === 'turn/start'
-        ? { sandboxPolicy: sandboxPolicyForMode(forcedSandboxMode) }
-        : { sandboxMode: forcedSandboxMode }),
+        ? (forceSandboxMode || params.sandboxPolicy == null
+            ? { sandboxPolicy: sandboxPolicyForMode(forcedSandboxMode) }
+            : {})
+        : (forceSandboxMode || params.sandboxMode == null
+            ? { sandboxMode: forcedSandboxMode }
+            : {})),
     },
   };
 }
