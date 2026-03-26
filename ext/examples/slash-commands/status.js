@@ -148,48 +148,43 @@ function renderBox(lines) {
 
 // The /status slash command exercises the app-server protocol exported under
 // ext/app-server-protocol-export. It issues requests whose shapes live in
-// `v1/GetUserAgentResponse.json`, `v1/GetAuthStatusResponse.json`,
-// `v2/GetAccountResponse.json`, `v2/GetAccountRateLimitsResponse.json`,
-// `v1/GetUserSavedConfigResponse.json`, `v1/UserInfoResponse.json`, and
+// `GetAuthStatusResponse.json`, `v2/GetAccountResponse.json`,
+// `v2/GetAccountRateLimitsResponse.json`, `v2/ConfigReadResponse.json`, and
 // `v2/ModelListResponse.json` to display the active session, auth, model, and
 // rate limit details.
-async function run({ request, connectionMode }) {
+async function run({ request, connectionMode, serverUserAgent }) {
   const [
-    userAgentResponse,
     authStatus,
     accountResponse,
     rateLimitsResponse,
-    savedConfigResponse,
-    userInfo,
+    configReadResponse,
     modelListResponse,
   ] = await Promise.all([
-    request('getUserAgent'),
     request('getAuthStatus', { includeToken: false, refreshToken: false }),
     request('account/read'),
     request('account/rateLimits/read'),
-    request('getUserSavedConfig'),
-    request('userInfo'),
+    request('config/read', { includeLayers: false, cwd: null }),
     request('model/list', { cursor: null, limit: null }),
   ]);
 
-  const userAgent = toDisplayString(userAgentResponse?.userAgent, '(not provided)');
-  const config = savedConfigResponse?.config ?? {};
+  const userAgent = toDisplayString(serverUserAgent, '(not provided)');
+  const config = configReadResponse?.config ?? {};
   const models = modelListResponse?.data ?? [];
   const defaultModel = models.find((candidate) => candidate.isDefault) ?? null;
   const activeModel = models.find((candidate) => candidate.model === config.model) ?? defaultModel;
   const model = describeModel(config.model, models, '(default)');
-  const reasoningEffort = describeReasoningEffort(config.modelReasoningEffort, activeModel);
-  const approval = Object.prototype.hasOwnProperty.call(config, 'approvalPolicy')
-    ? describeApproval(config.approvalPolicy)
+  const reasoningEffort = describeReasoningEffort(config.model_reasoning_effort, activeModel);
+  const approval = Object.prototype.hasOwnProperty.call(config, 'approval_policy')
+    ? describeApproval(config.approval_policy)
     : '(not provided by protocol)';
-  const sandbox = describeSandbox(config.sandboxMode);
+  const sandbox = describeSandbox(config.sandbox_mode);
   const authMethod = toDisplayString(authStatus?.authMethod, '(not configured)');
   const requiresOpenaiAuth = authStatus?.requiresOpenaiAuth ?? accountResponse?.requiresOpenaiAuth;
-  const account = describeAccount(accountResponse, userInfo);
+  const account = describeAccount(accountResponse, null);
   const sessionId = process.env.CODEX_SESSION_ID
     ? `(client env) ${process.env.CODEX_SESSION_ID}`
     : '(not provided by protocol)';
-  const connection = '(client) TCP proxy';
+  const connection = connectionMode === 'tcp' ? '(client) TCP proxy' : '(client)';
 
   const directory = '(not provided by protocol)';
   const agentsFile = '(not provided by protocol)';

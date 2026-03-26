@@ -228,7 +228,12 @@ async function main() {
     console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
   }
 
-  await runCommandLoop({ request, notify, connectionMode: 'tcp' });
+  await runCommandLoop({
+    request,
+    notify,
+    connectionMode: 'tcp',
+    serverUserAgent: typeof userAgent === 'string' ? userAgent : null,
+  });
 }
 
 main().catch((error) => {
