@@ -118,19 +118,20 @@ async function promptForReasoningEffort(model, askInput) {
 }
 
 // Implements the /model slash command by calling the app-server requests
-// defined in `v1/GetUserSavedConfigResponse.json`, `v2/ModelListResponse.json`,
-// and `v1/SetDefaultModelParams.json` under ext/app-server-protocol-export.
+// defined in `v2/ConfigReadResponse.json`, `v2/ModelListResponse.json`, and
+// `v2/ConfigBatchWriteParams.json` under ext/app-server-protocol-export.
 // These protocol shapes supply the active model, available models, and payload
-// for updating the default model.
+// for updating the selected model and reasoning effort in config.
 async function run({ request, askYesNo, askInput }) {
-  const [savedConfigResponse, modelListResponse] = await Promise.all([
-    request('getUserSavedConfig'),
+  const [configReadResponse, modelListResponse] = await Promise.all([
+    request('config/read', { includeLayers: false, cwd: null }),
     request('model/list', { cursor: null, limit: null }),
   ]);
 
   const models = modelListResponse?.data ?? [];
-  const activeModelId = savedConfigResponse?.config?.model;
-  const activeReasoningEffort = savedConfigResponse?.config?.modelReasoningEffort;
+  const config = configReadResponse?.config ?? {};
+  const activeModelId = config.model;
+  const activeReasoningEffort = config.model_reasoning_effort;
   const defaultModel = models.find((model) => model.isDefault) ?? null;
   const activeModel = models.find((model) => model.model === activeModelId) ?? defaultModel;
 
@@ -198,7 +199,21 @@ async function run({ request, askYesNo, askInput }) {
 
   const reasoningEffort = await promptForReasoningEffort(selection, askInput);
 
-  await request('setDefaultModel', { model: selection.model, reasoningEffort });
+  await request('config/batchWrite', {
+    edits: [
+      {
+        keyPath: 'model',
+        value: selection.model,
+        mergeStrategy: 'replace',
+      },
+      {
+        keyPath: 'model_reasoning_effort',
+        value: reasoningEffort,
+        mergeStrategy: 'replace',
+      },
+    ],
+    reloadUserConfig: true,
+  });
   console.log(
     `Active model updated to ${selection.displayName} (${selection.model}), reasoning: ${
       reasoningEffort ?? '(server default)'
