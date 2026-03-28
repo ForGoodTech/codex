@@ -150,13 +150,10 @@ RG_BIN_SRC=$(ensure_rg_binary)
 
 STAGED_BIN_ROOT="$REPO_ROOT/target/codex-release-bin/$CODEX_RELEASE_TAG/$TARGET_TRIPLE"
 CODEX_BIN_SRC="$STAGED_BIN_ROOT/codex"
-LINUX_SANDBOX_BIN_SRC="$STAGED_BIN_ROOT/codex-linux-sandbox"
 
 fetch_release_binary "codex" "$TARGET_TRIPLE" "$CODEX_BIN_SRC"
-if ! fetch_release_binary "codex-linux-sandbox" "$TARGET_TRIPLE" "$LINUX_SANDBOX_BIN_SRC" 0; then
-  LINUX_SANDBOX_BIN_SRC=""
-  echo "codex-linux-sandbox release asset is unavailable for $TARGET_TRIPLE; will generate a shim that runs 'codex linux-sandbox'." >&2
-fi
+LINUX_SANDBOX_BIN_SRC=""
+echo "Using bundled codex linux-sandbox shim for $TARGET_TRIPLE (no standalone codex-linux-sandbox release asset download)." >&2
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
 rm -rf "$TARGET_VENDOR"
