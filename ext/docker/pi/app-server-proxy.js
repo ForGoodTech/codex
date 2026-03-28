@@ -79,14 +79,14 @@ const sandboxExe =
 const githubPat = process.env.CODEX_GITHUB_PERSONAL_ACCESS_TOKEN?.trim() ?? '';
 let gitAskPassPath = null;
 
-function createGitAskPassScript(token) {
-  if (!token) {
+function createGitAskPassScript() {
+  if (!githubPat) {
     return null;
   }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-git-askpass-'));
   const scriptPath = path.join(tmpDir, 'askpass.sh');
-  const escapedToken = JSON.stringify(token);
+  // Script contains no secrets; token is read from env at runtime.
   const script = `#!/bin/sh
 prompt="$1"
 case "$prompt" in
@@ -94,7 +94,7 @@ case "$prompt" in
     printf '%s\\n' "x-access-token"
     ;;
   *"Password for 'https://"*"@github.com"*|*"Password for 'https://"*"@api.github.com"*)
-    token=${escapedToken}
+    token="\${CODEX_GITHUB_PERSONAL_ACCESS_TOKEN:-}"
     printf '%s\\n' "$token"
     ;;
   *)
@@ -130,7 +130,7 @@ function cleanupGitAskPass() {
   gitAskPassPath = null;
 }
 
-gitAskPassPath = createGitAskPassScript(githubPat);
+gitAskPassPath = createGitAskPassScript();
 if (gitAskPassPath) {
   console.log('GitHub PAT bridge is enabled for git HTTPS prompts targeting github.com.');
 } else {
@@ -236,8 +236,6 @@ const server = net.createServer((socket) => {
       const authMatched = authFrame?.type === 'auth' && authFrame?.token === proxyToken;
       console.log('TEMP: proxy handshake check', {
         receivedType: authFrame?.type,
-        receivedTokenLength: typeof authFrame?.token === 'string' ? authFrame.token.length : null,
-        expectedTokenLength: proxyToken.length,
         matched: authMatched,
       });
       if (!authMatched) {
