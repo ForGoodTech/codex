@@ -34,6 +34,9 @@
  */
 const net = require('node:net');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const envProxyToken = process.env.APP_SERVER_PROXY_TOKEN?.trim() ?? '';
 if (!envProxyToken) {
   console.warn(
@@ -73,8 +76,69 @@ const sandboxExe =
   process.env.APP_SERVER_CODEX_LINUX_SANDBOX_EXE?.trim() ||
   process.env.CODEX_LINUX_SANDBOX_EXE?.trim() ||
   defaultSandboxExe;
+const githubPat = process.env.CODEX_GITHUB_PERSONAL_ACCESS_TOKEN?.trim() ?? '';
+let gitAskPassPath = null;
+
+function createGitAskPassScript(token) {
+  if (!token) {
+    return null;
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-git-askpass-'));
+  const scriptPath = path.join(tmpDir, 'askpass.sh');
+  const escapedToken = JSON.stringify(token);
+  const script = `#!/bin/sh
+prompt="$1"
+case "$prompt" in
+  *"Username for 'https://github.com"*|*"Username for 'https://api.github.com"*)
+    printf '%s\\n' "x-access-token"
+    ;;
+  *"Password for 'https://"*"@github.com"*|*"Password for 'https://"*"@api.github.com"*)
+    token=${escapedToken}
+    printf '%s\\n' "$token"
+    ;;
+  *)
+    printf '\\n'
+    ;;
+esac
+`;
+  fs.writeFileSync(scriptPath, script, { encoding: 'utf8', mode: 0o700 });
+  return scriptPath;
+}
+
+function buildGitEnv(baseEnv, askPassPath) {
+  if (!askPassPath) {
+    return baseEnv;
+  }
+
+  return {
+    ...baseEnv,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: askPassPath,
+  };
+}
+
+function cleanupGitAskPass() {
+  if (!gitAskPassPath) {
+    return;
+  }
+  try {
+    fs.rmSync(path.dirname(gitAskPassPath), { recursive: true, force: true });
+  } catch (error) {
+    console.warn('Failed to remove temporary git askpass script:', error?.message ?? error);
+  }
+  gitAskPassPath = null;
+}
+
+gitAskPassPath = createGitAskPassScript(githubPat);
+if (gitAskPassPath) {
+  console.log('GitHub PAT bridge is enabled for git HTTPS prompts targeting github.com.');
+} else {
+  console.log('GitHub PAT bridge is disabled (CODEX_GITHUB_PERSONAL_ACCESS_TOKEN is unset).');
+}
+
 const appServerEnv = {
-  ...process.env,
+  ...buildGitEnv(process.env, gitAskPassPath),
   CODEX_LINUX_SANDBOX_EXE: sandboxExe,
 };
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
@@ -89,6 +153,19 @@ appServer.on('exit', (code, signal) => {
 appServer.on('error', (error) => {
   console.error('Failed to start codex-app-server:', error);
   process.exitCode = 1;
+});
+appServer.on('close', () => {
+  cleanupGitAskPass();
+});
+
+process.on('exit', cleanupGitAskPass);
+process.on('SIGINT', () => {
+  cleanupGitAskPass();
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  cleanupGitAskPass();
+  process.exit(143);
 });
 let activeSocket = null;
 

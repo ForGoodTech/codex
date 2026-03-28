@@ -19,6 +19,66 @@ const HOST = process.env.SDK_PROXY_HOST ?? '0.0.0.0';
 const PORT = Number.parseInt(process.env.SDK_PROXY_PORT ?? '9400', 10) || 9400;
 const SELF_TEST = process.argv.includes('--self-test') || process.env.SDK_PROXY_SELF_TEST === '1';
 const VERBOSE = process.argv.includes('--verbose') || process.env.SDK_PROXY_VERBOSE === '1';
+const githubPat = process.env.CODEX_GITHUB_PERSONAL_ACCESS_TOKEN?.trim() ?? '';
+let gitAskPassPath = null;
+
+function createGitAskPassScript(token) {
+  if (!token) {
+    return null;
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-git-askpass-'));
+  const scriptPath = path.join(tmpDir, 'askpass.sh');
+  const escapedToken = JSON.stringify(token);
+  const script = `#!/bin/sh
+prompt="$1"
+case "$prompt" in
+  *"Username for 'https://github.com"*|*"Username for 'https://api.github.com"*)
+    printf '%s\n' "x-access-token"
+    ;;
+  *"Password for 'https://"*"@github.com"*|*"Password for 'https://"*"@api.github.com"*)
+    token=${escapedToken}
+    printf '%s\n' "$token"
+    ;;
+  *)
+    printf '\n'
+    ;;
+esac
+`;
+  fs.writeFileSync(scriptPath, script, { encoding: 'utf8', mode: 0o700 });
+  return scriptPath;
+}
+
+function buildGitEnv(baseEnv) {
+  if (!gitAskPassPath) {
+    return baseEnv;
+  }
+
+  return {
+    ...baseEnv,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: gitAskPassPath,
+  };
+}
+
+function cleanupGitAskPass() {
+  if (!gitAskPassPath) {
+    return;
+  }
+  try {
+    fs.rmSync(path.dirname(gitAskPassPath), { recursive: true, force: true });
+  } catch (error) {
+    console.warn('Failed to remove temporary git askpass script:', error?.message ?? error);
+  }
+  gitAskPassPath = null;
+}
+
+gitAskPassPath = createGitAskPassScript(githubPat);
+if (gitAskPassPath) {
+  logInfo('GitHub PAT bridge is enabled for git HTTPS prompts targeting github.com.');
+} else {
+  logInfo('GitHub PAT bridge is disabled (CODEX_GITHUB_PERSONAL_ACCESS_TOKEN is unset).');
+}
 
 function logInfo(message, ...args) {
   console.log(message, ...args);
@@ -340,7 +400,11 @@ async function runShellTool(args) {
   }
 
   return new Promise((resolve, reject) => {
-    exec(command, { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    exec(command, {
+      timeout: 30_000,
+      maxBuffer: 2 * 1024 * 1024,
+      env: buildGitEnv(process.env),
+    }, (error, stdout, stderr) => {
       if (error) {
         const message = `${stdout ?? ''}${stderr ?? ''}${error.message ? `\n${error.message}` : ''}`.trim();
         resolve(message.length ? message : 'Command failed without output');
@@ -390,32 +454,33 @@ function buildOptions(options, envOverrides, authHome) {
   );
 
   const mergedEnv = { ...baseEnv, ...normalizedEnv };
+  const mergedEnvWithGitAuth = buildGitEnv(mergedEnv);
 
-  if (!authHome && !('CODEX_HOME' in mergedEnv)) {
+  if (!authHome && !('CODEX_HOME' in mergedEnvWithGitAuth)) {
     const authEnv = resolveLocalAuthEnv();
     if (authEnv?.CODEX_HOME) {
-      mergedEnv.CODEX_HOME = authEnv.CODEX_HOME;
-      if (!('HOME' in mergedEnv) && authEnv.HOME) {
-        mergedEnv.HOME = authEnv.HOME;
+      mergedEnvWithGitAuth.CODEX_HOME = authEnv.CODEX_HOME;
+      if (!('HOME' in mergedEnvWithGitAuth) && authEnv.HOME) {
+        mergedEnvWithGitAuth.HOME = authEnv.HOME;
       }
     }
   }
 
-  if (!('CODEX_AUTO_APPROVE' in mergedEnv)) {
-    mergedEnv.CODEX_AUTO_APPROVE = '1';
+  if (!('CODEX_AUTO_APPROVE' in mergedEnvWithGitAuth)) {
+    mergedEnvWithGitAuth.CODEX_AUTO_APPROVE = '1';
   }
 
-  if (!('CODEX_APPROVAL_POLICY' in mergedEnv)) {
-    mergedEnv.CODEX_APPROVAL_POLICY = 'never';
+  if (!('CODEX_APPROVAL_POLICY' in mergedEnvWithGitAuth)) {
+    mergedEnvWithGitAuth.CODEX_APPROVAL_POLICY = 'never';
   }
 
   if (authHome) {
-    mergedEnv.CODEX_HOME = path.join(authHome, '.codex');
-    mergedEnv.HOME = authHome;
+    mergedEnvWithGitAuth.CODEX_HOME = path.join(authHome, '.codex');
+    mergedEnvWithGitAuth.HOME = authHome;
   }
 
-  if (Object.keys(mergedEnv).length) {
-    codexOptions.env = mergedEnv;
+  if (Object.keys(mergedEnvWithGitAuth).length) {
+    codexOptions.env = mergedEnvWithGitAuth;
   }
 
   if (typeof options.baseUrl === 'string') codexOptions.baseUrl = options.baseUrl;
@@ -686,3 +751,13 @@ async function loadCodexSdk() {
     process.exit(1);
   }
 }
+
+process.on('exit', cleanupGitAskPass);
+process.on('SIGINT', () => {
+  cleanupGitAskPass();
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  cleanupGitAskPass();
+  process.exit(143);
+});
