@@ -79,8 +79,8 @@ const sandboxExe =
 const githubPat = process.env.CODEX_GITHUB_PERSONAL_ACCESS_TOKEN?.trim() ?? '';
 let gitAskPassPath = null;
 
-function createGitAskPassScript(token) {
-  if (!token) {
+function createGitAskPassScript() {
+  if (!githubPat) {
     return null;
   }
 
@@ -130,7 +130,7 @@ function cleanupGitAskPass() {
   gitAskPassPath = null;
 }
 
-gitAskPassPath = createGitAskPassScript(githubPat);
+gitAskPassPath = createGitAskPassScript();
 if (gitAskPassPath) {
   console.log('GitHub PAT bridge is enabled for git HTTPS prompts targeting github.com.');
 } else {

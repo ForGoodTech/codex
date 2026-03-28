@@ -22,8 +22,8 @@ const VERBOSE = process.argv.includes('--verbose') || process.env.SDK_PROXY_VERB
 const githubPat = process.env.CODEX_GITHUB_PERSONAL_ACCESS_TOKEN?.trim() ?? '';
 let gitAskPassPath = null;
 
-function createGitAskPassScript(token) {
-  if (!token) {
+function createGitAskPassScript() {
+  if (!githubPat) {
     return null;
   }
 
@@ -73,7 +73,7 @@ function cleanupGitAskPass() {
   gitAskPassPath = null;
 }
 
-gitAskPassPath = createGitAskPassScript(githubPat);
+gitAskPassPath = createGitAskPassScript();
 if (gitAskPassPath) {
   logInfo('GitHub PAT bridge is enabled for git HTTPS prompts targeting github.com.');
 } else {
