@@ -1,0 +1,19 @@
+[Unit]
+Description=Codex App Server Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=node
+Group=node
+WorkingDirectory=/home/node/workdir
+EnvironmentFile=-/etc/codex-proxy.env
+ExecStart=/usr/local/bin/codex-app-server-proxy
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
