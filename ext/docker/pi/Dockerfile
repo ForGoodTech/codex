@@ -87,13 +87,13 @@ COPY codex-cli/dist/codex.tgz codex.tgz
 RUN npm install -g codex.tgz \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
   && if [ -d "${INSTALL_ROOT}/vendor" ]; then \
-       chmod 755 "${INSTALL_ROOT}"/vendor/*/codex/codex "${INSTALL_ROOT}"/vendor/*/codex-app-server/codex-app-server "${INSTALL_ROOT}"/vendor/*/codex-linux-sandbox/codex-linux-sandbox "${INSTALL_ROOT}"/vendor/*/path/rg; \
+       find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f \( -path '*/codex/codex' -o -path '*/codex-app-server/codex-app-server' -o -path '*/codex-linux-sandbox/codex-linux-sandbox' -o -path '*/path/rg' \) -exec chmod 755 {} +; \
        chown -R node:node "${INSTALL_ROOT}/vendor"; \
-       APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-app-server -perm -111 | head -n 1); \
+       APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-app-server | head -n 1); \
        if [ -n "$APP_SERVER_BIN" ]; then \
          ln -sf "$APP_SERVER_BIN" /usr/local/share/npm-global/bin/codex-app-server; \
        fi; \
-       LINUX_SANDBOX_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-linux-sandbox -perm -111 | head -n 1); \
+       LINUX_SANDBOX_BIN=$(find "${INSTALL_ROOT}/vendor" -maxdepth 3 -type f -name codex-linux-sandbox | head -n 1); \
        if [ -n "$LINUX_SANDBOX_BIN" ]; then \
          ln -sf "$LINUX_SANDBOX_BIN" /usr/local/share/npm-global/bin/codex-linux-sandbox; \
        fi; \
@@ -143,7 +143,8 @@ RUN set -eux; \
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-proxy.js
 COPY --chown=node:node ext/docker/pi/sdk-proxy.js /home/node/sdk-proxy.js
-RUN ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
+RUN chmod 755 /home/node/app-server-proxy.js /home/node/sdk-proxy.js && \
+  ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
   ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy && \
   mkdir -p /home/node/.codex && \
   mkdir -p /home/node/node_modules/@openai/codex-sdk
