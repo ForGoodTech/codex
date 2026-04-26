@@ -64,6 +64,59 @@
       },
       "type": "object"
     },
+    "AdditionalFileSystemPermissions": {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/definitions/FileSystemSandboxEntry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "globScanMaxDepth": {
+          "format": "uint",
+          "minimum": 1.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "read": {
+          "description": "This will be removed in favor of `entries`.",
+          "items": {
+            "$ref": "#/definitions/AbsolutePathBuf"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "write": {
+          "description": "This will be removed in favor of `entries`.",
+          "items": {
+            "$ref": "#/definitions/AbsolutePathBuf"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "AdditionalNetworkPermissions": {
+      "properties": {
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "AgentMessageDeltaNotification": {
       "properties": {
         "delta": {
@@ -385,8 +438,22 @@
             "chatgptAuthTokens"
           ],
           "type": "string"
+        },
+        {
+          "description": "Programmatic Codex auth backed by a registered Agent Identity.",
+          "enum": [
+            "agentIdentity"
+          ],
+          "type": "string"
         }
       ]
+    },
+    "AutoReviewDecisionSource": {
+      "description": "[UNSTABLE] Source that produced a terminal approval auto-review decision.",
+      "enum": [
+        "agent"
+      ],
+      "type": "string"
     },
     "ByteRange": {
       "properties": {
@@ -415,6 +482,7 @@
             "contextWindowExceeded",
             "usageLimitExceeded",
             "serverOverloaded",
+            "cyberPolicy",
             "internalServerError",
             "unauthorized",
             "badRequest",
@@ -601,7 +669,7 @@
               "type": "string"
             },
             "path": {
-              "type": "string"
+              "$ref": "#/definitions/AbsolutePathBuf"
             },
             "type": {
               "enum": [
@@ -960,6 +1028,9 @@
       ],
       "type": "object"
     },
+    "ExternalAgentConfigImportCompletedNotification": {
+      "type": "object"
+    },
     "FileChangeOutputDeltaNotification": {
       "properties": {
         "delta": {
@@ -982,6 +1053,243 @@
         "turnId"
       ],
       "type": "object"
+    },
+    "FileChangePatchUpdatedNotification": {
+      "properties": {
+        "changes": {
+          "items": {
+            "$ref": "#/definitions/FileUpdateChange"
+          },
+          "type": "array"
+        },
+        "itemId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "changes",
+        "itemId",
+        "threadId",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "FileSystemAccessMode": {
+      "enum": [
+        "read",
+        "write",
+        "none"
+      ],
+      "type": "string"
+    },
+    "FileSystemPath": {
+      "oneOf": [
+        {
+          "properties": {
+            "path": {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            "type": {
+              "enum": [
+                "path"
+              ],
+              "title": "PathFileSystemPathType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "title": "PathFileSystemPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "pattern": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "glob_pattern"
+              ],
+              "title": "GlobPatternFileSystemPathType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "type"
+          ],
+          "title": "GlobPatternFileSystemPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "special"
+              ],
+              "title": "SpecialFileSystemPathType",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/FileSystemSpecialPath"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "title": "SpecialFileSystemPath",
+          "type": "object"
+        }
+      ]
+    },
+    "FileSystemSandboxEntry": {
+      "properties": {
+        "access": {
+          "$ref": "#/definitions/FileSystemAccessMode"
+        },
+        "path": {
+          "$ref": "#/definitions/FileSystemPath"
+        }
+      },
+      "required": [
+        "access",
+        "path"
+      ],
+      "type": "object"
+    },
+    "FileSystemSpecialPath": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "root"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "RootFileSystemSpecialPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "minimal"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "MinimalFileSystemSpecialPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "current_working_directory"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "CurrentWorkingDirectoryFileSystemSpecialPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "project_roots"
+              ],
+              "type": "string"
+            },
+            "subpath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "KindFileSystemSpecialPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "tmpdir"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "TmpdirFileSystemSpecialPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "slash_tmp"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "SlashTmpFileSystemSpecialPath",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "subpath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FileUpdateChange": {
       "properties": {
@@ -1013,7 +1321,7 @@
           "type": "array"
         },
         "watchId": {
-          "description": "Watch identifier returned by `fs/watch`.",
+          "description": "Watch identifier previously provided to `fs/watch`.",
           "type": "string"
         }
       },
@@ -1128,7 +1436,7 @@
       "type": "object"
     },
     "GuardianApprovalReview": {
-      "description": "[UNSTABLE] Temporary guardian approval review payload used by `item/autoApprovalReview/*` notifications. This shape is expected to change soon.",
+      "description": "[UNSTABLE] Temporary approval auto-review payload used by `item/autoApprovalReview/*` notifications. This shape is expected to change soon.",
       "properties": {
         "rationale": {
           "type": [
@@ -1146,16 +1454,18 @@
             }
           ]
         },
-        "riskScore": {
-          "format": "uint8",
-          "minimum": 0.0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
         "status": {
           "$ref": "#/definitions/GuardianApprovalReviewStatus"
+        },
+        "userAuthorization": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GuardianUserAuthorization"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1171,7 +1481,7 @@
               "type": "string"
             },
             "cwd": {
-              "type": "string"
+              "$ref": "#/definitions/AbsolutePathBuf"
             },
             "source": {
               "$ref": "#/definitions/GuardianCommandSource"
@@ -1202,7 +1512,7 @@
               "type": "array"
             },
             "cwd": {
-              "type": "string"
+              "$ref": "#/definitions/AbsolutePathBuf"
             },
             "program": {
               "type": "string"
@@ -1231,11 +1541,11 @@
         {
           "properties": {
             "cwd": {
-              "type": "string"
+              "$ref": "#/definitions/AbsolutePathBuf"
             },
             "files": {
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/AbsolutePathBuf"
               },
               "type": "array"
             },
@@ -1330,15 +1640,42 @@
           ],
           "title": "McpToolCallGuardianApprovalReviewAction",
           "type": "object"
+        },
+        {
+          "properties": {
+            "permissions": {
+              "$ref": "#/definitions/RequestPermissionProfile"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "requestPermissions"
+              ],
+              "title": "RequestPermissionsGuardianApprovalReviewActionType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permissions",
+            "type"
+          ],
+          "title": "RequestPermissionsGuardianApprovalReviewAction",
+          "type": "object"
         }
       ]
     },
     "GuardianApprovalReviewStatus": {
-      "description": "[UNSTABLE] Lifecycle state for a guardian approval review.",
+      "description": "[UNSTABLE] Lifecycle state for an approval auto-review.",
       "enum": [
         "inProgress",
         "approved",
         "denied",
+        "timedOut",
         "aborted"
       ],
       "type": "string"
@@ -1351,13 +1688,41 @@
       "type": "string"
     },
     "GuardianRiskLevel": {
-      "description": "[UNSTABLE] Risk level assigned by guardian approval review.",
+      "description": "[UNSTABLE] Risk level assigned by approval auto-review.",
       "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "type": "string"
+    },
+    "GuardianUserAuthorization": {
+      "description": "[UNSTABLE] Authorization level assigned by approval auto-review.",
+      "enum": [
+        "unknown",
         "low",
         "medium",
         "high"
       ],
       "type": "string"
+    },
+    "GuardianWarningNotification": {
+      "properties": {
+        "message": {
+          "description": "Concise guardian warning message for the user.",
+          "type": "string"
+        },
+        "threadId": {
+          "description": "Thread target for the guardian warning.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "threadId"
+      ],
+      "type": "object"
     },
     "HookCompletedNotification": {
       "properties": {
@@ -1383,6 +1748,7 @@
     "HookEventName": {
       "enum": [
         "preToolUse",
+        "permissionRequest",
         "postToolUse",
         "sessionStart",
         "userPromptSubmit",
@@ -1496,8 +1862,16 @@
         "scope": {
           "$ref": "#/definitions/HookScope"
         },
+        "source": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/HookSource"
+            }
+          ],
+          "default": "unknown"
+        },
         "sourcePath": {
-          "type": "string"
+          "$ref": "#/definitions/AbsolutePathBuf"
         },
         "startedAt": {
           "format": "int64",
@@ -1531,6 +1905,19 @@
       "enum": [
         "thread",
         "turn"
+      ],
+      "type": "string"
+    },
+    "HookSource": {
+      "enum": [
+        "system",
+        "user",
+        "project",
+        "mdm",
+        "sessionFlags",
+        "legacyManagedConfigFile",
+        "legacyManagedConfigMdm",
+        "unknown"
       ],
       "type": "string"
     },
@@ -1575,16 +1962,27 @@
       "type": "object"
     },
     "ItemGuardianApprovalReviewCompletedNotification": {
-      "description": "[UNSTABLE] Temporary notification payload for guardian automatic approval review. This shape is expected to change soon.\n\nTODO(ccunningham): Attach guardian review state to the reviewed tool item's lifecycle instead of sending separate standalone review notifications so the app-server API can persist and replay review state via `thread/read`.",
+      "description": "[UNSTABLE] Temporary notification payload for approval auto-review. This shape is expected to change soon.",
       "properties": {
         "action": {
           "$ref": "#/definitions/GuardianApprovalReviewAction"
         },
+        "decisionSource": {
+          "$ref": "#/definitions/AutoReviewDecisionSource"
+        },
         "review": {
           "$ref": "#/definitions/GuardianApprovalReview"
         },
-        "targetItemId": {
+        "reviewId": {
+          "description": "Stable identifier for this review.",
           "type": "string"
+        },
+        "targetItemId": {
+          "description": "Identifier for the reviewed item or tool call when one exists.\n\nIn most cases, one review maps to one target item. The exceptions are - execve reviews, where a single command may contain multiple execve calls to review (only possible when using the shell_zsh_fork feature) - network policy reviews, where there is no target item\n\nA network call is triggered by a CommandExecution item, so having a target_item_id set to the CommandExecution item would be misleading because the review is about the network call, not the command execution. Therefore, target_item_id is set to None for network policy reviews.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": "string"
@@ -1595,15 +1993,16 @@
       },
       "required": [
         "action",
+        "decisionSource",
         "review",
-        "targetItemId",
+        "reviewId",
         "threadId",
         "turnId"
       ],
       "type": "object"
     },
     "ItemGuardianApprovalReviewStartedNotification": {
-      "description": "[UNSTABLE] Temporary notification payload for guardian automatic approval review. This shape is expected to change soon.\n\nTODO(ccunningham): Attach guardian review state to the reviewed tool item's lifecycle instead of sending separate standalone review notifications so the app-server API can persist and replay review state via `thread/read`.",
+      "description": "[UNSTABLE] Temporary notification payload for approval auto-review. This shape is expected to change soon.",
       "properties": {
         "action": {
           "$ref": "#/definitions/GuardianApprovalReviewAction"
@@ -1611,8 +2010,16 @@
         "review": {
           "$ref": "#/definitions/GuardianApprovalReview"
         },
-        "targetItemId": {
+        "reviewId": {
+          "description": "Stable identifier for this review.",
           "type": "string"
+        },
+        "targetItemId": {
+          "description": "Identifier for the reviewed item or tool call when one exists.\n\nIn most cases, one review maps to one target item. The exceptions are - execve reviews, where a single command may contain multiple execve calls to review (only possible when using the shell_zsh_fork feature) - network policy reviews, where there is no target item\n\nA network call is triggered by a CommandExecution item, so having a target_item_id set to the CommandExecution item would be misleading because the review is about the network call, not the command execution. Therefore, target_item_id is set to None for network policy reviews.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": "string"
@@ -1624,7 +2031,7 @@
       "required": [
         "action",
         "review",
-        "targetItemId",
+        "reviewId",
         "threadId",
         "turnId"
       ],
@@ -1736,6 +2143,7 @@
     },
     "McpToolCallResult": {
       "properties": {
+        "_meta": true,
         "content": {
           "items": true,
           "type": "array"
@@ -1855,6 +2263,34 @@
       ],
       "type": "object"
     },
+    "ModelVerification": {
+      "enum": [
+        "trustedAccessForCyber"
+      ],
+      "type": "string"
+    },
+    "ModelVerificationNotification": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "verifications": {
+          "items": {
+            "$ref": "#/definitions/ModelVerification"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "threadId",
+        "turnId",
+        "verifications"
+      ],
+      "type": "object"
+    },
     "NetworkApprovalProtocol": {
       "enum": [
         "http",
@@ -1968,6 +2404,7 @@
         "go",
         "plus",
         "pro",
+        "prolite",
         "team",
         "self_serve_business_usage_based",
         "business",
@@ -1975,6 +2412,16 @@
         "enterprise",
         "edu",
         "unknown"
+      ],
+      "type": "string"
+    },
+    "RateLimitReachedType": {
+      "enum": [
+        "rate_limit_reached",
+        "workspace_owner_credits_depleted",
+        "workspace_member_credits_depleted",
+        "workspace_owner_usage_limit_reached",
+        "workspace_member_usage_limit_reached"
       ],
       "type": "string"
     },
@@ -2016,6 +2463,16 @@
           "anyOf": [
             {
               "$ref": "#/definitions/RateLimitWindow"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rateLimitReachedType": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RateLimitReachedType"
             },
             {
               "type": "null"
@@ -2170,6 +2627,32 @@
           "type": "integer"
         }
       ]
+    },
+    "RequestPermissionProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "fileSystem": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AdditionalFileSystemPermissions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "network": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AdditionalNetworkPermissions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
     },
     "ServerRequestResolvedNotification": {
       "properties": {
@@ -2418,8 +2901,12 @@
           "type": "integer"
         },
         "cwd": {
-          "description": "Working directory captured for the thread.",
-          "type": "string"
+          "allOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            }
+          ],
+          "description": "Working directory captured for the thread."
         },
         "ephemeral": {
           "description": "Whether the thread is ephemeral and should not be materialized on disk.",
@@ -2537,6 +3024,93 @@
         }
       },
       "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadGoal": {
+      "properties": {
+        "createdAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "objective": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ThreadGoalStatus"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "timeUsedSeconds": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "tokenBudget": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tokensUsed": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "updatedAt": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "createdAt",
+        "objective",
+        "status",
+        "threadId",
+        "timeUsedSeconds",
+        "tokensUsed",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "ThreadGoalClearedNotification": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadGoalStatus": {
+      "enum": [
+        "active",
+        "paused",
+        "budgetLimited",
+        "complete"
+      ],
+      "type": "string"
+    },
+    "ThreadGoalUpdatedNotification": {
+      "properties": {
+        "goal": {
+          "$ref": "#/definitions/ThreadGoal"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "goal",
         "threadId"
       ],
       "type": "object"
@@ -2726,8 +3300,12 @@
               "type": "array"
             },
             "cwd": {
-              "description": "The command's working directory.",
-              "type": "string"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AbsolutePathBuf"
+                }
+              ],
+              "description": "The command's working directory."
             },
             "durationMs": {
               "description": "The duration of the command execution in milliseconds.",
@@ -2840,6 +3418,12 @@
             "id": {
               "type": "string"
             },
+            "mcpAppResourceUri": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "result": {
               "anyOf": [
                 {
@@ -2900,6 +3484,12 @@
             },
             "id": {
               "type": "string"
+            },
+            "namespace": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "status": {
               "$ref": "#/definitions/DynamicToolCallStatus"
@@ -3056,7 +3646,7 @@
               "type": "string"
             },
             "path": {
-              "type": "string"
+              "$ref": "#/definitions/AbsolutePathBuf"
             },
             "type": {
               "enum": [
@@ -3089,9 +3679,13 @@
               ]
             },
             "savedPath": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AbsolutePathBuf"
+                },
+                {
+                  "type": "null"
+                }
               ]
             },
             "status": {
@@ -3303,6 +3897,22 @@
       ],
       "type": "object"
     },
+    "ThreadRealtimeSdpNotification": {
+      "description": "EXPERIMENTAL - emitted with the remote SDP for a WebRTC realtime session.",
+      "properties": {
+        "sdp": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sdp",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadRealtimeStartedNotification": {
       "description": "EXPERIMENTAL - emitted when thread realtime startup is accepted.",
       "properties": {
@@ -3325,13 +3935,35 @@
       ],
       "type": "object"
     },
-    "ThreadRealtimeTranscriptUpdatedNotification": {
+    "ThreadRealtimeTranscriptDeltaNotification": {
       "description": "EXPERIMENTAL - flat transcript delta emitted whenever realtime transcript text changes.",
+      "properties": {
+        "delta": {
+          "description": "Live transcript delta from the realtime event.",
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "delta",
+        "role",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadRealtimeTranscriptDoneNotification": {
+      "description": "EXPERIMENTAL - final transcript text emitted when realtime completes a transcript part.",
       "properties": {
         "role": {
           "type": "string"
         },
         "text": {
+          "description": "Final complete text for the transcript part.",
           "type": "string"
         },
         "threadId": {
@@ -3532,6 +4164,22 @@
     },
     "Turn": {
       "properties": {
+        "completedAt": {
+          "description": "Unix timestamp (in seconds) when the turn completed.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "durationMs": {
+          "description": "Duration between turn start and completion in milliseconds, if known.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "error": {
           "anyOf": [
             {
@@ -3552,6 +4200,14 @@
             "$ref": "#/definitions/ThreadItem"
           },
           "type": "array"
+        },
+        "startedAt": {
+          "description": "Unix timestamp (in seconds) when the turn started.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "status": {
           "$ref": "#/definitions/TurnStatus"
@@ -3821,6 +4477,25 @@
           "type": "object"
         }
       ]
+    },
+    "WarningNotification": {
+      "properties": {
+        "message": {
+          "description": "Concise warning message for the user.",
+          "type": "string"
+        },
+        "threadId": {
+          "description": "Optional thread target when the warning applies to a specific thread.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
     },
     "WebSearchAction": {
       "oneOf": [
@@ -4137,6 +4812,46 @@
         "params"
       ],
       "title": "Thread/name/updatedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/goal/updated"
+          ],
+          "title": "Thread/goal/updatedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadGoalUpdatedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Thread/goal/updatedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/goal/cleared"
+          ],
+          "title": "Thread/goal/clearedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadGoalClearedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Thread/goal/clearedNotification",
       "type": "object"
     },
     {
@@ -4485,6 +5200,26 @@
       "properties": {
         "method": {
           "enum": [
+            "item/fileChange/patchUpdated"
+          ],
+          "title": "Item/fileChange/patchUpdatedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/FileChangePatchUpdatedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Item/fileChange/patchUpdatedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
             "serverRequest/resolved"
           ],
           "title": "ServerRequest/resolvedNotificationMethod",
@@ -4625,6 +5360,26 @@
       "properties": {
         "method": {
           "enum": [
+            "externalAgentConfig/import/completed"
+          ],
+          "title": "ExternalAgentConfig/import/completedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ExternalAgentConfigImportCompletedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "ExternalAgentConfig/import/completedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
             "fs/changed"
           ],
           "title": "Fs/changedNotificationMethod",
@@ -4740,6 +5495,66 @@
         "params"
       ],
       "title": "Model/reroutedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "model/verification"
+          ],
+          "title": "Model/verificationNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelVerificationNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Model/verificationNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "warning"
+          ],
+          "title": "WarningNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WarningNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "WarningNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "guardianWarning"
+          ],
+          "title": "GuardianWarningNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/GuardianWarningNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "GuardianWarningNotification",
       "type": "object"
     },
     {
@@ -4866,20 +5681,40 @@
       "properties": {
         "method": {
           "enum": [
-            "thread/realtime/transcriptUpdated"
+            "thread/realtime/transcript/delta"
           ],
-          "title": "Thread/realtime/transcriptUpdatedNotificationMethod",
+          "title": "Thread/realtime/transcript/deltaNotificationMethod",
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/ThreadRealtimeTranscriptUpdatedNotification"
+          "$ref": "#/definitions/ThreadRealtimeTranscriptDeltaNotification"
         }
       },
       "required": [
         "method",
         "params"
       ],
-      "title": "Thread/realtime/transcriptUpdatedNotification",
+      "title": "Thread/realtime/transcript/deltaNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/realtime/transcript/done"
+          ],
+          "title": "Thread/realtime/transcript/doneNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadRealtimeTranscriptDoneNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Thread/realtime/transcript/doneNotification",
       "type": "object"
     },
     {
@@ -4900,6 +5735,26 @@
         "params"
       ],
       "title": "Thread/realtime/outputAudio/deltaNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/realtime/sdp"
+          ],
+          "title": "Thread/realtime/sdpNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadRealtimeSdpNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Thread/realtime/sdpNotification",
       "type": "object"
     },
     {
