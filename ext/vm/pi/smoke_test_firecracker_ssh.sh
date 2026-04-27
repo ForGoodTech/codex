@@ -30,7 +30,7 @@ if [[ -z "$DEBUG_SSH_PRIVATE_KEY_FILE" || ! -f "$DEBUG_SSH_PRIVATE_KEY_FILE" ]];
 fi
 
 if [[ -z "$ARTIFACT_ROOT" ]]; then
-  CODEX_RELEASE_TAG=${CODEX_RELEASE_TAG:-rust-v0.118.0}
+  CODEX_RELEASE_TAG=${CODEX_RELEASE_TAG:-rust-v0.125.0}
   ARTIFACT_ROOT="$REPO_ROOT/target/codex-vm/pi/$CODEX_RELEASE_TAG/$ARCH/debug-ssh"
 fi
 
