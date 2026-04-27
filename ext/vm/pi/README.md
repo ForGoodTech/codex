@@ -3,32 +3,37 @@
 This directory builds a bootable guest root filesystem for running the Codex
 app-server proxy inside a disposable Firecracker microVM.
 
-The intent is similar to `codex/ext/docker/pi`, but the build output is a
-Firecracker-oriented VM artifact instead of a Docker image. The gateway can
-later boot disposable microVMs from this base rootfs and connect to the proxy
-inside the guest.
+The procedure below is written for this checkout layout:
+
+- Codex repo root: `/media/workdisk/repos/codex`
+- Firecracker working area: `/media/workdisk/firecracker`
+- Build artifacts: `/media/workdisk/build/codex-vm`
+
+These steps assume the checkout at `/media/workdisk/repos/codex` already
+contains the `ext/vm/pi` work, including:
+
+- `ext/vm/pi/build_rootfs.sh`
+- `ext/vm/pi/run_firecracker_debug_ssh.sh`
+- `ext/vm/pi/smoke_test_firecracker_ssh.sh`
+- `ext/vm/pi/smoke_test_firecracker_app_server.sh`
 
 ## What gets built
 
-The main build script produces tangible artifacts under:
+The main build script produces Firecracker-oriented artifacts under the chosen
+`OUTPUT_ROOT`.
 
-```text
-target/codex-vm/pi/<codex-release>/<arch>/
-```
+For the paths used in this README:
 
-For the optional SSH-enabled debug profile, artifacts go under:
-
-```text
-target/codex-vm/pi/<codex-release>/<arch>/debug-ssh/
-```
+- default profile: `/media/workdisk/build/codex-vm/aarch64`
+- debug SSH profile: `/media/workdisk/build/codex-vm/aarch64/debug-ssh`
 
 Typical outputs:
 
-- `rootfs.ext4`: immutable base guest root filesystem image
+- `rootfs.ext4`: base guest root filesystem image
 - `manifest.json`: build metadata for the rootfs
 - `firecracker.boot_args`: boot args used for Firecracker guests
-- `firecracker_vm_config.template.json`: host-side template for a Firecracker VM config
-- `payload/`: temporary staged inputs used during the build
+- `firecracker_vm_config.template.json`: host-side Firecracker config template
+- `payload/`: staged inputs used during the build
 
 This directory does not currently build or manage:
 
@@ -37,37 +42,26 @@ This directory does not currently build or manage:
 - front-end changes
 - a guest kernel image
 
-The kernel is intentionally treated as an external host-managed dependency for
-now. The gateway/runtime work can wire that in later, but the artifacts here are
-laid out specifically for Firecracker:
+The kernel is intentionally treated as an external host-managed dependency.
 
-- ext4 rootfs on `/dev/vda`
-- serial console on `ttyS0`
-- DHCP enabled on `eth0`
-- `systemd` service logs mirrored to console for boot verification
+## Directory layout
 
-## Guest layout
+Use these locations consistently:
 
-The rootfs is based on Debian Bookworm and provisions:
+```text
+/media/workdisk/repos/codex
+/media/workdisk/firecracker/bin
+/media/workdisk/firecracker/src
+/media/workdisk/firecracker/kernels
+/media/workdisk/firecracker/keys
+/media/workdisk/build/codex-vm
+```
 
-- Node.js
-- Codex CLI and bundled vendor binaries
-- `codex-app-server-proxy`
-- `codex-sdk-proxy`
-- Chromium/Playwright-related host packages
-- a default `/home/node/.codex/config.toml`
-- a `systemd` service that starts the TCP proxy on boot
-- Firecracker-friendly hostname, fstab, machine-id reset, and network defaults
+## One-time host prerequisites
 
-The proxy service listens on port `9395` by default, matching the current
-gateway expectation.
+Install the host packages needed for the rootfs build and smoke tests:
 
-## Prerequisites
-
-The build is host-driven and expects Linux with root access. Typical host
-packages:
-
-```sh
+```bash
 sudo apt-get update
 sudo apt-get install -y \
   debootstrap \
@@ -77,172 +71,304 @@ sudo apt-get install -y \
   rsync \
   sudo \
   systemd-container \
-  xz-utils
+  xz-utils \
+  jq \
+  curl \
+  npm \
+  pnpm \
+  iproute2 \
+  openssh-client
 ```
 
-Additional host requirements:
+Make sure KVM is usable by your user:
 
-- Docker is not required for this build path.
-- `pnpm`, `npm`, `curl`, and `tar` must be available on the host.
-- The host should build natively for the target architecture. Cross-arch rootfs
-  creation is intentionally out of scope for this first pass.
-- Firecracker is only needed for the smoke test, not for the rootfs build.
-
-## Build
-
-From the repository root:
-
-```sh
-codex/ext/vm/pi/build_rootfs.sh
+```bash
+ls -l /dev/kvm
+getent group kvm
+groups
+[ -r /dev/kvm ] && [ -w /dev/kvm ] && echo OK || echo FAIL
 ```
 
-Common overrides:
+If needed, grant access via the `kvm` group:
 
-```sh
-ROOTFS_SIZE_GB=14 \
-CODEX_RELEASE_TAG=rust-v0.118.0 \
-NODE_VERSION=24.11.0 \
-KERNEL_IMAGE=/path/to/kernel-image \
-codex/ext/vm/pi/build_rootfs.sh
+```bash
+sudo usermod -aG kvm "$USER"
+newgrp kvm
 ```
 
-## Firecracker smoke test
+If your machine uses ACLs instead:
 
-Once the rootfs and a compatible kernel are available, a local host-side smoke
-test can boot the image directly with Firecracker and watch the serial console
-for proxy startup:
-
-```sh
-KERNEL_IMAGE=/path/to/kernel-image \
-codex/ext/vm/pi/smoke_test_firecracker.sh
+```bash
+sudo setfacl -m u:$USER:rw /dev/kvm
 ```
 
-`KERNEL_IMAGE` must match the host architecture and Firecracker's loader
-expectations. In particular, `aarch64` hosts need an arm64 guest kernel image
-that Firecracker can load on ARM; a filename like `vmlinux` by itself is not a
-guarantee that the image is usable.
+## Build the TypeScript SDK first
 
-This does not involve the gateway yet. It is only intended to answer the first
-question: "does the guest boot under Firecracker and start the Codex proxy?"
+`ext/vm/pi/build_rootfs.sh` requires `sdk/typescript/dist` to already exist.
+If your checkout does not already have a built SDK, build it first:
 
-## Runtime assumptions
+```bash
+cd /media/workdisk/repos/codex/sdk/typescript
+pnpm install
+pnpm build
+```
 
-The guest rootfs starts `codex-app-server-proxy` as user `node` via
-`systemd`. The service reads optional overrides from:
+Then return to the repo root:
+
+```bash
+cd /media/workdisk/repos/codex
+```
+
+Nuance:
+
+- `build_rootfs.sh` already runs `pnpm install` and `pnpm pack` for `codex-cli`
+- it does not build `sdk/typescript` for you
+
+## Firecracker binary
+
+If you do not already have Firecracker at the expected location, download a
+release build:
+
+```bash
+mkdir -p /media/workdisk/firecracker/bin
+cd /media/workdisk/firecracker/bin
+
+ARCH="$(uname -m)"
+release_url="https://github.com/firecracker-microvm/firecracker/releases"
+latest=$(basename "$(curl -fsSLI -o /dev/null -w %{url_effective} ${release_url}/latest)")
+curl -L "${release_url}/download/${latest}/firecracker-${latest}-${ARCH}.tgz" | tar -xz
+mv "release-${latest}-${ARCH}/firecracker-${latest}-${ARCH}" firecracker
+chmod +x firecracker
+```
+
+Expected path:
 
 ```text
-/etc/codex-proxy.env
+/media/workdisk/firecracker/bin/firecracker
 ```
 
-That keeps the future gateway work simple: boot guest, inject env or writable
-state, then connect to the proxy process over the chosen transport.
+## Kernel build
 
-## Debug SSH Profile
+The critical detail is to build `Image`, not `vmlinux`.
 
-For development and bring-up, this directory now supports a deterministic
-`debug-ssh` profile that makes the guest reachable over SSH from the host while
-keeping the existing minimal profile unchanged.
+Set up the source working area:
 
-What the debug profile changes:
-
-- installs `openssh-server`
-- enables `ssh.service`
-- provisions `authorized_keys` for the chosen SSH user
-- configures static guest networking on `eth0`
-- emits manifest metadata used by the host-side launch and smoke scripts
-
-The debug profile does not add password login. SSH remains key-only.
-
-### Build the debug-ssh rootfs
-
-You must provide a public key file to bake into the guest image.
-
-```sh
-VM_PROFILE=debug-ssh \
-DEBUG_SSH_AUTHORIZED_KEYS_FILE=/absolute/path/to/id_ed25519.pub \
-KERNEL_IMAGE=/absolute/path/to/kernel-image \
-codex/ext/vm/pi/build_rootfs.sh
+```bash
+mkdir -p /media/workdisk/firecracker/src
+mkdir -p /media/workdisk/firecracker/kernels
+cd /media/workdisk/firecracker/src
 ```
 
-Useful deterministic overrides:
+Fetch Firecracker and Linux source:
 
-```sh
+```bash
+git clone --depth 1 https://github.com/firecracker-microvm/firecracker.git
+git clone --depth 1 --branch v6.1 https://github.com/torvalds/linux.git
+```
+
+Build the ARM guest kernel using Firecracker's `aarch64` guest config:
+
+```bash
+cd /media/workdisk/firecracker/src/linux
+
+cp /media/workdisk/firecracker/src/firecracker/resources/guest_configs/microvm-kernel-ci-aarch64-6.1.config .config
+make ARCH=arm64 olddefconfig
+make ARCH=arm64 -j"$(nproc)" Image
+cp arch/arm64/boot/Image /media/workdisk/firecracker/kernels/Image
+```
+
+Verify the result:
+
+```bash
+ls -lh /media/workdisk/firecracker/kernels/Image
+file /media/workdisk/firecracker/kernels/Image
+```
+
+Use this exact kernel path later:
+
+```text
+/media/workdisk/firecracker/kernels/Image
+```
+
+## SSH key for the debug VM
+
+Create the debug key once:
+
+```bash
+mkdir -p /media/workdisk/firecracker/keys
+ssh-keygen -t ed25519 -f /media/workdisk/firecracker/keys/codex-debug -N ''
+```
+
+This gives you:
+
+- public key: `/media/workdisk/firecracker/keys/codex-debug.pub`
+- private key: `/media/workdisk/firecracker/keys/codex-debug`
+
+## Build the debug SSH rootfs
+
+From the Codex repo root:
+
+```bash
+cd /media/workdisk/repos/codex
+
 VM_PROFILE=debug-ssh \
-DEBUG_SSH_AUTHORIZED_KEYS_FILE=/absolute/path/to/id_ed25519.pub \
+OUTPUT_ROOT=/media/workdisk/build/codex-vm \
+DEBUG_SSH_AUTHORIZED_KEYS_FILE=/media/workdisk/firecracker/keys/codex-debug.pub \
 DEBUG_SSH_USER=node \
 DEBUG_SSH_HOST_IP_CIDR=172.16.0.1/24 \
 DEBUG_SSH_GUEST_IP_CIDR=172.16.0.2/24 \
 DEBUG_SSH_GUEST_MAC=06:00:ac:10:00:02 \
-KERNEL_IMAGE=/absolute/path/to/kernel-image \
-codex/ext/vm/pi/build_rootfs.sh
+KERNEL_IMAGE=/media/workdisk/firecracker/kernels/Image \
+bash ext/vm/pi/build_rootfs.sh
 ```
 
-### Run an interactive debug VM with SSH
+This produces the debug artifact here:
 
-This script creates a TAP device on the host, boots the VM, waits for SSH, then
-prints the exact login command and keeps streaming the serial console in the
-current terminal.
-
-Leave that terminal running and use a second terminal for SSH.
-
-```sh
-ARTIFACT_ROOT=/absolute/path/to/target/codex-vm/pi/rust-v0.118.0/$(uname -m)/debug-ssh \
-KERNEL_IMAGE=/absolute/path/to/kernel-image \
-FIRECRACKER_BIN=/absolute/path/to/firecracker \
-DEBUG_SSH_PRIVATE_KEY_FILE=/absolute/path/to/id_ed25519 \
-codex/ext/vm/pi/run_firecracker_debug_ssh.sh
+```text
+/media/workdisk/build/codex-vm/aarch64/debug-ssh
 ```
 
-The script requires host privileges to create/configure the TAP device, so it
-will invoke `sudo ip ...` during setup and teardown.
+## Best validation: app-server protocol smoke test
 
-### SSH smoke test
+This is the highest-signal test. It proves the proxy and app server serve real
+protocol traffic.
 
-This smoke test boots the same `debug-ssh` profile, waits for SSH to become
-reachable, and then verifies the observable debug state inside the guest:
-`sshd` is running, the proxy process exists, and the guest is listening on
-ports `22` and `9395`.
+Run:
 
-```sh
-ARTIFACT_ROOT=/absolute/path/to/target/codex-vm/pi/rust-v0.118.0/$(uname -m)/debug-ssh \
-KERNEL_IMAGE=/absolute/path/to/kernel-image \
-FIRECRACKER_BIN=/absolute/path/to/firecracker \
-DEBUG_SSH_PRIVATE_KEY_FILE=/absolute/path/to/id_ed25519 \
-codex/ext/vm/pi/smoke_test_firecracker_ssh.sh
+```bash
+cd /media/workdisk/repos/codex
+
+ARTIFACT_ROOT=/media/workdisk/build/codex-vm/aarch64/debug-ssh \
+KERNEL_IMAGE=/media/workdisk/firecracker/kernels/Image \
+FIRECRACKER_BIN=/media/workdisk/firecracker/bin/firecracker \
+DEBUG_SSH_PRIVATE_KEY_FILE=/media/workdisk/firecracker/keys/codex-debug \
+bash ext/vm/pi/smoke_test_firecracker_app_server.sh
 ```
 
-### App-server protocol smoke test
+Ideal result:
 
-This is the highest-signal VM smoke test for later gateway integration. It
-boots the `debug-ssh` profile, waits for the guest network to come up, then
-connects from the host to the guest's proxy on port `9395` and performs the
-actual JSONL app-server handshake:
-
-- proxy auth frame
-- `initialize`
-- `initialized`
-- lightweight follow-up requests (`getAuthStatus`, `config/read`, `model/list`)
-
-If this test passes, the VM is not merely booted; the proxy and app server are
-serving protocol traffic.
-
-```sh
-ARTIFACT_ROOT=/absolute/path/to/target/codex-vm/pi/rust-v0.118.0/$(uname -m)/debug-ssh \
-KERNEL_IMAGE=/absolute/path/to/kernel-image \
-FIRECRACKER_BIN=/absolute/path/to/firecracker \
-DEBUG_SSH_PRIVATE_KEY_FILE=/absolute/path/to/id_ed25519 \
-codex/ext/vm/pi/smoke_test_firecracker_app_server.sh
+```text
+App server protocol smoke test passed.
+Proxy endpoint: 172.16.0.2:9395
+User agent: ...
+Auth method: (unknown)
+Requires OpenAI auth: true
+Sandbox mode: danger-full-access
+Models returned: 6
 ```
 
-If your proxy is configured with a non-empty handshake token, also set:
+Interpretation:
 
-```sh
+- `Auth method: (unknown)` is acceptable
+- `Requires OpenAI auth: true` is expected
+- `Models returned: 6` proves the app server is alive and answering JSON-RPC
+
+If your proxy uses a non-empty handshake token, also set:
+
+```bash
 APP_SERVER_PROXY_TOKEN=<token>
 ```
 
-### Two-terminal workflow
+## Two-terminal debug workflow
 
-1. In terminal 1, run `run_firecracker_debug_ssh.sh`.
-2. Wait for it to print the `ssh -i ... node@...` command.
-3. In terminal 2, run that SSH command and inspect the guest normally.
-4. Use terminal 1 for live serial logs and terminal 2 as your remote shell.
+If you want a live VM plus an SSH shell:
+
+Terminal 1:
+
+```bash
+cd /media/workdisk/repos/codex
+
+ARTIFACT_ROOT=/media/workdisk/build/codex-vm/aarch64/debug-ssh \
+KERNEL_IMAGE=/media/workdisk/firecracker/kernels/Image \
+FIRECRACKER_BIN=/media/workdisk/firecracker/bin/firecracker \
+DEBUG_SSH_PRIVATE_KEY_FILE=/media/workdisk/firecracker/keys/codex-debug \
+bash ext/vm/pi/run_firecracker_debug_ssh.sh
+```
+
+Terminal 2:
+
+Use the printed SSH command, or this default:
+
+```bash
+ssh -i /media/workdisk/firecracker/keys/codex-debug \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/tmp/codex-vm-known-hosts \
+  node@172.16.0.2
+```
+
+Seeing a serial login prompt in terminal 1 is normal. That is the fallback
+console, not a failure.
+
+## Optional lower-level smoke tests
+
+Boot only:
+
+```bash
+cd /media/workdisk/repos/codex
+
+ARTIFACT_ROOT=/media/workdisk/build/codex-vm/aarch64/debug-ssh \
+KERNEL_IMAGE=/media/workdisk/firecracker/kernels/Image \
+FIRECRACKER_BIN=/media/workdisk/firecracker/bin/firecracker \
+bash ext/vm/pi/smoke_test_firecracker_boot_only.sh
+```
+
+SSH only:
+
+```bash
+cd /media/workdisk/repos/codex
+
+ARTIFACT_ROOT=/media/workdisk/build/codex-vm/aarch64/debug-ssh \
+KERNEL_IMAGE=/media/workdisk/firecracker/kernels/Image \
+FIRECRACKER_BIN=/media/workdisk/firecracker/bin/firecracker \
+DEBUG_SSH_PRIVATE_KEY_FILE=/media/workdisk/firecracker/keys/codex-debug \
+bash ext/vm/pi/smoke_test_firecracker_ssh.sh
+```
+
+These are useful, but the app-server protocol smoke test is the real milestone.
+
+## Production-lean profile
+
+If you also want the non-debug artifact, build the default profile separately:
+
+```bash
+cd /media/workdisk/repos/codex
+
+OUTPUT_ROOT=/media/workdisk/build/codex-vm \
+KERNEL_IMAGE=/media/workdisk/firecracker/kernels/Image \
+bash ext/vm/pi/build_rootfs.sh
+```
+
+That produces:
+
+```text
+/media/workdisk/build/codex-vm/aarch64
+```
+
+Then run the original minimal smoke test:
+
+```bash
+cd /media/workdisk/repos/codex
+
+ARTIFACT_ROOT=/media/workdisk/build/codex-vm/aarch64 \
+KERNEL_IMAGE=/media/workdisk/firecracker/kernels/Image \
+FIRECRACKER_BIN=/media/workdisk/firecracker/bin/firecracker \
+bash ext/vm/pi/smoke_test_firecracker.sh
+```
+
+Interpret that test narrowly:
+
+- it is only a proxy-start smoke test
+- it is weaker than the app-server protocol smoke test
+
+## Recommended shortest successful path
+
+If you want the cleanest end-to-end reproduction of the correct result, use
+this sequence:
+
+1. Build `sdk/typescript`
+2. Build the kernel `Image`
+3. Create the debug SSH key
+4. Build `VM_PROFILE=debug-ssh`
+5. Run `ext/vm/pi/smoke_test_firecracker_app_server.sh`
+
+That is the most direct path to a meaningful, reproducible success case.
