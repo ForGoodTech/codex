@@ -33,10 +33,20 @@
  * - The client should speak the same JSONL protocol the app server expects (see hello-app-server.js).
  */
 const net = require('node:net');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+
+function tokenFingerprint(value) {
+  const token = (value ?? '').toString().trim();
+  if (!token) {
+    return 'empty';
+  }
+  return crypto.createHash('sha256').update(token).digest('hex').slice(0, 12);
+}
+
 const envProxyToken = process.env.APP_SERVER_PROXY_TOKEN?.trim() ?? '';
 if (!envProxyToken) {
   console.warn(
@@ -47,6 +57,11 @@ if (!envProxyToken) {
   console.log('Using APP_SERVER_PROXY_TOKEN from environment for proxy auth handshake.');
 }
 const proxyToken = envProxyToken;
+console.log('TEMP: proxy expected token fingerprint', {
+  expectedTokenLength: proxyToken.length,
+  expectedTokenSha256_12: tokenFingerprint(proxyToken),
+  at: new Date().toISOString(),
+});
 const mathJaxDeveloperInstructions = [
   'If your response includes mathematics, format all math in LaTeX for MathJax rendering.',
   'Use \\( ... \\) for inline math and \\[ ... \\] for display math.',
@@ -195,8 +210,20 @@ function appendDeveloperInstructions(frame) {
 }
 
 const server = net.createServer((socket) => {
+  const remote = `${socket.remoteAddress}:${socket.remotePort}`;
+  const connectedAtMs = Date.now();
+  console.log('TEMP: proxy socket accepted', {
+    remote,
+    activeSocketPresent: !!activeSocket,
+    at: new Date().toISOString(),
+  });
   if (activeSocket) {
-    socket.destroy(new Error('Proxy already has an active client; try again later.'));
+    console.log('TEMP: proxy rejected additional client', {
+      remote,
+      activeRemote: `${activeSocket.remoteAddress}:${activeSocket.remotePort}`,
+      at: new Date().toISOString(),
+    });
+    socket.destroy();
     return;
   }
   console.log(`Client connected from ${socket.remoteAddress}:${socket.remotePort}`);
@@ -234,16 +261,30 @@ const server = net.createServer((socket) => {
         return;
       }
       const authMatched = authFrame?.type === 'auth' && authFrame?.token === proxyToken;
+      const receivedTokenForLog = typeof authFrame?.token === 'string' ? authFrame.token : '';
       console.log('TEMP: proxy handshake check', {
+        remote,
         receivedType: authFrame?.type,
         matched: authMatched,
+        receivedTokenLength: receivedTokenForLog.length,
+        receivedTokenSha256_12: tokenFingerprint(receivedTokenForLog),
+        expectedTokenLength: proxyToken.length,
+        expectedTokenSha256_12: tokenFingerprint(proxyToken),
+        authBufferBytes: authBuffer.length,
+        at: new Date().toISOString(),
       });
       if (!authMatched) {
-        console.log('TEMP: proxy handshake failed');
+        console.log('TEMP: proxy handshake failed', {
+          remote,
+          at: new Date().toISOString(),
+        });
         socket.destroy(new Error('Authentication failed.'));
         return;
       }
-      console.log('TEMP: proxy handshake passed');
+      console.log('TEMP: proxy handshake passed', {
+        remote,
+        at: new Date().toISOString(),
+      });
       isAuthenticated = true;
       clearTimeout(authTimeout);
       const remaining = authBuffer.subarray(newlineIndex + 1);
@@ -305,10 +346,25 @@ const server = net.createServer((socket) => {
   const resumeSocket = () => {
     socket.resume();
   };
-  const teardown = () => {
-    if (!activeSocket) {
+  const teardown = (reason) => {
+    if (activeSocket !== socket) {
       return;
     }
+    const reasonText =
+      reason instanceof Error
+        ? reason.message
+        : typeof reason === 'boolean'
+          ? `close_had_error=${reason}`
+          : 'unknown';
+    console.log('TEMP: proxy socket teardown', {
+      remote,
+      authenticated: isAuthenticated,
+      reason: reasonText,
+      authBufferBytes: authBuffer.length,
+      frameLineBufferBytes: Buffer.byteLength(frameLineBuffer),
+      lifetimeMs: Date.now() - connectedAtMs,
+      at: new Date().toISOString(),
+    });
     appServer.stdout.off('data', forwardStdout);
     appServer.stdin.off('drain', resumeSocket);
     clearTimeout(authTimeout);
