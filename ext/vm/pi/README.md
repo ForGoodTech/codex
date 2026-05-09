@@ -64,9 +64,11 @@ Install the host packages needed for the rootfs build and smoke tests:
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
+  acl \
   debootstrap \
   dosfstools \
   e2fsprogs \
+  git \
   mount \
   rsync \
   sudo \
@@ -74,11 +76,33 @@ sudo apt-get install -y \
   xz-utils \
   jq \
   curl \
+  nodejs \
   npm \
-  pnpm \
+  ripgrep \
   iproute2 \
   openssh-client
 ```
+
+Install `pnpm` separately from apt:
+
+```bash
+PNPM_VERSION=10.33.0
+if command -v corepack >/dev/null 2>&1; then
+  sudo corepack enable
+  corepack install -g "pnpm@${PNPM_VERSION}" || \
+    corepack prepare "pnpm@${PNPM_VERSION}" --activate
+else
+  sudo npm install -g "pnpm@${PNPM_VERSION}"
+fi
+
+pnpm --version
+```
+
+Raspberry Pi OS may not publish a `pnpm` apt package. Keeping `pnpm` out of
+the `apt-get install` command avoids aborting the entire transaction before
+later packages such as `jq`, `iproute2`, or `openssh-client` are installed.
+`build_rootfs.sh` also falls back to `corepack pnpm` or `npx pnpm@10.33.0`
+when a `pnpm` binary is not on `PATH`.
 
 Make sure KVM is usable by your user:
 
@@ -101,6 +125,22 @@ If your machine uses ACLs instead:
 ```bash
 sudo setfacl -m u:$USER:rw /dev/kvm
 ```
+
+Host OS notes:
+
+- Use a 64-bit host OS. On Raspberry Pi OS, `uname -m` must report `aarch64`;
+  32-bit images report values such as `armv7l` and are not supported by these
+  scripts or the Firecracker release archive names used below.
+- `ripgrep` is installed with the package name `ripgrep`, but the command is
+  `rg`; both `build_rootfs.sh` and the smoke tests expect `rg` on `PATH`.
+- `setfacl` comes from the `acl` package. It is only needed if your host grants
+  `/dev/kvm` access with ACLs instead of the `kvm` group.
+- Raspberry Pi OS and Ubuntu can expose `/dev/kvm` differently depending on the
+  firmware, kernel, and user groups. Fix KVM access on the host before building
+  or running smoke tests.
+- The guest rootfs is created with `debootstrap` and defaults to Debian
+  `bookworm` via `DISTRO_RELEASE`; the host OS release does not change that
+  unless you override `DISTRO_RELEASE`.
 
 ## Build the TypeScript SDK first
 
