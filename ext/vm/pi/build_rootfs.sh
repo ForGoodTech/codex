@@ -84,6 +84,43 @@ require_cmd() {
   fi
 }
 
+resolve_pnpm_version() {
+  local package_manager
+  package_manager=$(jq -r '.packageManager // empty' "$CLI_ROOT/package.json")
+  if [[ "$package_manager" == pnpm@* ]]; then
+    local version=${package_manager#pnpm@}
+    echo "${version%%+*}"
+  else
+    echo "10.33.0"
+  fi
+}
+
+PNPM_CMD=()
+resolve_pnpm() {
+  if command -v pnpm >/dev/null 2>&1; then
+    PNPM_CMD=(pnpm)
+    return
+  fi
+
+  if command -v corepack >/dev/null 2>&1; then
+    echo "pnpm not found; using Corepack with pnpm@$PNPM_VERSION." >&2
+    if corepack pnpm --version >/dev/null 2>&1; then
+      PNPM_CMD=(corepack pnpm)
+      return
+    fi
+  fi
+
+  if command -v npx >/dev/null 2>&1; then
+    echo "pnpm not found; using npx with pnpm@$PNPM_VERSION." >&2
+    PNPM_CMD=(npx --yes "pnpm@$PNPM_VERSION")
+    return
+  fi
+
+  echo "Required package manager not found: pnpm" >&2
+  echo "Install it with Corepack or npm; see ext/vm/pi/README.md." >&2
+  exit 1
+}
+
 install_host_file() {
   local src=$1
   local dest=$2
@@ -96,7 +133,7 @@ install_host_file() {
   fi
 }
 
-for cmd in curl debootstrap find install jq mkfs.ext4 mount mountpoint npm pnpm rsync sudo tar truncate umount; do
+for cmd in curl debootstrap find install jq mkfs.ext4 mount mountpoint node npm rsync sudo tar truncate umount; do
   require_cmd "$cmd"
 done
 
@@ -109,6 +146,9 @@ if [[ ! -d "$SDK_ROOT/dist" ]]; then
   echo "Codex SDK dist directory not found at: $SDK_ROOT/dist" >&2
   exit 1
 fi
+
+PNPM_VERSION=${PNPM_VERSION:-$(resolve_pnpm_version)}
+resolve_pnpm
 
 if [[ "$VM_PROFILE" == "debug-ssh" ]]; then
   if [[ -z "$DEBUG_SSH_AUTHORIZED_KEYS_FILE" ]]; then
@@ -124,7 +164,7 @@ fi
 mkdir -p "$ARTIFACT_ROOT" "$PAYLOAD_DIR" "$ROOTFS_DIR" "$STAGED_BIN_ROOT"
 
 pushd "$CLI_ROOT" >/dev/null
-pnpm install
+"${PNPM_CMD[@]}" install
 
 fetch_release_binary() {
   local binary_name=$1
@@ -211,7 +251,7 @@ stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
 
 mkdir -p dist
 rm -f dist/openai-codex-*.tgz dist/codex.tgz
-pnpm pack --pack-destination dist
+"${PNPM_CMD[@]}" pack --pack-destination dist
 mv dist/openai-codex-*.tgz dist/codex.tgz
 popd >/dev/null
 
