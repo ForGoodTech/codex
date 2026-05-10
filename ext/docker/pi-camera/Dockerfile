@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   man-db \
   procps \
   unzip \
+  util-linux \
   v4l-utils \
   ripgrep \
   xvfb \
@@ -223,3 +224,14 @@ startup_timeout_sec = ${CHROME_MCP_STARTUP_TIMEOUT_SEC}
 url = "${GITHUB_MCP_URL}"
 
 EOF
+
+# Start as root only long enough to create container-local device nodes for
+# host devices that are root-only, then drop back to node before running Codex.
+USER root
+COPY ext/docker/pi-camera/camera-device-setup.sh /usr/local/bin/codex-camera-device-setup
+COPY ext/docker/pi-camera/camera-entrypoint.sh /usr/local/bin/codex-camera-entrypoint
+RUN chmod 755 /usr/local/bin/codex-camera-device-setup /usr/local/bin/codex-camera-entrypoint
+ENV HOME=/home/node
+ENV USER=node
+ENV LOGNAME=node
+ENTRYPOINT ["codex-camera-entrypoint"]

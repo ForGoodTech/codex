@@ -306,7 +306,7 @@ if ! rg -q "^startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}$" "$con
   exit 1
 fi
 
-for binary in ffmpeg v4l2-ctl codex-camera-smoke-test codex-camera-rtp-stream; do
+for binary in ffmpeg v4l2-ctl codex-camera-device-setup codex-camera-entrypoint codex-camera-smoke-test codex-camera-rtp-stream; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "Missing expected runtime binary: $binary" >&2
     exit 1

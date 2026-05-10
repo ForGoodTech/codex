@@ -15,6 +15,9 @@ Raspberry Pi camera runtime for agentic camera work inside Docker.
   `rpicam-vid | ffmpeg`.
 - `run_camera_container.sh`, a host-side launcher that maps selected camera
   devices without using `--privileged` by default.
+- A root entrypoint that creates container-local device nodes for root-only
+  host devices such as `/dev/dma_heap/*`, then drops to the `node` user before
+  running Codex or the requested command.
 
 The image is still a Docker container, not a VM. It relies on the host Raspberry
 Pi kernel and drivers for the camera hardware, then grants the container access
@@ -71,6 +74,12 @@ group IDs that own the mapped devices. The default security posture is:
 --security-opt no-new-privileges:true
 --cap-drop=ALL
 ```
+
+If the launcher finds root-only character devices, it does not bind-mount those
+nodes directly. Instead, it grants the matching device cgroup rule, adds
+`--cap-add=MKNOD`, and lets the entrypoint create writable container-local
+device nodes before dropping back to `node`. This avoids changing permissions on
+the host `/dev` nodes.
 
 Do not mount the Docker socket into this container.
 

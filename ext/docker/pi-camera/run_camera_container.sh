@@ -74,13 +74,54 @@ if [[ -n "$CODEX_DOCKER_EXTRA_ARGS" ]]; then
 fi
 
 declare -A group_ids=()
+mknod_specs=()
 device_count=0
+
+device_major_minor() {
+  local device=$1
+  local major_hex
+  local minor_hex
+  major_hex=$(stat -c '%t' "$device")
+  minor_hex=$(stat -c '%T' "$device")
+  printf '%s,%s\n' "$((16#$major_hex))" "$((16#$minor_hex))"
+}
+
+is_root_only_character_device() {
+  local device=$1
+  local file_type
+  local uid
+  local gid
+  local mode
+  file_type=$(stat -c '%F' "$device")
+  uid=$(stat -c '%u' "$device")
+  gid=$(stat -c '%g' "$device")
+  mode=$(stat -c '%a' "$device")
+
+  [[ "$file_type" == "character special file" ]] || return 1
+  [[ "$uid" == "0" && "$gid" == "0" ]] || return 1
+  [[ $((8#$mode & 8#077)) -eq 0 ]]
+}
 
 add_device() {
   local device=$1
   if [[ ! -e "$device" ]]; then
     return
   fi
+
+  if is_root_only_character_device "$device"; then
+    local major_minor
+    local major
+    local minor
+    major_minor=$(device_major_minor "$device")
+    major=${major_minor%,*}
+    minor=${major_minor#*,}
+    docker_args+=(--device-cgroup-rule "c ${major}:${minor} rwm")
+    mknod_specs+=("${device},${major},${minor}")
+    device_count=$((device_count + 1))
+    echo "Using container-local device node for root-only host device: $device" >&2
+    return
+  fi
+
   docker_args+=(--device "$device:$device")
   device_count=$((device_count + 1))
 
@@ -103,6 +144,12 @@ for device in \
   /dev/vcio; do
   add_device "$device"
 done
+
+if [[ ${#mknod_specs[@]} -gt 0 ]]; then
+  mknod_specs_joined=$(IFS=';'; echo "${mknod_specs[*]}")
+  docker_args+=(--cap-add MKNOD)
+  docker_args+=(-e "CODEX_CAMERA_MKNOD_SPECS=$mknod_specs_joined")
+fi
 
 for gid in "${!group_ids[@]}"; do
   docker_args+=(--group-add "$gid")
