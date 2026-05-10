@@ -104,7 +104,14 @@ is_root_only_character_device() {
 
 add_device() {
   local device=$1
+  local file_type
   if [[ ! -e "$device" ]]; then
+    return
+  fi
+
+  file_type=$(stat -c '%F' "$device")
+  if [[ "$file_type" != "character special file" ]]; then
+    echo "Skipping non-device path matched by camera glob: $device" >&2
     return
   fi
 
