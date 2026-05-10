@@ -54,6 +54,8 @@ docker_args=(
   --name "$CONTAINER_NAME"
   --security-opt no-new-privileges:true
   --cap-drop=ALL
+  --cap-add SETGID
+  --cap-add SETUID
   --network "$DOCKER_NETWORK"
   -e CODEX_CAMERA_CONTAINER=1
   -e APP_SERVER_PROXY_TOKEN="$APP_SERVER_PROXY_TOKEN"
@@ -81,8 +83,8 @@ device_major_minor() {
   local device=$1
   local major_hex
   local minor_hex
-  major_hex=$(stat -c '%t' "$device")
-  minor_hex=$(stat -c '%T' "$device")
+  major_hex=$(stat -Lc '%t' "$device")
+  minor_hex=$(stat -Lc '%T' "$device")
   printf '%s,%s\n' "$((16#$major_hex))" "$((16#$minor_hex))"
 }
 
@@ -92,10 +94,10 @@ is_root_only_character_device() {
   local uid
   local gid
   local mode
-  file_type=$(stat -c '%F' "$device")
-  uid=$(stat -c '%u' "$device")
-  gid=$(stat -c '%g' "$device")
-  mode=$(stat -c '%a' "$device")
+  file_type=$(stat -Lc '%F' "$device")
+  uid=$(stat -Lc '%u' "$device")
+  gid=$(stat -Lc '%g' "$device")
+  mode=$(stat -Lc '%a' "$device")
 
   [[ "$file_type" == "character special file" ]] || return 1
   [[ "$uid" == "0" && "$gid" == "0" ]] || return 1
@@ -104,12 +106,13 @@ is_root_only_character_device() {
 
 add_device() {
   local device=$1
+  local device_source
   local file_type
   if [[ ! -e "$device" ]]; then
     return
   fi
 
-  file_type=$(stat -c '%F' "$device")
+  file_type=$(stat -Lc '%F' "$device")
   if [[ "$file_type" != "character special file" ]]; then
     echo "Skipping non-device path matched by camera glob: $device" >&2
     return
@@ -129,11 +132,12 @@ add_device() {
     return
   fi
 
-  docker_args+=(--device "$device:$device")
+  device_source=$(realpath -e "$device")
+  docker_args+=(--device "$device_source:$device")
   device_count=$((device_count + 1))
 
   local gid
-  gid=$(stat -c '%g' "$device")
+  gid=$(stat -Lc '%g' "$device")
   if [[ -n "$gid" && "$gid" != "0" ]]; then
     group_ids["$gid"]=1
   fi
