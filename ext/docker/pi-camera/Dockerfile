@@ -172,19 +172,22 @@ RUN set -eux; \
       test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
     else \
       rm -rf "${PLAYWRIGHT_BROWSERS_PATH}/__dirlock"; \
-      echo "Trying Playwright-managed Chromium install with ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s timeout"; \
-      if timeout --kill-after=30s "${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s" playwright-mcp install-browser chromium chromium-headless-shell; then \
+      echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Trying Playwright-managed Chromium install with ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s timeout"; \
+      echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Running: timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell"; \
+      if timeout --kill-after=30s "${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s" npx -y "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}" install-browser chromium chromium-headless-shell; then \
         selected_browser_source="playwright"; \
-        echo "Using Playwright-managed Chromium for Playwright MCP"; \
+        printf '%s\n' "0" > /home/node/.codex/playwright-browser-install-status; \
+        echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Using Playwright-managed Chromium for Playwright MCP"; \
       else \
         install_status=$?; \
+        printf '%s\n' "${install_status}" > /home/node/.codex/playwright-browser-install-status; \
         if [ "${PLAYWRIGHT_BROWSER_SOURCE}" = "playwright" ]; then \
-          echo "Playwright-managed Chromium install failed or timed out after ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s, and PLAYWRIGHT_BROWSER_SOURCE=playwright requires it." >&2; \
+          echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Playwright-managed Chromium install exited with status ${install_status} after at most ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s, and PLAYWRIGHT_BROWSER_SOURCE=playwright requires it." >&2; \
           exit "${install_status}"; \
         fi; \
         rm -rf "${PLAYWRIGHT_BROWSERS_PATH}"; \
         mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"; \
-        echo "WARNING: Playwright-managed Chromium install failed or timed out after ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s; falling back to system Chromium at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}." >&2; \
+        echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] WARNING: Playwright-managed Chromium install exited with status ${install_status} after at most ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s; falling back to system Chromium at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}." >&2; \
         echo "After the image builds, check browser downloads with:" >&2; \
         echo "  docker run --rm <image-tag> bash -lc 'timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'" >&2; \
         test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \

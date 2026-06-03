@@ -332,6 +332,7 @@ fi
 
 source_file=/home/node/.codex/playwright-browser-source
 requested_source_file=/home/node/.codex/playwright-browser-source-requested
+install_status_file=/home/node/.codex/playwright-browser-install-status
 if [[ ! -f "$source_file" ]]; then
   echo "Missing Playwright browser source marker: $source_file" >&2
   exit 1
@@ -341,6 +342,10 @@ playwright_browser_source=$(<"$source_file")
 requested_playwright_browser_source=unknown
 if [[ -f "$requested_source_file" ]]; then
   requested_playwright_browser_source=$(<"$requested_source_file")
+fi
+playwright_browser_install_status=unknown
+if [[ -f "$install_status_file" ]]; then
+  playwright_browser_install_status=$(<"$install_status_file")
 fi
 
 case "$playwright_browser_source" in
@@ -356,7 +361,21 @@ case "$playwright_browser_source" in
       exit 1
     fi
     if [[ "$requested_playwright_browser_source" == "auto" ]]; then
-      echo "WARNING: Playwright-managed Chromium was unavailable during build; using system Chromium at $PLAYWRIGHT_MCP_EXECUTABLE_PATH." >&2
+      case "$playwright_browser_install_status" in
+        124)
+          install_status_message="timed out after ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s"
+          ;;
+        137)
+          install_status_message="was killed after timeout cleanup"
+          ;;
+        unknown)
+          install_status_message="failed with unknown status"
+          ;;
+        *)
+          install_status_message="exited with status ${playwright_browser_install_status}"
+          ;;
+      esac
+      echo "WARNING: Playwright-managed Chromium ${install_status_message} during build; using system Chromium at $PLAYWRIGHT_MCP_EXECUTABLE_PATH." >&2
       echo "To check whether Playwright-managed Chromium is downloadable now, run:" >&2
       echo "  docker run --rm ${IMAGE_TAG} bash -lc '\''timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'\''" >&2
     fi
