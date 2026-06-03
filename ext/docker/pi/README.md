@@ -62,6 +62,12 @@ What the script does:
 
 ## MCP startup timeout tuning
 
+The image installs Debian `chromium` and configures Playwright MCP to launch it
+through `/opt/google/chrome/chrome`. This avoids downloading Playwright-managed
+browser archives during `docker build`, which can be very slow on Raspberry Pi
+hosts. Override the path with `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a
+different Chromium-compatible executable.
+
 The generated image sets a default Playwright MCP startup timeout in
 `/home/node/.codex/config.toml`:
 

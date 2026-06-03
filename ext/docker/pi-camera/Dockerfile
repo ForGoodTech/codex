@@ -6,6 +6,7 @@ ARG PLAYWRIGHT_MCP_PACKAGE="@playwright/mcp"
 ARG PLAYWRIGHT_MCP_VERSION="latest"
 ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
 ARG CHROME_MCP_VERSION="latest"
+ARG PLAYWRIGHT_MCP_EXECUTABLE_PATH="/opt/google/chrome/chrome"
 ARG GITHUB_MCP_URL="https://api.githubcopilot.com/mcp/"
 ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
 ARG PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="30"
@@ -16,11 +17,11 @@ ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
 ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
 ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
 ENV CHROME_MCP_VERSION="${CHROME_MCP_VERSION}"
+ENV PLAYWRIGHT_MCP_EXECUTABLE_PATH="${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"
 ENV GITHUB_MCP_URL="${GITHUB_MCP_URL}"
 ENV OPENAI_DOCS_MCP_URL="${OPENAI_DOCS_MCP_URL}"
 ENV PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}"
 ENV CHROME_MCP_STARTUP_TIMEOUT_SEC="${CHROME_MCP_STARTUP_TIMEOUT_SEC}"
-ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
 
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -149,27 +150,9 @@ RUN set -eux; \
         exit 1; \
       fi; \
       echo "Installed ${label} MCP package (${package_spec})"; \
-    done
-
-RUN set -eux; \
-    mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"; \
-    rm -rf "${PLAYWRIGHT_BROWSERS_PATH}/__dirlock"; \
-    GLOBAL_NODE_MODULES=$(npm root -g); \
-    MCP_PACKAGE_DIR="${GLOBAL_NODE_MODULES}/${PLAYWRIGHT_MCP_PACKAGE}"; \
-    if [ ! -d "${MCP_PACKAGE_DIR}" ]; then \
-      echo "Unable to find installed Playwright MCP package at ${MCP_PACKAGE_DIR}" >&2; \
-      exit 1; \
-    fi; \
-    PLAYWRIGHT_CLI_JS="${MCP_PACKAGE_DIR}/node_modules/playwright/cli.js"; \
-    if [ ! -f "${PLAYWRIGHT_CLI_JS}" ]; then \
-      PLAYWRIGHT_CLI_JS="${MCP_PACKAGE_DIR}/node_modules/playwright-core/cli.js"; \
-    fi; \
-    if [ ! -f "${PLAYWRIGHT_CLI_JS}" ]; then \
-      echo "Unable to find Playwright CLI under ${MCP_PACKAGE_DIR}/node_modules" >&2; \
-      exit 1; \
-    fi; \
-    node "${PLAYWRIGHT_CLI_JS}" install chromium chromium-headless-shell; \
-    chown -R node:node "${PLAYWRIGHT_BROWSERS_PATH}"
+    done; \
+    echo "Using system Chromium for Playwright MCP at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
+    test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"
 
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi-camera/app-server-proxy.js /home/node/app-server-proxy.js
@@ -212,7 +195,7 @@ url = "${OPENAI_DOCS_MCP_URL}"
 
 [mcp_servers.playwright]
 command = "npx"
-args = ["-y", "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}", "--browser", "chromium"]
+args = ["-y", "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}", "--browser", "chromium", "--executable-path", "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"]
 startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}
 
 [mcp_servers.chrome_devtools]

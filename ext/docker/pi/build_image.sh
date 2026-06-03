@@ -13,6 +13,7 @@ DEFAULT_CODEX_RELEASE_TAG="rust-v0.136.0"
 CODEX_RELEASE_TAG=${CODEX_RELEASE_TAG:-$DEFAULT_CODEX_RELEASE_TAG}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
+PLAYWRIGHT_MCP_EXECUTABLE_PATH=${PLAYWRIGHT_MCP_EXECUTABLE_PATH:-/opt/google/chrome/chrome}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
 CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
 GITHUB_MCP_URL=${GITHUB_MCP_URL:-https://api.githubcopilot.com/mcp/}
@@ -256,6 +257,7 @@ cleanup_existing_image
 docker build \
   --build-arg PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
   --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
+  --build-arg PLAYWRIGHT_MCP_EXECUTABLE_PATH="$PLAYWRIGHT_MCP_EXECUTABLE_PATH" \
   --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
   --build-arg GITHUB_MCP_URL="$GITHUB_MCP_URL" \
@@ -267,6 +269,7 @@ docker build \
 
 docker run --rm \
   -e PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
+  -e PLAYWRIGHT_MCP_EXECUTABLE_PATH="$PLAYWRIGHT_MCP_EXECUTABLE_PATH" \
   -e CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   -e GITHUB_MCP_URL="$GITHUB_MCP_URL" \
   -e IMAGE_TAG="$IMAGE_TAG" \
@@ -301,6 +304,11 @@ if ! rg -q "^startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}$" "$con
   exit 1
 fi
 
+if ! rg -F -q "\"--executable-path\", \"${PLAYWRIGHT_MCP_EXECUTABLE_PATH}\"" "$config_file"; then
+  echo "Expected Playwright executable path not found in $config_file" >&2
+  exit 1
+fi
+
 npm_root=$(npm root -g)
 for package in "$PLAYWRIGHT_MCP_PACKAGE" "$CHROME_MCP_PACKAGE"; do
   if [[ ! -d "$npm_root/$package" ]]; then
@@ -315,16 +323,8 @@ if [[ ! -d "$playwright_package_root" ]]; then
   exit 1
 fi
 
-playwright_cache_dir=${PLAYWRIGHT_BROWSERS_PATH:-/home/node/.cache/ms-playwright}
-if [[ ! -d "$playwright_cache_dir" ]]; then
-  echo "Playwright browser cache directory not found: $playwright_cache_dir" >&2
-  echo "Ensure browser binaries are installed in the image (for example: npx playwright install chromium)." >&2
-  exit 1
-fi
-
-if ! find "$playwright_cache_dir" -maxdepth 5 -type f \( -name chrome -o -name chromium -o -name chromium-headless-shell \) | head -n 1 | rg -q .; then
-  echo "No Chromium executable found under Playwright cache: $playwright_cache_dir" >&2
-  echo "Ensure browser binaries are installed in the image (for example: npx playwright install chromium)." >&2
+if [[ ! -x "$PLAYWRIGHT_MCP_EXECUTABLE_PATH" ]]; then
+  echo "Playwright MCP executable path is not executable: $PLAYWRIGHT_MCP_EXECUTABLE_PATH" >&2
   exit 1
 fi
 
@@ -336,6 +336,12 @@ const packageRoot = process.env.PLAYWRIGHT_PACKAGE_ROOT;
 if (!packageRoot) {
   throw new Error("PLAYWRIGHT_PACKAGE_ROOT is not set");
 }
+
+const executablePath = process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH;
+if (!executablePath) {
+  throw new Error("PLAYWRIGHT_MCP_EXECUTABLE_PATH is not set");
+}
+fs.accessSync(executablePath, fs.constants.X_OK);
 
 const entryCandidates = [
   "node_modules/playwright/index.js",
@@ -358,7 +364,7 @@ if (!playwright.chromium) {
 }
 
 (async () => {
-  const browser = await playwright.chromium.launch({ headless: true });
+  const browser = await playwright.chromium.launch({ executablePath, headless: true });
   await browser.close();
   console.log("Playwright Chromium launch smoke test passed");
 })().catch((error) => {
@@ -369,8 +375,7 @@ NODE
 then
   echo "Playwright Chromium launch smoke test failed." >&2
   echo "This usually means runtime browser/system dependencies are missing in the image." >&2
-  echo "If Chromium is not installed, add browser installation in Dockerfile (for example: npx playwright install chromium)." >&2
-  echo "If Chromium is installed but launch still fails, add missing OS deps (for example: npx playwright install-deps chromium)." >&2
+  echo "Expected Playwright to launch Chromium at: $PLAYWRIGHT_MCP_EXECUTABLE_PATH" >&2
   exit 1
 fi
 

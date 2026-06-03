@@ -50,6 +50,11 @@ RASPBERRY_PI_APT_SUITE=bookworm
 Set `INSTALL_RPICAM_PACKAGES=false` to build a non-camera development image, or
 `INSTALL_RPICAM_PACKAGES=true` to force the package install.
 
+Like `ext/docker/pi`, the image uses the Debian `chromium` package for
+Playwright MCP instead of downloading Playwright-managed browser archives during
+`docker build`. Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a
+different Chromium-compatible executable.
+
 ## Run With Camera Devices
 
 Use the launcher from the repo root or from this directory:
