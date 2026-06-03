@@ -82,7 +82,7 @@ PLAYWRIGHT_BROWSER_SOURCE=playwright
 PLAYWRIGHT_BROWSER_SOURCE=system
 
 # Default timeout for the Playwright browser install attempt.
-PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=600
+PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=1800
 ```
 
 Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a different
