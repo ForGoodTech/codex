@@ -50,10 +50,14 @@ RASPBERRY_PI_APT_SUITE=bookworm
 Set `INSTALL_RPICAM_PACKAGES=false` to build a non-camera development image, or
 `INSTALL_RPICAM_PACKAGES=true` to force the package install.
 
-Like `ext/docker/pi`, the image uses the Debian `chromium` package for
-Playwright MCP instead of downloading Playwright-managed browser archives during
-`docker build`. Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a
-different Chromium-compatible executable.
+Like `ext/docker/pi`, the build uses `PLAYWRIGHT_BROWSER_SOURCE=auto` by
+default: it tries Playwright-managed Chromium first with a bounded timeout, then
+falls back to Debian Chromium at `/opt/google/chrome/chrome` if the download
+fails or times out. Use `PLAYWRIGHT_BROWSER_SOURCE=playwright` to require the
+Playwright-managed browser, `PLAYWRIGHT_BROWSER_SOURCE=system` to always use
+Debian Chromium, and `PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC` to change the
+default install timeout. Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you
+provide a different Chromium-compatible executable.
 
 ## Run With Camera Devices
 

@@ -6,6 +6,8 @@ ARG PLAYWRIGHT_MCP_PACKAGE="@playwright/mcp"
 ARG PLAYWRIGHT_MCP_VERSION="latest"
 ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
 ARG CHROME_MCP_VERSION="latest"
+ARG PLAYWRIGHT_BROWSER_SOURCE="auto"
+ARG PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="600"
 ARG PLAYWRIGHT_MCP_EXECUTABLE_PATH="/opt/google/chrome/chrome"
 ARG GITHUB_MCP_URL="https://api.githubcopilot.com/mcp/"
 ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
@@ -17,11 +19,14 @@ ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
 ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
 ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
 ENV CHROME_MCP_VERSION="${CHROME_MCP_VERSION}"
+ENV PLAYWRIGHT_BROWSER_SOURCE="${PLAYWRIGHT_BROWSER_SOURCE}"
+ENV PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}"
 ENV PLAYWRIGHT_MCP_EXECUTABLE_PATH="${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"
 ENV GITHUB_MCP_URL="${GITHUB_MCP_URL}"
 ENV OPENAI_DOCS_MCP_URL="${OPENAI_DOCS_MCP_URL}"
 ENV PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}"
 ENV CHROME_MCP_STARTUP_TIMEOUT_SEC="${CHROME_MCP_STARTUP_TIMEOUT_SEC}"
+ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
 
 # Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -136,6 +141,14 @@ RUN npm install -g codex.tgz \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/docs
 
 RUN set -eux; \
+    case "${PLAYWRIGHT_BROWSER_SOURCE}" in \
+      auto|playwright|system) ;; \
+      *) echo "Unsupported PLAYWRIGHT_BROWSER_SOURCE=${PLAYWRIGHT_BROWSER_SOURCE}; expected auto, playwright, or system" >&2; exit 1 ;; \
+    esac; \
+    case "${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}" in \
+      ''|*[!0-9]*) echo "PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC must be a positive integer number of seconds" >&2; exit 1 ;; \
+      0) echo "PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC must be greater than zero" >&2; exit 1 ;; \
+    esac; \
     for spec in \
       "Playwright|${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}|${PLAYWRIGHT_MCP_PACKAGE}" \
       "Chrome DevTools|${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}|${CHROME_MCP_PACKAGE}"; do \
@@ -151,8 +164,33 @@ RUN set -eux; \
       fi; \
       echo "Installed ${label} MCP package (${package_spec})"; \
     done; \
-    echo "Using system Chromium for Playwright MCP at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
-    test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"
+    mkdir -p /home/node/.codex "${PLAYWRIGHT_BROWSERS_PATH}"; \
+    printf '%s\n' "${PLAYWRIGHT_BROWSER_SOURCE}" > /home/node/.codex/playwright-browser-source-requested; \
+    selected_browser_source="system"; \
+    if [ "${PLAYWRIGHT_BROWSER_SOURCE}" = "system" ]; then \
+      echo "Using system Chromium for Playwright MCP at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
+      test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
+    else \
+      rm -rf "${PLAYWRIGHT_BROWSERS_PATH}/__dirlock"; \
+      echo "Trying Playwright-managed Chromium install with ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s timeout"; \
+      if timeout --kill-after=30s "${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s" playwright-mcp install-browser chromium chromium-headless-shell; then \
+        selected_browser_source="playwright"; \
+        echo "Using Playwright-managed Chromium for Playwright MCP"; \
+      else \
+        install_status=$?; \
+        if [ "${PLAYWRIGHT_BROWSER_SOURCE}" = "playwright" ]; then \
+          echo "Playwright-managed Chromium install failed or timed out after ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s, and PLAYWRIGHT_BROWSER_SOURCE=playwright requires it." >&2; \
+          exit "${install_status}"; \
+        fi; \
+        rm -rf "${PLAYWRIGHT_BROWSERS_PATH}"; \
+        mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"; \
+        echo "WARNING: Playwright-managed Chromium install failed or timed out after ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s; falling back to system Chromium at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}." >&2; \
+        echo "After the image builds, check browser downloads with:" >&2; \
+        echo "  docker run --rm <image-tag> bash -lc 'timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'" >&2; \
+        test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
+      fi; \
+    fi; \
+    printf '%s\n' "${selected_browser_source}" > /home/node/.codex/playwright-browser-source
 
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi-camera/app-server-proxy.js /home/node/app-server-proxy.js
@@ -186,7 +224,13 @@ USER node
 
 # Default workspace under the user's home directory so it can be bind-mounted easily.
 WORKDIR /home/node/workdir
-RUN mkdir -p /home/node/workdir && \
+RUN mkdir -p /home/node/workdir /home/node/.codex && \
+  selected_browser_source=$(cat /home/node/.codex/playwright-browser-source) && \
+  case "$selected_browser_source" in \
+    playwright) playwright_args="args = [\"-y\", \"${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}\", \"--browser\", \"chromium\"]" ;; \
+    system) playwright_args="args = [\"-y\", \"${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}\", \"--browser\", \"chromium\", \"--executable-path\", \"${PLAYWRIGHT_MCP_EXECUTABLE_PATH}\"]" ;; \
+    *) echo "Unsupported Playwright browser source: $selected_browser_source" >&2; exit 1 ;; \
+  esac && \
   cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
 
@@ -195,7 +239,7 @@ url = "${OPENAI_DOCS_MCP_URL}"
 
 [mcp_servers.playwright]
 command = "npx"
-args = ["-y", "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}", "--browser", "chromium", "--executable-path", "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"]
+${playwright_args}
 startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}
 
 [mcp_servers.chrome_devtools]

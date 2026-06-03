@@ -60,13 +60,35 @@ What the script does:
    Docker build.
 6. Runs `docker build` with the generated artifact to produce the final image.
 
-## MCP startup timeout tuning
+## Playwright browser selection
 
-The image installs Debian `chromium` and configures Playwright MCP to launch it
-through `/opt/google/chrome/chrome`. This avoids downloading Playwright-managed
-browser archives during `docker build`, which can be very slow on Raspberry Pi
-hosts. Override the path with `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a
-different Chromium-compatible executable.
+By default the build uses `PLAYWRIGHT_BROWSER_SOURCE=auto`: it tries to install
+Playwright-managed Chromium first, with a bounded timeout, then falls back to the
+Debian `chromium` package at `/opt/google/chrome/chrome` if the Playwright
+download fails or times out. When fallback happens, the builder prints a warning
+and a `docker run ... install-browser ...` command you can use to check whether
+Playwright browser downloads are working again.
+
+Useful overrides:
+
+```shell
+# Default: try Playwright-managed Chromium, fall back to system Chromium.
+PLAYWRIGHT_BROWSER_SOURCE=auto
+
+# Require Playwright-managed Chromium; fail the build if it cannot be installed.
+PLAYWRIGHT_BROWSER_SOURCE=playwright
+
+# Skip Playwright browser downloads and always use Debian Chromium.
+PLAYWRIGHT_BROWSER_SOURCE=system
+
+# Default timeout for the Playwright browser install attempt.
+PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=600
+```
+
+Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a different
+Chromium-compatible system executable.
+
+## MCP startup timeout tuning
 
 The generated image sets a default Playwright MCP startup timeout in
 `/home/node/.codex/config.toml`:
