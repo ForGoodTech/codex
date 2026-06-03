@@ -77,12 +77,10 @@ pushd "$CLI_ROOT" > /dev/null
 
 pnpm install
 
-function fetch_release_binary() {
-  local binary_name=$1
-  local target_triple=$2
-  local output_path=$3
-  local required=${4:-1}
-  local archive_name="${binary_name}-${target_triple}.tar.gz"
+function fetch_codex_package_archive() {
+  local target_triple=$1
+  local output_dir=$2
+  local archive_name="codex-package-${target_triple}.tar.gz"
   local download_url="https://github.com/openai/codex/releases/download/${CODEX_RELEASE_TAG}/${archive_name}"
   local tmpdir
   tmpdir=$(mktemp -d)
@@ -90,106 +88,28 @@ function fetch_release_binary() {
 
   if ! curl -fLsS "$download_url" -o "$archive_path"; then
     rm -rf "$tmpdir"
-    if [[ "$required" -eq 1 ]]; then
-      echo "Failed to download $archive_name from $download_url" >&2
-      echo "If this release does not publish ${binary_name}-${target_triple}, set CODEX_RELEASE_TAG to a compatible tag." >&2
-      exit 1
-    fi
-    return 1
+    echo "Failed to download $archive_name from $download_url" >&2
+    echo "If this release does not publish codex-package-${target_triple}, set CODEX_RELEASE_TAG to a compatible tag." >&2
+    exit 1
   fi
 
-  tar -xzf "$archive_path" -C "$tmpdir"
-  local extracted_binary="$tmpdir/$binary_name"
-  local triple_named_binary="$tmpdir/${binary_name}-${target_triple}"
-  if [[ ! -f "$extracted_binary" && -f "$triple_named_binary" ]]; then
-    extracted_binary="$triple_named_binary"
-  fi
-
-  if [[ ! -f "$extracted_binary" ]]; then
-    local found_binary
-    found_binary=$(find "$tmpdir" -maxdepth 3 -type f \( -name "$binary_name" -o -name "${binary_name}-${target_triple}" \) | head -n 1 || true)
-    if [[ -n "$found_binary" ]]; then
-      extracted_binary="$found_binary"
-    fi
-  fi
-
-  if [[ ! -f "$extracted_binary" ]]; then
-    if [[ "$required" -eq 1 ]]; then
-      echo "Expected binary $binary_name was not found in $archive_name" >&2
-      echo "Archive contents:" >&2
-      find "$tmpdir" -maxdepth 3 -type f | sed "s|$tmpdir/||" >&2 || true
-      rm -rf "$tmpdir"
-      exit 1
-    fi
-    rm -rf "$tmpdir"
-    return 1
-  fi
-
-  mkdir -p "$(dirname "$output_path")"
-  cp -f "$extracted_binary" "$output_path"
-  chmod 755 "$output_path" 2>/dev/null || true
+  rm -rf "$output_dir"
+  mkdir -p "$output_dir"
+  tar -xzf "$archive_path" -C "$output_dir"
   rm -rf "$tmpdir"
+
+  if [[ ! -x "$output_dir/bin/codex" || ! -f "$output_dir/codex-package.json" ]]; then
+    echo "Expected Codex package layout was not found in $archive_name" >&2
+    echo "Archive contents:" >&2
+    find "$output_dir" -maxdepth 4 -type f | sed "s|$output_dir/||" >&2 || true
+    exit 1
+  fi
 }
-
-function ensure_rg_binary() {
-  local rg_path
-  rg_path=$(command -v rg || true)
-  if [[ -n "$rg_path" ]]; then
-    echo "$rg_path"
-    return
-  fi
-
-  if command -v apt-get >/dev/null 2>&1 && [[ $(id -u) -eq 0 ]]; then
-    apt-get update
-    apt-get install -y --no-install-recommends ripgrep
-    rg_path=$(command -v rg || true)
-    if [[ -n "$rg_path" ]]; then
-      echo "$rg_path"
-      return
-    fi
-  fi
-
-  if command -v cargo >/dev/null 2>&1; then
-    local rg_root="$REPO_ROOT/target/ripgrep-install"
-    mkdir -p "$rg_root"
-    cargo install --locked ripgrep --root "$rg_root"
-    if [[ -x "$rg_root/bin/rg" ]]; then
-      echo "$rg_root/bin/rg"
-      return
-    fi
-  fi
-
-  echo "ripgrep (rg) not found in PATH and automatic installation failed." >&2
-  echo "Install ripgrep manually (e.g., via apt or cargo install ripgrep) and re-run." >&2
-  exit 1
-}
-
-RG_BIN_SRC=$(ensure_rg_binary)
-
-STAGED_BIN_ROOT="$REPO_ROOT/target/codex-release-bin/$CODEX_RELEASE_TAG/$TARGET_TRIPLE"
-CODEX_BIN_SRC="$STAGED_BIN_ROOT/codex"
-
-fetch_release_binary "codex" "$TARGET_TRIPLE" "$CODEX_BIN_SRC"
-LINUX_SANDBOX_BIN_SRC=""
-echo "Using bundled codex linux-sandbox shim for $TARGET_TRIPLE (no standalone codex-linux-sandbox release asset download)." >&2
 
 TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
-rm -rf "$TARGET_VENDOR"
-mkdir -p "$TARGET_VENDOR/codex" "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/codex-linux-sandbox" "$TARGET_VENDOR/path"
+fetch_codex_package_archive "$TARGET_TRIPLE" "$TARGET_VENDOR"
 
-function stage_binary() {
-  local src=$1
-  local dest=$2
-
-  if install -Dm755 "$src" "$dest" 2>/dev/null; then
-    return
-  fi
-
-  cp -f "$src" "$dest"
-  chmod 755 "$dest" 2>/dev/null || true
-}
-
-stage_binary "$CODEX_BIN_SRC" "$TARGET_VENDOR/codex/codex"
+mkdir -p "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/codex-linux-sandbox"
 cat > "$TARGET_VENDOR/codex-app-server/codex-app-server" <<'EOF'
 #!/bin/sh
 set -eu
@@ -200,13 +120,10 @@ if command -v readlink >/dev/null 2>&1; then
     SELF_PATH="$RESOLVED_PATH"
   fi
 fi
-exec "$(dirname "$SELF_PATH")/../codex/codex" app-server "$@"
+exec "$(dirname "$SELF_PATH")/../bin/codex" app-server "$@"
 EOF
 chmod 755 "$TARGET_VENDOR/codex-app-server/codex-app-server" 2>/dev/null || true
-if [[ -n "$LINUX_SANDBOX_BIN_SRC" ]]; then
-  stage_binary "$LINUX_SANDBOX_BIN_SRC" "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox"
-else
-  cat > "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" <<'EOF'
+cat > "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" <<'EOF'
 #!/bin/sh
 set -eu
 SELF_PATH="${0}"
@@ -216,11 +133,19 @@ if command -v readlink >/dev/null 2>&1; then
     SELF_PATH="$RESOLVED_PATH"
   fi
 fi
-exec "$(dirname "$SELF_PATH")/../codex/codex" linux-sandbox "$@"
+exec "$(dirname "$SELF_PATH")/../bin/codex" linux-sandbox "$@"
 EOF
-  chmod 755 "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" 2>/dev/null || true
-fi
-stage_binary "$RG_BIN_SRC" "$TARGET_VENDOR/path/rg"
+chmod 755 "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" 2>/dev/null || true
+
+for staged_binary in \
+  "$TARGET_VENDOR/bin/codex" \
+  "$TARGET_VENDOR/codex-path/rg" \
+  "$TARGET_VENDOR/codex-resources/bwrap" \
+  "$TARGET_VENDOR/codex-resources/zsh/bin/zsh"; do
+  if [[ -f "$staged_binary" ]]; then
+    chmod 755 "$staged_binary" 2>/dev/null || true
+  fi
+done
 
 mkdir -p dist
 rm -f dist/openai-codex-*.tgz dist/codex.tgz
@@ -300,6 +225,18 @@ set -euo pipefail
 config_file=/home/node/.codex/config.toml
 if [[ ! -f "$config_file" ]]; then
   echo "Missing default Codex MCP config file: $config_file" >&2
+  exit 1
+fi
+
+for binary in codex codex-app-server codex-linux-sandbox; do
+  if ! command -v "$binary" >/dev/null 2>&1; then
+    echo "Missing expected Codex runtime binary: $binary" >&2
+    exit 1
+  fi
+done
+
+if ! codex --version >/dev/null; then
+  echo "Codex CLI launcher failed in image $IMAGE_TAG" >&2
   exit 1
 fi
 
@@ -463,7 +400,7 @@ then
   exit 1
 fi
 
-echo "Verified MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
+echo "Verified Codex CLI, MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
 '
 
 popd > /dev/null

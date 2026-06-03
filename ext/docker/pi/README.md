@@ -48,16 +48,16 @@ What the script does:
 1. Installs JavaScript dependencies for the CLI with `pnpm install`.
 2. Selects the release tag, `rust-v0.136.0` by default unless a tag is provided
    explicitly.
-3. Downloads the `codex` release tarball for the current target triple.
+3. Downloads the `codex-package` release tarball for the current target triple.
    - The script always creates a `codex-app-server` shim that runs
      `codex app-server` so the existing proxy contract is satisfied across
      release tags.
    - The script creates a `codex-linux-sandbox` shim that runs
      `codex linux-sandbox`.
-4. Gathers the binaries and `rg` under `codex-cli/vendor/<target-triple>/` so
-   the npm package can ship them.
-5. Packs the CLI with `pnpm pack` into `dist/codex.tgz` and feeds it into the
-   Docker build.
+4. Gathers the native package payload under `codex-cli/vendor/<target-triple>/` so
+   Docker can copy it into the installed CLI package.
+5. Packs the CLI launcher with `pnpm pack` into `dist/codex.tgz` and feeds it
+   into the Docker build with the staged native package payload.
 6. Runs `docker build` with the generated artifact to produce the final image.
 
 ## Playwright browser selection
