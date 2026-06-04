@@ -90,31 +90,22 @@ ENV PATH=$PATH:/usr/local/share/npm-global/bin
 
 # Install codex
 COPY codex-cli/dist/codex.tgz codex.tgz
-COPY --chown=node:node codex-cli/vendor /tmp/codex-vendor
-RUN npm install -g codex.tgz \
+COPY codex-cli/dist/codex-platform.tgz codex-platform.tgz
+RUN npm install -g --omit=optional codex.tgz codex-platform.tgz \
+  && GLOBAL_NODE_ROOT="/usr/local/share/npm-global/lib/node_modules" \
   && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
-  && rm -rf "${INSTALL_ROOT}/vendor" \
-  && cp -a /tmp/codex-vendor "${INSTALL_ROOT}/vendor" \
-  && rm -rf /tmp/codex-vendor \
   && case "$(node -p 'process.arch')" in \
        arm64) PLATFORM_PACKAGE="@openai/codex-linux-arm64" ;; \
        x64) PLATFORM_PACKAGE="@openai/codex-linux-x64" ;; \
        *) echo "Unsupported Node architecture: $(node -p 'process.arch')" >&2; exit 1 ;; \
      esac \
-  && PLATFORM_PACKAGE_DIR="${INSTALL_ROOT}/node_modules/${PLATFORM_PACKAGE}" \
-  && mkdir -p "${PLATFORM_PACKAGE_DIR}" /home/node/node_modules/@openai \
-  && printf '{"name":"%s","version":"0.0.0-local","private":true}\n' "${PLATFORM_PACKAGE}" > "${PLATFORM_PACKAGE_DIR}/package.json" \
-  && ln -sfn "${INSTALL_ROOT}/vendor" "${PLATFORM_PACKAGE_DIR}/vendor" \
+  && mkdir -p /home/node/node_modules/@openai \
   && ln -sfn "${INSTALL_ROOT}" /home/node/node_modules/@openai/codex \
-  && find "${INSTALL_ROOT}/vendor" -type f \( -path '*/bin/codex' -o -path '*/codex-app-server/codex-app-server' -o -path '*/codex-linux-sandbox/codex-linux-sandbox' -o -path '*/codex-path/rg' -o -path '*/codex-resources/bwrap' -o -path '*/codex-resources/zsh/bin/zsh' \) -exec chmod 755 {} + \
-  && APP_SERVER_BIN=$(find "${INSTALL_ROOT}/vendor" -type f -name codex-app-server | head -n 1) \
-  && if [ -n "$APP_SERVER_BIN" ]; then \
-       ln -sf "$APP_SERVER_BIN" /usr/local/share/npm-global/bin/codex-app-server; \
-     fi \
-  && LINUX_SANDBOX_BIN=$(find "${INSTALL_ROOT}/vendor" -type f -name codex-linux-sandbox | head -n 1) \
-  && if [ -n "$LINUX_SANDBOX_BIN" ]; then \
-       ln -sf "$LINUX_SANDBOX_BIN" /usr/local/share/npm-global/bin/codex-linux-sandbox; \
-     fi \
+  && ln -sfn "${GLOBAL_NODE_ROOT}/${PLATFORM_PACKAGE}" "/home/node/node_modules/${PLATFORM_PACKAGE}" \
+  && find "${GLOBAL_NODE_ROOT}/@openai" -type f \( -path '*/bin/codex' -o -path '*/codex-path/rg' -o -path '*/codex-resources/bwrap' -o -path '*/codex-resources/zsh/bin/zsh' \) -exec chmod 755 {} + \
+  && printf '%s\n' '#!/bin/sh' 'exec /usr/local/share/npm-global/bin/codex app-server "$@"' > /usr/local/share/npm-global/bin/codex-app-server \
+  && printf '%s\n' '#!/bin/sh' 'exec /usr/local/share/npm-global/bin/codex linux-sandbox "$@"' > /usr/local/share/npm-global/bin/codex-linux-sandbox \
+  && chmod 755 /usr/local/share/npm-global/bin/codex-app-server /usr/local/share/npm-global/bin/codex-linux-sandbox \
   && npm cache clean --force \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/node_modules/.cache \
   && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/tests \

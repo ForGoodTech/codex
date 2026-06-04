@@ -34,7 +34,6 @@ fi
 if [[ $# -ge 2 ]]; then
   CODEX_RELEASE_TAG=$2
 fi
-VENDOR_DIR="$CLI_ROOT/vendor"
 
 case "$PLAYWRIGHT_BROWSER_SOURCE" in
   auto|playwright|system) ;;
@@ -61,9 +60,13 @@ ARCH=$(uname -m)
 case "$ARCH" in
   aarch64)
     TARGET_TRIPLE="aarch64-unknown-linux-musl"
+    NPM_PLATFORM="linux-arm64"
+    PLATFORM_PACKAGE_NAME="@openai/codex-linux-arm64"
     ;;
   x86_64)
     TARGET_TRIPLE="x86_64-unknown-linux-musl"
+    NPM_PLATFORM="linux-x64"
+    PLATFORM_PACKAGE_NAME="@openai/codex-linux-x64"
     ;;
   *)
     echo "Unsupported architecture: $ARCH" >&2
@@ -71,86 +74,79 @@ case "$ARCH" in
     ;;
 esac
 
+CODEX_VERSION=${CODEX_RELEASE_TAG#rust-v}
+if [[ "$CODEX_VERSION" == "$CODEX_RELEASE_TAG" ]]; then
+  echo "Unsupported Codex release tag: $CODEX_RELEASE_TAG (expected rust-v<version>)" >&2
+  exit 1
+fi
+
 echo "Using Codex release tag: $CODEX_RELEASE_TAG (default: $DEFAULT_CODEX_RELEASE_TAG)"
 
 pushd "$CLI_ROOT" > /dev/null
 
-pnpm install
+function download_release_asset() {
+  local asset_name=$1
+  local output_path=$2
+  local download_url="https://github.com/openai/codex/releases/download/${CODEX_RELEASE_TAG}/${asset_name}"
 
-function fetch_codex_package_archive() {
-  local target_triple=$1
-  local output_dir=$2
-  local archive_name="codex-package-${target_triple}.tar.gz"
-  local download_url="https://github.com/openai/codex/releases/download/${CODEX_RELEASE_TAG}/${archive_name}"
-  local tmpdir
-  tmpdir=$(mktemp -d)
-  local archive_path="$tmpdir/$archive_name"
-
-  if ! curl -fLsS "$download_url" -o "$archive_path"; then
-    rm -rf "$tmpdir"
-    echo "Failed to download $archive_name from $download_url" >&2
-    echo "If this release does not publish codex-package-${target_triple}, set CODEX_RELEASE_TAG to a compatible tag." >&2
-    exit 1
-  fi
-
-  rm -rf "$output_dir"
-  mkdir -p "$output_dir"
-  tar -xzf "$archive_path" -C "$output_dir"
-  rm -rf "$tmpdir"
-
-  if [[ ! -x "$output_dir/bin/codex" || ! -f "$output_dir/codex-package.json" ]]; then
-    echo "Expected Codex package layout was not found in $archive_name" >&2
-    echo "Archive contents:" >&2
-    find "$output_dir" -maxdepth 4 -type f | sed "s|$output_dir/||" >&2 || true
+  mkdir -p "$(dirname "$output_path")"
+  if ! curl -fLsS "$download_url" -o "$output_path"; then
+    rm -f "$output_path"
+    echo "Failed to download $asset_name from $download_url" >&2
+    echo "If this release does not publish $asset_name, set CODEX_RELEASE_TAG to a compatible tag." >&2
     exit 1
   fi
 }
 
-TARGET_VENDOR="$VENDOR_DIR/$TARGET_TRIPLE"
-fetch_codex_package_archive "$TARGET_TRIPLE" "$TARGET_VENDOR"
+function build_platform_alias_package() {
+  local platform_tarball=$1
+  local output_path=$2
+  local package_name=$3
+  local tmpdir
+  tmpdir=$(mktemp -d)
 
-mkdir -p "$TARGET_VENDOR/codex-app-server" "$TARGET_VENDOR/codex-linux-sandbox"
-cat > "$TARGET_VENDOR/codex-app-server/codex-app-server" <<'EOF'
-#!/bin/sh
-set -eu
-SELF_PATH="${0}"
-if command -v readlink >/dev/null 2>&1; then
-  RESOLVED_PATH="$(readlink -f "$SELF_PATH" 2>/dev/null || true)"
-  if [ -n "$RESOLVED_PATH" ]; then
-    SELF_PATH="$RESOLVED_PATH"
-  fi
-fi
-exec "$(dirname "$SELF_PATH")/../bin/codex" app-server "$@"
-EOF
-chmod 755 "$TARGET_VENDOR/codex-app-server/codex-app-server" 2>/dev/null || true
-cat > "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" <<'EOF'
-#!/bin/sh
-set -eu
-SELF_PATH="${0}"
-if command -v readlink >/dev/null 2>&1; then
-  RESOLVED_PATH="$(readlink -f "$SELF_PATH" 2>/dev/null || true)"
-  if [ -n "$RESOLVED_PATH" ]; then
-    SELF_PATH="$RESOLVED_PATH"
-  fi
-fi
-exec "$(dirname "$SELF_PATH")/../bin/codex" linux-sandbox "$@"
-EOF
-chmod 755 "$TARGET_VENDOR/codex-linux-sandbox/codex-linux-sandbox" 2>/dev/null || true
+  tar -xzf "$platform_tarball" -C "$tmpdir"
 
-for staged_binary in \
-  "$TARGET_VENDOR/bin/codex" \
-  "$TARGET_VENDOR/codex-path/rg" \
-  "$TARGET_VENDOR/codex-resources/bwrap" \
-  "$TARGET_VENDOR/codex-resources/zsh/bin/zsh"; do
-  if [[ -f "$staged_binary" ]]; then
-    chmod 755 "$staged_binary" 2>/dev/null || true
+  if [[ ! -x "$tmpdir/package/vendor/$TARGET_TRIPLE/bin/codex" || ! -f "$tmpdir/package/vendor/$TARGET_TRIPLE/codex-package.json" ]]; then
+    echo "Expected Codex platform package layout was not found in $platform_tarball" >&2
+    echo "Archive contents:" >&2
+    find "$tmpdir/package" -maxdepth 5 -type f | sed "s|$tmpdir/package/||" >&2 || true
+    rm -rf "$tmpdir"
+    exit 1
   fi
-done
+
+  node - "$tmpdir/package/package.json" "$package_name" <<'NODE'
+const fs = require("node:fs");
+
+const packageJsonPath = process.argv[2];
+const packageName = process.argv[3];
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+packageJson.name = packageName;
+packageJson.private = true;
+fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+NODE
+
+  mkdir -p "$tmpdir/pack"
+  npm pack "$tmpdir/package" --pack-destination "$tmpdir/pack" >/dev/null
+  local packed_tarball
+  packed_tarball=$(find "$tmpdir/pack" -maxdepth 1 -type f -name "*.tgz" | head -n 1)
+  if [[ -z "$packed_tarball" ]]; then
+    echo "Failed to pack $package_name" >&2
+    rm -rf "$tmpdir"
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$output_path")"
+  mv "$packed_tarball" "$output_path"
+  rm -rf "$tmpdir"
+}
 
 mkdir -p dist
-rm -f dist/openai-codex-*.tgz dist/codex.tgz
-pnpm pack --pack-destination dist
-mv dist/openai-codex-*.tgz dist/codex.tgz
+rm -f dist/codex.tgz dist/codex-platform-source.tgz dist/codex-platform.tgz
+download_release_asset "codex-npm-${CODEX_VERSION}.tgz" dist/codex.tgz
+download_release_asset "codex-npm-${NPM_PLATFORM}-${CODEX_VERSION}.tgz" dist/codex-platform-source.tgz
+build_platform_alias_package dist/codex-platform-source.tgz dist/codex-platform.tgz "$PLATFORM_PACKAGE_NAME"
+rm -f dist/codex-platform-source.tgz
 
 function cleanup_existing_image() {
   if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
@@ -219,7 +215,7 @@ docker run --rm \
   -e CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   -e GITHUB_MCP_URL="$GITHUB_MCP_URL" \
   -e IMAGE_TAG="$IMAGE_TAG" \
-  "$IMAGE_TAG" bash -lc '
+  "$IMAGE_TAG" bash -c '
 set -euo pipefail
 
 config_file=/home/node/.codex/config.toml
