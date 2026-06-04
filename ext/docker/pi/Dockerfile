@@ -6,8 +6,8 @@ ARG PLAYWRIGHT_MCP_PACKAGE="@playwright/mcp"
 ARG PLAYWRIGHT_MCP_VERSION="latest"
 ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
 ARG CHROME_MCP_VERSION="latest"
-ARG PLAYWRIGHT_BROWSER_SOURCE="auto"
-ARG PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="1800"
+ARG PLAYWRIGHT_BROWSER_SOURCE="system"
+ARG PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="300"
 ARG PLAYWRIGHT_MCP_EXECUTABLE_PATH="/opt/google/chrome/chrome"
 ARG GITHUB_MCP_URL="https://api.githubcopilot.com/mcp/"
 ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
@@ -160,7 +160,7 @@ RUN set -eux; \
         mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"; \
         echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] WARNING: Playwright-managed Chromium install exited with status ${install_status} after at most ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s; falling back to system Chromium at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}." >&2; \
         echo "After the image builds, check browser downloads with:" >&2; \
-        echo "  docker run --rm <image-tag> bash -lc 'timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'" >&2; \
+        echo "  docker run --rm <image-tag> bash -c 'timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'" >&2; \
         test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
       fi; \
     fi; \

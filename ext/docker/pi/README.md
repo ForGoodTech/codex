@@ -60,33 +60,52 @@ What the script does:
    build so the launcher can resolve its native optional dependency.
 6. Runs `docker build` with the generated artifact to produce the final image.
 
-## Playwright browser selection
+## Playwright Browser Selection
 
-By default the build uses `PLAYWRIGHT_BROWSER_SOURCE=auto`: it tries to install
-Playwright-managed Chromium first, with a bounded timeout, then falls back to the
-Debian `chromium` package at `/opt/google/chrome/chrome` if the Playwright
-download fails or times out. When fallback happens, the builder prints a warning
-and a `docker run ... install-browser ...` command you can use to check whether
-Playwright browser downloads are working again.
+The default build uses `PLAYWRIGHT_BROWSER_SOURCE=system`. This is the
+recommended setting for Raspberry Pi hosts because it skips Playwright-managed
+browser downloads during `docker build` and uses the Debian `chromium` package
+installed in the image at `/opt/google/chrome/chrome`.
+
+For the most reliable build, run:
+
+```shell
+cd ext/docker/pi
+./build_image.sh
+```
+
+The generated Codex config points Playwright MCP at the system Chromium wrapper:
+
+```toml
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--executable-path", "/opt/google/chrome/chrome"]
+```
 
 Useful overrides:
 
 ```shell
-# Default: try Playwright-managed Chromium, fall back to system Chromium.
-PLAYWRIGHT_BROWSER_SOURCE=auto
+# Default and recommended for Pi: skip browser downloads, use Debian Chromium.
+PLAYWRIGHT_BROWSER_SOURCE=system ./build_image.sh
 
-# Require Playwright-managed Chromium; fail the build if it cannot be installed.
-PLAYWRIGHT_BROWSER_SOURCE=playwright
+# Try Playwright-managed Chromium first, then fall back to system Chromium.
+PLAYWRIGHT_BROWSER_SOURCE=auto ./build_image.sh
 
-# Skip Playwright browser downloads and always use Debian Chromium.
-PLAYWRIGHT_BROWSER_SOURCE=system
+# Require Playwright-managed Chromium; fail if it cannot be installed.
+PLAYWRIGHT_BROWSER_SOURCE=playwright ./build_image.sh
 
-# Default timeout for the Playwright browser install attempt.
-PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=1800
+# Timeout for the Playwright-managed browser install attempt when using
+# PLAYWRIGHT_BROWSER_SOURCE=auto or playwright.
+PLAYWRIGHT_BROWSER_SOURCE=auto PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=300 ./build_image.sh
+
+# Use a different Chromium-compatible executable inside the image.
+PLAYWRIGHT_MCP_EXECUTABLE_PATH=/path/to/chromium ./build_image.sh
 ```
 
-Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a different
-Chromium-compatible system executable.
+Use `PLAYWRIGHT_BROWSER_SOURCE=auto` or `playwright` only when you specifically
+need Playwright-managed browser binaries. Those modes depend on downloading
+large browser artifacts during the Docker build and are more likely to fail on
+slow or unreliable networks.
 
 ## MCP startup timeout tuning
 

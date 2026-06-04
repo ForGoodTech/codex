@@ -13,8 +13,8 @@ DEFAULT_CODEX_RELEASE_TAG="rust-v0.136.0"
 CODEX_RELEASE_TAG=${CODEX_RELEASE_TAG:-$DEFAULT_CODEX_RELEASE_TAG}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
 PLAYWRIGHT_MCP_VERSION=${PLAYWRIGHT_MCP_VERSION:-latest}
-PLAYWRIGHT_BROWSER_SOURCE=${PLAYWRIGHT_BROWSER_SOURCE:-auto}
-PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC:-1800}
+PLAYWRIGHT_BROWSER_SOURCE=${PLAYWRIGHT_BROWSER_SOURCE:-system}
+PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC:-300}
 PLAYWRIGHT_MCP_EXECUTABLE_PATH=${PLAYWRIGHT_MCP_EXECUTABLE_PATH:-/opt/google/chrome/chrome}
 CHROME_MCP_PACKAGE=${CHROME_MCP_PACKAGE:-chrome-devtools-mcp}
 CHROME_MCP_VERSION=${CHROME_MCP_VERSION:-latest}
@@ -310,7 +310,7 @@ case "$playwright_browser_source" in
       esac
       echo "WARNING: Playwright-managed Chromium ${install_status_message} during build; using system Chromium at $PLAYWRIGHT_MCP_EXECUTABLE_PATH." >&2
       echo "To check whether Playwright-managed Chromium is downloadable now, run:" >&2
-      echo "  docker run --rm ${IMAGE_TAG} bash -lc '\''timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'\''" >&2
+      echo "  docker run --rm ${IMAGE_TAG} bash -c '\''timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'\''" >&2
     fi
     ;;
   *)

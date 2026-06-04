@@ -50,14 +50,30 @@ RASPBERRY_PI_APT_SUITE=bookworm
 Set `INSTALL_RPICAM_PACKAGES=false` to build a non-camera development image, or
 `INSTALL_RPICAM_PACKAGES=true` to force the package install.
 
-Like `ext/docker/pi`, the build uses `PLAYWRIGHT_BROWSER_SOURCE=auto` by
-default: it tries Playwright-managed Chromium first with a bounded timeout, then
-falls back to Debian Chromium at `/opt/google/chrome/chrome` if the download
-fails or times out. Use `PLAYWRIGHT_BROWSER_SOURCE=playwright` to require the
-Playwright-managed browser, `PLAYWRIGHT_BROWSER_SOURCE=system` to always use
-Debian Chromium, and `PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC` to change the
-default install timeout. Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you
-provide a different Chromium-compatible executable.
+Like `ext/docker/pi`, the build defaults to
+`PLAYWRIGHT_BROWSER_SOURCE=system`. This is the recommended setting for
+Raspberry Pi hosts because it skips Playwright-managed browser downloads during
+`docker build` and uses the Debian Chromium wrapper at
+`/opt/google/chrome/chrome`.
+
+Use these overrides only when needed:
+
+```shell
+# Recommended default: skip browser downloads, use Debian Chromium.
+PLAYWRIGHT_BROWSER_SOURCE=system ./build_image.sh
+
+# Try Playwright-managed Chromium first, then fall back to system Chromium.
+PLAYWRIGHT_BROWSER_SOURCE=auto ./build_image.sh
+
+# Require Playwright-managed Chromium; fail if it cannot be installed.
+PLAYWRIGHT_BROWSER_SOURCE=playwright ./build_image.sh
+
+# Timeout for the Playwright-managed browser install attempt.
+PLAYWRIGHT_BROWSER_SOURCE=auto PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC=300 ./build_image.sh
+```
+
+Override `PLAYWRIGHT_MCP_EXECUTABLE_PATH` if you provide a different
+Chromium-compatible executable inside the image.
 
 ## Run With Camera Devices
 
