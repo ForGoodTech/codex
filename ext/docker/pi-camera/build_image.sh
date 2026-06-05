@@ -229,7 +229,7 @@ if [[ ! -f "$config_file" ]]; then
   exit 1
 fi
 
-for binary in codex codex-app-server codex-linux-sandbox; do
+for binary in codex codex-app-server codex-linux-sandbox ffmpeg; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "Missing expected Codex runtime binary: $binary" >&2
     exit 1
@@ -319,7 +319,7 @@ case "$playwright_browser_source" in
     ;;
 esac
 
-for binary in ffmpeg v4l2-ctl codex-camera-device-setup codex-camera-entrypoint codex-camera-smoke-test codex-camera-rtp-stream; do
+for binary in v4l2-ctl codex-camera-device-setup codex-camera-entrypoint codex-camera-smoke-test codex-camera-rtp-stream; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "Missing expected runtime binary: $binary" >&2
     exit 1

@@ -18,7 +18,20 @@ The image built from `ext/docker/pi` includes:
 - **codex-sdk-proxy** - a Node-based TCP bridge that uses the Codex TypeScript
   SDK, which shells out to the CLI, to run turns and stream JSONL events back to
   a single TCP client.
+- **ffmpeg** - general-purpose media inspection, transcoding, and streaming
+  tooling, including RTP workflows that do not need camera hardware.
 - Common CLI dependencies such as ripgrep and the firewall helper.
+
+## Media and RTP utilities
+
+`ffmpeg` is available in the base image even when no camera hardware is mapped
+into the container. For example, external business logic can provide a media
+file or network input and let the container send an RTP stream:
+
+```shell
+ffmpeg -re -i input.mp4 -an -c:v libx264 -preset ultrafast -tune zerolatency \
+  -f rtp 'rtp://receiver:5004?pkt_size=1200'
+```
 
 ## Building the image
 
