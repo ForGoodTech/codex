@@ -7,7 +7,8 @@ Raspberry Pi camera runtime for agentic camera work inside Docker.
 
 ## What gets added
 
-- `ffmpeg` and `v4l-utils` from Debian.
+- `v4l-utils` from Debian. The base Pi image already includes `ffmpeg` for
+  media and RTP workflows.
 - `rpicam-apps-core` and `rpicam-apps-encoder` from the Raspberry Pi Bookworm
   apt archive on `arm64` and `armhf` builds.
 - `codex-camera-smoke-test`, a container-side camera/device sanity check.
