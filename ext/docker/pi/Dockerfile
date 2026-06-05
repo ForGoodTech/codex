@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   fonts-liberation \
   chromium \
   dnsutils \
+  ffmpeg \
   fzf \
   git \
   gnupg2 \
