@@ -33,6 +33,27 @@ ffmpeg -re -i input.mp4 -an -c:v libx264 -preset ultrafast -tune zerolatency \
   -f rtp 'rtp://receiver:5004?pkt_size=1200'
 ```
 
+## Runtime app surface helper
+
+When the gateway starts this image for an agent runtime app surface, it sets
+`CODEX_APP_SURFACE_CONTAINER=1`. In that mode `codex-app-server-proxy` opens a
+container-local Unix socket, `/tmp/codex-app-surface.sock` by default, and the
+image provides `codex-app-surface-send` for sending app-surface notifications to
+the gateway.
+
+Examples from inside the running container:
+
+```shell
+codex-app-surface-send media side
+codex-app-surface-send frame '{"type":"app.surface.html","title":"Clock","html":"<main>...</main>"}'
+codex-app-surface-send html /tmp/clock.html --title Clock --css /tmp/clock.css --script /tmp/clock.js
+codex-app-surface-send status "Clock running"
+```
+
+The proxy forwards only `app.surface.*` notifications through this local IPC
+path. Override the socket path with `APP_SERVER_APP_SURFACE_IPC_SOCKET`; adjust
+the maximum payload size with `APP_SERVER_APP_SURFACE_IPC_MAX_BYTES`.
+
 ## Building the image
 
 The helper script builds the npm package, stages native binaries, and produces
