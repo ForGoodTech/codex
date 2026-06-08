@@ -28,8 +28,7 @@
  * --------
  * - Single-client TCP bridge; additional connection attempts are rejected until the active client
  *   disconnects.
- * - Data is forwarded as JSONL between the client socket and the app server stdin/stdout; the proxy
- *   may augment selected request frames (for example, default developer instructions).
+ * - Data is forwarded as JSONL between the client socket and the app server stdin/stdout.
  * - The client should speak the same JSONL protocol the app server expects (see hello-app-server.js).
  */
 const net = require('node:net');
@@ -73,22 +72,6 @@ const maxAppSurfaceIpcBytes = (() => {
   const parsed = Number.parseInt(process.env.APP_SERVER_APP_SURFACE_IPC_MAX_BYTES ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 8 * 1024 * 1024;
 })();
-const mathJaxDeveloperInstructions = [
-  'If your response includes mathematics, format all math in LaTeX for MathJax rendering.',
-  'Use \\( ... \\) for inline math and \\[ ... \\] for display math.',
-  'Do not output plain-text equations without LaTeX math delimiters.',
-].join(' ');
-const appSurfaceDeveloperInstructions =
-  process.env.CODEX_APP_SURFACE_CONTAINER === '1'
-    ? [
-        'This runtime can update the popped-out app surface.',
-        'Use codex-app-surface-send to send app.surface frames over the gateway bridge.',
-        'For a document, run: codex-app-surface-send frame \'{"type":"app.surface.html","title":"Title","html":"<main>...</main>","css":"...","script":"..."}\'.',
-        'For side-by-side media and app UI, run codex-app-surface-send media side before sending the HTML frame.',
-        'If codex-app-surface-send exits successfully, say the app-surface frame was sent; do not claim that the user can see it unless there is an explicit visual confirmation.',
-        'If codex-app-surface-send is missing or fails, report the exact command error instead of saying the app is running.',
-      ].join(' ')
-    : '';
 const host = process.env.APP_SERVER_HOST ?? '0.0.0.0';
 const defaultPort = 9395;
 const authTimeoutMs = 3000;
@@ -333,32 +316,6 @@ function startAppSurfaceIpcServer() {
 
 process.on('exit', cleanupRuntime);
 
-function appendDeveloperInstructions(frame) {
-  if (!frame || typeof frame !== 'object') {
-    return frame;
-  }
-  const method = frame.method;
-  if (method !== 'thread/start' && method !== 'thread/resume') {
-    return frame;
-  }
-  const params = frame.params && typeof frame.params === 'object' ? frame.params : {};
-  const existing =
-    params.developerInstructions === undefined || params.developerInstructions === null
-      ? ''
-      : params.developerInstructions.toString().trim();
-  const developerInstructions = [mathJaxDeveloperInstructions, appSurfaceDeveloperInstructions]
-    .filter((instructions) => instructions.trim().length > 0)
-    .join('\n\n');
-  const combined = existing ? `${existing}\n\n${developerInstructions}` : developerInstructions;
-  return {
-    ...frame,
-    params: {
-      ...params,
-      developerInstructions: combined,
-    },
-  };
-}
-
 const server = net.createServer((socket) => {
   const remote = `${socket.remoteAddress}:${socket.remotePort}`;
   const connectedAtMs = Date.now();
@@ -460,7 +417,7 @@ const server = net.createServer((socket) => {
         continue;
       }
       try {
-        const frame = appendDeveloperInstructions(JSON.parse(line));
+        const frame = JSON.parse(line);
         const encodedLine = `${JSON.stringify(frame)}\n`;
         if (frame.method === 'turn/start') {
           const prompt = Array.isArray(frame.params?.input)
