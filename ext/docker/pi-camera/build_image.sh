@@ -235,6 +235,12 @@ for binary in codex codex-app-server codex-app-surface-send codex-linux-sandbox 
     exit 1
   fi
 done
+for path in /home/node/app-surface-send.js /usr/local/bin/codex-app-surface-send; do
+  if [[ ! -x "$path" ]]; then
+    echo "Missing expected executable app-surface sender path: $path" >&2
+    exit 1
+  fi
+done
 
 if ! codex --version >/dev/null; then
   echo "Codex CLI launcher failed in image $IMAGE_TAG" >&2

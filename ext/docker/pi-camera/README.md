@@ -11,8 +11,9 @@ Raspberry Pi camera runtime for agentic camera work inside Docker.
   media and RTP workflows.
 - `rpicam-apps-core` and `rpicam-apps-encoder` from the Raspberry Pi Bookworm
   apt archive on `arm64` and `armhf` builds.
-- `codex-app-surface-send`, the same app-surface notification helper provided by
-  the base Pi runtime image.
+- `/home/node/app-surface-send.js`, the same app-surface notification helper
+  provided by the base Pi runtime image. The `codex-app-surface-send` symlink is
+  also available when PATH resolves it.
 - `codex-camera-smoke-test`, a container-side camera/device sanity check.
 - `codex-camera-rtp-stream`, a container-side RTP helper around
   `rpicam-vid | ffmpeg`.
@@ -202,9 +203,9 @@ When the app-surface IPC socket is enabled, camera runtimes can use the same
 helper as agent runtimes:
 
 ```shell
-codex-app-surface-send media side
-codex-app-surface-send frame '{"type":"app.surface.html","title":"Camera Monitor","html":"<main>...</main>"}'
-codex-app-surface-send status "Live analysis running"
+/home/node/app-surface-send.js media side
+/home/node/app-surface-send.js frame '{"type":"app.surface.html","title":"Camera Monitor","html":"<main>...</main>"}'
+/home/node/app-surface-send.js status "Live analysis running"
 ```
 
 The live camera RTP stream remains the media plane; app-surface frames should add

@@ -141,6 +141,21 @@ function cleanupGitAskPass() {
   gitAskPassPath = null;
 }
 
+const runtimeBinDirs = ['/usr/local/share/npm-global/bin', '/usr/local/bin', '/usr/bin', '/bin'];
+
+function normalizeRuntimePath(value) {
+  const seen = new Set();
+  return [...runtimeBinDirs, ...(value ?? '').split(path.delimiter).filter(Boolean)]
+    .filter((dir) => {
+      if (seen.has(dir)) {
+        return false;
+      }
+      seen.add(dir);
+      return true;
+    })
+    .join(path.delimiter);
+}
+
 gitAskPassPath = createGitAskPassScript();
 if (gitAskPassPath) {
   console.log('GitHub PAT bridge is enabled for git HTTPS prompts targeting github.com.');
@@ -150,6 +165,7 @@ if (gitAskPassPath) {
 
 const appServerEnv = {
   ...buildGitEnv(process.env, gitAskPassPath),
+  PATH: normalizeRuntimePath(process.env.PATH),
   CODEX_LINUX_SANDBOX_EXE: sandboxExe,
 };
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
