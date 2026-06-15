@@ -47,6 +47,17 @@ if (!envProxyToken) {
   console.log('Using APP_SERVER_PROXY_TOKEN from environment for proxy auth handshake.');
 }
 const proxyToken = envProxyToken;
+const appSurfaceFrameMethod = 'app.surface.frame';
+const appSurfaceIpcSocketPath =
+  process.env.APP_SERVER_APP_SURFACE_IPC_SOCKET?.trim() ||
+  path.join(os.tmpdir(), 'codex-app-surface.sock');
+const appSurfaceIpcEnabled =
+  process.env.CODEX_APP_SURFACE_CONTAINER === '1' ||
+  process.env.APP_SERVER_APP_SURFACE_IPC_ENABLED === '1';
+const maxAppSurfaceIpcBytes = (() => {
+  const parsed = Number.parseInt(process.env.APP_SERVER_APP_SURFACE_IPC_MAX_BYTES ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8 * 1024 * 1024;
+})();
 const mathJaxDeveloperInstructions = [
   'If your response includes mathematics, format all math in LaTeX for MathJax rendering.',
   'Use \\( ... \\) for inline math and \\[ ... \\] for display math.',
@@ -154,20 +165,146 @@ appServer.on('error', (error) => {
   console.error('Failed to start codex-app-server:', error);
   process.exitCode = 1;
 });
-appServer.on('close', () => {
-  cleanupGitAskPass();
-});
-
-process.on('exit', cleanupGitAskPass);
-process.on('SIGINT', () => {
-  cleanupGitAskPass();
-  process.exit(130);
-});
-process.on('SIGTERM', () => {
-  cleanupGitAskPass();
-  process.exit(143);
-});
 let activeSocket = null;
+let activeSocketAuthenticated = false;
+let appSurfaceIpcServer = null;
+
+function normalizeAppSurfaceMethod(value) {
+  let method = (value ?? '').toString().trim().toLowerCase();
+  method = method.replace(/[/_]+/g, '.');
+  while (method.includes('..')) {
+    method = method.replace(/\.\.+/g, '.');
+  }
+  return method.replace(/^\.+|\.+$/g, '');
+}
+
+function isAppSurfaceMethod(value) {
+  const method = normalizeAppSurfaceMethod(value);
+  return method === appSurfaceFrameMethod || method.startsWith('app.surface.');
+}
+
+function appSurfaceNotificationFromPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('app-surface payload must be a JSON object');
+  }
+
+  const explicitMethod = typeof payload.method === 'string' ? payload.method : '';
+  const payloadType = typeof payload.type === 'string' ? payload.type : '';
+  let method = explicitMethod || (isAppSurfaceMethod(payloadType) ? payloadType : appSurfaceFrameMethod);
+  method = normalizeAppSurfaceMethod(method);
+  if (!isAppSurfaceMethod(method)) {
+    throw new Error(`app-surface method is not allowed: ${method || '<empty>'}`);
+  }
+
+  let params;
+  if (Object.prototype.hasOwnProperty.call(payload, 'params')) {
+    params = payload.params;
+  } else if (Object.prototype.hasOwnProperty.call(payload, 'frame')) {
+    params = payload.frame;
+  } else if (Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    params = payload.data;
+  } else {
+    params = payload;
+  }
+
+  if (params === undefined || params === null) {
+    params = {};
+  }
+  return { method, params };
+}
+
+function sendAppSurfaceNotification(method, params) {
+  if (!activeSocket || activeSocket.destroyed || !activeSocketAuthenticated) {
+    throw new Error('gateway connection is not authenticated');
+  }
+  const frame = {
+    method: normalizeAppSurfaceMethod(method),
+    params,
+  };
+  activeSocket.write(`${JSON.stringify(frame)}\n`);
+}
+
+function cleanupAppSurfaceIpc() {
+  if (appSurfaceIpcServer) {
+    try {
+      appSurfaceIpcServer.close();
+    } catch {
+      // best-effort shutdown during process exit
+    }
+    appSurfaceIpcServer = null;
+  }
+  if (appSurfaceIpcEnabled) {
+    try {
+      fs.rmSync(appSurfaceIpcSocketPath, { force: true });
+    } catch (error) {
+      console.warn('Failed to remove app-surface IPC socket:', error?.message ?? error);
+    }
+  }
+}
+
+function cleanupRuntime() {
+  cleanupGitAskPass();
+  cleanupAppSurfaceIpc();
+}
+
+function startAppSurfaceIpcServer() {
+  if (!appSurfaceIpcEnabled) {
+    return;
+  }
+
+  try {
+    fs.rmSync(appSurfaceIpcSocketPath, { force: true });
+  } catch (error) {
+    console.warn('Failed to remove stale app-surface IPC socket:', error?.message ?? error);
+  }
+
+  appSurfaceIpcServer = net.createServer((socket) => {
+    let body = '';
+    let rejected = false;
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk) => {
+      if (rejected) {
+        return;
+      }
+      body += chunk;
+      if (Buffer.byteLength(body, 'utf8') > maxAppSurfaceIpcBytes) {
+        rejected = true;
+        socket.end(`${JSON.stringify({ ok: false, error: 'app-surface IPC payload is too large' })}\n`);
+        socket.destroy();
+      }
+    });
+    socket.on('end', () => {
+      if (rejected) {
+        return;
+      }
+      try {
+        const payload = JSON.parse(body.trim());
+        const notification = appSurfaceNotificationFromPayload(payload);
+        sendAppSurfaceNotification(notification.method, notification.params);
+        socket.end(`${JSON.stringify({ ok: true })}\n`);
+      } catch (error) {
+        socket.end(`${JSON.stringify({ ok: false, error: error?.message ?? String(error) })}\n`);
+      }
+    });
+  });
+
+  appSurfaceIpcServer.on('error', (error) => {
+    console.error('App-surface IPC server error:', error?.message ?? error);
+  });
+  appSurfaceIpcServer.listen(appSurfaceIpcSocketPath, () => {
+    try {
+      fs.chmodSync(appSurfaceIpcSocketPath, 0o600);
+    } catch (error) {
+      console.warn('Failed to chmod app-surface IPC socket:', error?.message ?? error);
+    }
+    console.log(`App-surface IPC listening on ${appSurfaceIpcSocketPath}`);
+  });
+}
+
+appServer.on('close', () => {
+  cleanupRuntime();
+});
+process.on('exit', cleanupRuntime);
 
 function appendDeveloperInstructions(frame) {
   if (!frame || typeof frame !== 'object') {
@@ -245,6 +382,7 @@ const server = net.createServer((socket) => {
       }
       console.log('TEMP: proxy handshake passed');
       isAuthenticated = true;
+      activeSocketAuthenticated = true;
       clearTimeout(authTimeout);
       const remaining = authBuffer.subarray(newlineIndex + 1);
       authBuffer = Buffer.alloc(0);
@@ -326,6 +464,7 @@ const server = net.createServer((socket) => {
       socket.end();
     }
     activeSocket = null;
+    activeSocketAuthenticated = false;
     console.log('Client disconnected; proxy is idle and ready for the next connection.');
   };
   appServer.stdout.on('data', forwardStdout);
@@ -337,8 +476,24 @@ const server = net.createServer((socket) => {
 server.listen(port, host, () => {
   console.log(`Proxy listening on ${host}:${port}`);
 });
-process.on('SIGINT', () => {
+
+startAppSurfaceIpcServer();
+
+function shutdownProxy(signal, exitCode) {
   console.log('Shutting down proxy...');
-  server.close();
-  appServer.kill('SIGINT');
+  cleanupRuntime();
+  server.close(() => {
+    process.exit(exitCode);
+  });
+  appServer.kill(signal);
+  setTimeout(() => {
+    process.exit(exitCode);
+  }, 1000).unref();
+}
+
+process.on('SIGINT', () => {
+  shutdownProxy('SIGINT', 130);
+});
+process.on('SIGTERM', () => {
+  shutdownProxy('SIGTERM', 143);
 });
