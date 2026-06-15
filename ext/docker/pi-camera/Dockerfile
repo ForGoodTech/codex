@@ -206,7 +206,6 @@ COPY --chown=node:node ext/docker/pi-camera/camera-rtp-stream.sh /home/node/came
 RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /home/node/sdk-proxy.js /home/node/camera-smoke-test.sh /home/node/camera-rtp-stream.sh && \
   ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
   ln -sf /home/node/app-surface-send.js /usr/local/share/npm-global/bin/codex-app-surface-send && \
-  ln -sf /home/node/app-surface-send.js /usr/local/bin/codex-app-surface-send && \
   ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy && \
   ln -sf /home/node/camera-smoke-test.sh /usr/local/share/npm-global/bin/codex-camera-smoke-test && \
   ln -sf /home/node/camera-rtp-stream.sh /usr/local/share/npm-global/bin/codex-camera-rtp-stream && \
@@ -224,7 +223,8 @@ ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 # Copy and set up firewall script as root.
 USER root
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
-RUN chmod 500 /usr/local/bin/init_firewall.sh
+RUN chmod 500 /usr/local/bin/init_firewall.sh && \
+  ln -sf /home/node/app-surface-send.js /usr/local/bin/codex-app-surface-send
 
 # Drop back to non-root.
 USER node
