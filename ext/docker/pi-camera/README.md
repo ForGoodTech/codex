@@ -11,6 +11,9 @@ Raspberry Pi camera runtime for agentic camera work inside Docker.
   media and RTP workflows.
 - `rpicam-apps-core` and `rpicam-apps-encoder` from the Raspberry Pi Bookworm
   apt archive on `arm64` and `armhf` builds.
+- `/home/node/app-surface-send.js`, the same app-surface notification helper
+  provided by the base Pi runtime image. The `codex-app-surface-send` symlink is
+  also available when PATH resolves it.
 - `codex-camera-smoke-test`, a container-side camera/device sanity check.
 - `codex-camera-rtp-stream`, a container-side RTP helper around
   `rpicam-vid | ffmpeg`.
@@ -178,8 +181,10 @@ Docker, `127.0.0.1` means the current container.
 
 ## App Server Proxy
 
-The app-server proxy behavior is copied from `ext/docker/pi`. Use
-`APP_SERVER_PROXY_TOKEN` for the first-frame proxy handshake:
+The app-server proxy behavior is copied from `ext/docker/pi`, including the
+app-surface IPC socket when `CODEX_APP_SURFACE_CONTAINER=1` or
+`APP_SERVER_APP_SURFACE_IPC_ENABLED=1`. Use `APP_SERVER_PROXY_TOKEN` for the
+first-frame proxy handshake:
 
 ```json
 {"type":"auth","token":"<APP_SERVER_PROXY_TOKEN>"}
@@ -193,6 +198,18 @@ PUBLISH_APP_SERVER_PORT=1 ext/docker/pi-camera/run_camera_container.sh codex-app
 
 For container-to-container access, prefer a private Docker network instead of a
 published host port.
+
+When the app-surface IPC socket is enabled, camera runtimes can use the same
+helper as agent runtimes:
+
+```shell
+/home/node/app-surface-send.js media side
+/home/node/app-surface-send.js frame '{"type":"app.surface.html","title":"Camera Monitor","html":"<main>...</main>"}'
+/home/node/app-surface-send.js status "Live analysis running"
+```
+
+The live camera RTP stream remains the media plane; app-surface frames should add
+UI, overlays, monitoring state, controls, or alerts around that stream.
 
 ## Security Notes
 
