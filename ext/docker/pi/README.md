@@ -38,16 +38,17 @@ ffmpeg -re -i input.mp4 -an -c:v libx264 -preset ultrafast -tune zerolatency \
 When the gateway starts this image for an agent runtime app surface, it sets
 `CODEX_APP_SURFACE_CONTAINER=1`. In that mode `codex-app-server-proxy` opens a
 container-local Unix socket, `/tmp/codex-app-surface.sock` by default, and the
-image provides `codex-app-surface-send` for sending app-surface notifications to
-the gateway.
+image provides `/home/node/app-surface-send.js` for sending app-surface
+notifications to the gateway. The `codex-app-surface-send` symlink is also
+available when PATH resolves it.
 
 Examples from inside the running container:
 
 ```shell
-codex-app-surface-send media side
-codex-app-surface-send frame '{"type":"app.surface.html","title":"Clock","html":"<main>...</main>"}'
-codex-app-surface-send html /tmp/clock.html --title Clock --css /tmp/clock.css --script /tmp/clock.js
-codex-app-surface-send status "Clock running"
+/home/node/app-surface-send.js media side
+/home/node/app-surface-send.js frame '{"type":"app.surface.html","title":"Clock","html":"<main>...</main>"}'
+/home/node/app-surface-send.js html /tmp/clock.html --title Clock --css /tmp/clock.css --script /tmp/clock.js
+/home/node/app-surface-send.js status "Clock running"
 ```
 
 The proxy forwards only `app.surface.*` notifications through this local IPC
