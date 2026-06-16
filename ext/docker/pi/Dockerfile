@@ -189,7 +189,8 @@ ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 # Copy and set up firewall script as root.
 USER root
 COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
-RUN chmod 500 /usr/local/bin/init_firewall.sh
+RUN chmod 500 /usr/local/bin/init_firewall.sh && \
+  ln -sf /home/node/app-surface-send.js /usr/local/bin/codex-app-surface-send
 
 # Drop back to non-root.
 USER node
