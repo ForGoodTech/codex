@@ -102,7 +102,11 @@ group IDs that own the mapped devices. The default security posture is:
 ```text
 --security-opt no-new-privileges:true
 --cap-drop=ALL
+--sysctl net.ipv4.ping_group_range=0 2147483647
 ```
+
+The ping sysctl enables ICMP echo through Linux ping sockets without granting
+`NET_RAW` or disabling `no-new-privileges`.
 
 If the launcher finds root-only character devices, it does not bind-mount those
 nodes directly. Instead, it grants the matching device cgroup rule, adds
