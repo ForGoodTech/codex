@@ -54,6 +54,7 @@ docker_args=(
   --name "$CONTAINER_NAME"
   --security-opt no-new-privileges:true
   --cap-drop=ALL
+  --sysctl "net.ipv4.ping_group_range=0 2147483647"
   --cap-add SETGID
   --cap-add SETUID
   --network "$DOCKER_NETWORK"

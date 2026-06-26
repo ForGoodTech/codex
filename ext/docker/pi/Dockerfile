@@ -49,6 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libatk-bridge2.0-0 \
   libatk1.0-0 \
   libatspi2.0-0 \
+  libcap2-bin \
   libcups2 \
   libdbus-1-3 \
   libdrm2 \
@@ -74,6 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        printf '%s\n' '#!/bin/sh' 'if command -v xvfb-run >/dev/null 2>&1; then' '  exec xvfb-run -a --server-args="-screen 0 1280x720x24 -nolisten tcp" /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' 'fi' 'exec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' > /opt/google/chrome/chrome; \
        chmod 755 /opt/google/chrome/chrome; \
      fi \
+  && { setcap -r /usr/bin/ping 2>/dev/null || true; } \
   && rm -rf /var/lib/apt/lists/*
 
 # Ensure default node user has access to /usr/local/share
