@@ -325,7 +325,7 @@ case "$playwright_browser_source" in
     ;;
 esac
 
-for binary in v4l2-ctl codex-camera-device-setup codex-camera-entrypoint codex-camera-smoke-test codex-camera-rtp-stream; do
+for binary in v4l2-ctl codex-browser-audio-setup codex-browser-audio-rtp-stream codex-runtime-audio-setup codex-runtime-audio-rtp-stream codex-camera-device-setup codex-camera-entrypoint codex-camera-smoke-test codex-camera-rtp-stream; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "Missing expected runtime binary: $binary" >&2
     exit 1
