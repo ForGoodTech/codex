@@ -14,6 +14,8 @@ Raspberry Pi camera runtime for agentic camera work inside Docker.
 - `/home/node/app-surface-send.js`, the same app-surface notification helper
   provided by the base Pi runtime image. The `codex-app-surface-send` symlink is
   also available when PATH resolves it.
+- `codex-runtime-audio-rtp-stream`, the same runtime-audio Opus RTP helper
+  provided by the base Pi runtime image.
 - `codex-camera-smoke-test`, a container-side camera/device sanity check.
 - `codex-camera-rtp-stream`, a container-side RTP helper around
   `rpicam-vid | ffmpeg`.
@@ -214,6 +216,32 @@ helper as agent runtimes:
 
 The live camera RTP stream remains the media plane; app-surface frames should add
 UI, overlays, monitoring state, controls, or alerts around that stream.
+
+## Runtime Audio RTP
+
+The Chromium wrapper sources `/home/node/browser-audio-setup.sh` before launch.
+That setup is also available as `/home/node/runtime-audio-setup.sh`; it starts a
+user PulseAudio daemon, creates the `codex_runtime_sink` null sink, and makes it
+the default runtime audio output. Browser audio, media players, and other
+PulseAudio-aware apps can all be captured through the sink. Stream the monitor
+as Opus RTP with:
+
+```shell
+codex-runtime-audio-rtp-stream 'rtp://receiver:5006?pkt_size=1200'
+```
+
+By default the helper uses `CODEX_RUNTIME_AUDIO_CAPTURE=auto`: it captures the
+PulseAudio monitor when available and falls back to lavfi silence. For an audio
+path test, force a tone:
+
+```shell
+CODEX_RUNTIME_AUDIO_CAPTURE=lavfi \
+CODEX_RUNTIME_AUDIO_SRC='sine=frequency=440:sample_rate=48000' \
+codex-runtime-audio-rtp-stream 'rtp://receiver:5006?pkt_size=1200'
+```
+
+The older `codex-browser-audio-*` command names and `CODEX_BROWSER_AUDIO_*`
+variables remain compatibility aliases.
 
 ## Security Notes
 
