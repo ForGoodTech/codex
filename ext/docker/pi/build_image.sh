@@ -224,13 +224,13 @@ if [[ ! -f "$config_file" ]]; then
   exit 1
 fi
 
-for binary in codex codex-app-server codex-app-surface-send codex-linux-sandbox ffmpeg; do
+for binary in codex codex-app-server codex-app-surface-send codex-browser-audio-setup codex-browser-audio-rtp-stream codex-runtime-audio-setup codex-runtime-audio-rtp-stream codex-linux-sandbox ffmpeg; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "Missing expected Codex runtime binary: $binary" >&2
     exit 1
   fi
 done
-for path in /home/node/app-surface-send.js /usr/local/bin/codex-app-surface-send; do
+for path in /home/node/app-surface-send.js /home/node/browser-audio-setup.sh /home/node/browser-audio-rtp-stream.sh /home/node/runtime-audio-setup.sh /home/node/runtime-audio-rtp-stream.sh /usr/local/bin/codex-app-surface-send; do
   if [[ ! -x "$path" ]]; then
     echo "Missing expected executable app-surface sender path: $path" >&2
     exit 1
