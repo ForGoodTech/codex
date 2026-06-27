@@ -20,6 +20,10 @@ The image built from `ext/docker/pi` includes:
   a single TCP client.
 - **ffmpeg** - general-purpose media inspection, transcoding, and streaming
   tooling, including RTP workflows that do not need camera hardware.
+- **PulseAudio runtime audio capture helpers** - a per-container null sink for
+  browsers, media players, and other app output, plus
+  `codex-runtime-audio-rtp-stream`, which sends the sink monitor as Opus RTP
+  with a lavfi fallback.
 - Common CLI dependencies such as ripgrep and the firewall helper.
 
 ## Media and RTP utilities
@@ -32,6 +36,36 @@ file or network input and let the container send an RTP stream:
 ffmpeg -re -i input.mp4 -an -c:v libx264 -preset ultrafast -tune zerolatency \
   -f rtp 'rtp://receiver:5004?pkt_size=1200'
 ```
+
+Chromium is launched through `/opt/google/chrome/chrome`. The wrapper sources
+`/home/node/browser-audio-setup.sh`, which is also available as
+`/home/node/runtime-audio-setup.sh`. The setup starts a user PulseAudio daemon,
+creates the `codex_runtime_sink` null sink, and sets it as the default runtime
+audio output. The monitor source can be streamed as Opus RTP:
+
+```shell
+codex-runtime-audio-rtp-stream 'rtp://receiver:5006?pkt_size=1200'
+```
+
+Useful audio overrides:
+
+```shell
+# Default: try PulseAudio monitor capture, then fall back to lavfi silence.
+CODEX_RUNTIME_AUDIO_CAPTURE=auto
+
+# Force a lavfi test tone instead of captured runtime audio.
+CODEX_RUNTIME_AUDIO_CAPTURE=lavfi \
+CODEX_RUNTIME_AUDIO_SRC='sine=frequency=440:sample_rate=48000'
+
+# Use a different PulseAudio sink/monitor name.
+CODEX_RUNTIME_AUDIO_SINK=codex_runtime_sink
+CODEX_RUNTIME_PULSE_MONITOR=codex_runtime_sink.monitor
+```
+
+The older `codex-browser-audio-*` command names and `CODEX_BROWSER_AUDIO_*`
+variables are compatibility aliases. For a known media file, prefer direct
+FFmpeg RTP from the file. Use the runtime PulseAudio sink when the goal is to
+capture whatever an arbitrary app or browser is playing.
 
 ## Runtime app surface helper
 

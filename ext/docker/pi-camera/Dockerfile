@@ -67,6 +67,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libxrandr2 \
   man-db \
   procps \
+  pulseaudio \
+  pulseaudio-utils \
   unzip \
   util-linux \
   v4l-utils \
@@ -76,7 +78,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   zsh \
   && if [ -x /usr/bin/chromium ]; then \
        mkdir -p /opt/google/chrome; \
-       printf '%s\n' '#!/bin/sh' 'if command -v xvfb-run >/dev/null 2>&1; then' '  exec xvfb-run -a --server-args="-screen 0 1280x720x24 -nolisten tcp" /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' 'fi' 'exec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' > /opt/google/chrome/chrome; \
+       printf '%s\n' '#!/bin/sh' 'if [ -r /home/node/browser-audio-setup.sh ]; then' '  . /home/node/browser-audio-setup.sh' 'fi' 'if command -v xvfb-run >/dev/null 2>&1; then' '  exec xvfb-run -a --server-args="-screen 0 1280x720x24 -nolisten tcp" /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' 'fi' 'exec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' > /opt/google/chrome/chrome; \
        chmod 755 /opt/google/chrome/chrome; \
      fi \
   && { setcap -r /usr/bin/ping 2>/dev/null || true; } \
@@ -202,12 +204,20 @@ RUN set -eux; \
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi-camera/app-server-proxy.js /home/node/app-server-proxy.js
 COPY --chown=node:node ext/docker/pi/app-surface-send.js /home/node/app-surface-send.js
+COPY --chown=node:node ext/docker/pi/browser-audio-setup.sh /home/node/browser-audio-setup.sh
+COPY --chown=node:node ext/docker/pi/browser-audio-rtp-stream.sh /home/node/browser-audio-rtp-stream.sh
 COPY --chown=node:node ext/docker/pi-camera/sdk-proxy.js /home/node/sdk-proxy.js
 COPY --chown=node:node ext/docker/pi-camera/camera-smoke-test.sh /home/node/camera-smoke-test.sh
 COPY --chown=node:node ext/docker/pi-camera/camera-rtp-stream.sh /home/node/camera-rtp-stream.sh
-RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /home/node/sdk-proxy.js /home/node/camera-smoke-test.sh /home/node/camera-rtp-stream.sh && \
+RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /home/node/browser-audio-setup.sh /home/node/browser-audio-rtp-stream.sh /home/node/sdk-proxy.js /home/node/camera-smoke-test.sh /home/node/camera-rtp-stream.sh && \
   ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
   ln -sf /home/node/app-surface-send.js /usr/local/share/npm-global/bin/codex-app-surface-send && \
+  ln -sf /home/node/browser-audio-setup.sh /home/node/runtime-audio-setup.sh && \
+  ln -sf /home/node/browser-audio-rtp-stream.sh /home/node/runtime-audio-rtp-stream.sh && \
+  ln -sf /home/node/browser-audio-setup.sh /usr/local/share/npm-global/bin/codex-browser-audio-setup && \
+  ln -sf /home/node/browser-audio-rtp-stream.sh /usr/local/share/npm-global/bin/codex-browser-audio-rtp-stream && \
+  ln -sf /home/node/runtime-audio-setup.sh /usr/local/share/npm-global/bin/codex-runtime-audio-setup && \
+  ln -sf /home/node/runtime-audio-rtp-stream.sh /usr/local/share/npm-global/bin/codex-runtime-audio-rtp-stream && \
   ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy && \
   ln -sf /home/node/camera-smoke-test.sh /usr/local/share/npm-global/bin/codex-camera-smoke-test && \
   ln -sf /home/node/camera-rtp-stream.sh /usr/local/share/npm-global/bin/codex-camera-rtp-stream && \
