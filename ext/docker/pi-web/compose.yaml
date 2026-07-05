@@ -1,0 +1,38 @@
+services:
+  web:
+    image: ${CODEX_WEB_IMAGE:-my-codex-pi-web-image}
+    command: webdev serve
+    depends_on:
+      - mysql
+    environment:
+      WEBDEV_WORKSPACE: /workspace
+      WEBDEV_CONFIG: /workspace/sites.json
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-webdev}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-webdev}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-webdev}
+    ports:
+      - "${WEBDEV_BIND_ADDRESS:-127.0.0.1}:${WEBDEV_HTTP_PORT:-80}:80"
+      - "${WEBDEV_BIND_ADDRESS:-127.0.0.1}:${WEBDEV_HTTPS_PORT:-443}:443"
+      - "${WEBDEV_BIND_ADDRESS:-127.0.0.1}:${WEBDEV_VITE_PORT_RANGE:-5173-5199}:5173-5199"
+    volumes:
+      - ${WEBDEV_WORKSPACE_MOUNT:-./workspace}:/workspace
+      - webdev-state:/home/node/.webdev
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-webdev_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-webdev}
+      MYSQL_USER: ${MYSQL_USER:-webdev}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-webdev}
+    ports:
+      - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_HOST_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ${WEBDEV_MYSQL_INIT_DIR:-./mysql-init}:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  mysql-data:
+  webdev-state:

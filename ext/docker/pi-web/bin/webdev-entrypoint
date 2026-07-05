@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+  set -- bash
+fi
+
+if [[ "$1" == "serve" ]]; then
+  set -- webdev "$@"
+fi
+
+if [[ "$(id -u)" -eq 0 ]]; then
+  case "$1" in
+    nginx|php-fpm-webdev|php-fpm*)
+      exec "$@"
+      ;;
+    webdev)
+      case "${2:-}" in
+        serve)
+          exec "$@"
+          ;;
+      esac
+      ;;
+  esac
+
+  exec gosu node "$@"
+fi
+
+exec "$@"
