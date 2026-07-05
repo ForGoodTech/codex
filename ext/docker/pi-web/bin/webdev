@@ -1,0 +1,622 @@
+#!/bin/bash
+set -euo pipefail
+
+WEBDEV_WORKSPACE=${WEBDEV_WORKSPACE:-/workspace}
+WEBDEV_CONFIG=${WEBDEV_CONFIG:-$WEBDEV_WORKSPACE/sites.json}
+WEBDEV_STATE_DIR=${WEBDEV_STATE_DIR:-/home/node/.webdev}
+WEBDEV_NGINX_DIR=${WEBDEV_NGINX_DIR:-$WEBDEV_STATE_DIR/nginx}
+WEBDEV_NGINX_CONF=${WEBDEV_NGINX_CONF:-$WEBDEV_NGINX_DIR/sites.conf}
+
+function usage() {
+  cat <<'EOF'
+Usage:
+  webdev doctor [--no-config]
+  webdev init-site <host> [root] [vite-port]
+  webdev list
+  webdev dev <site|--all>
+  webdev package <site|--all>
+  webdev nginx-config
+  webdev serve
+  webdev test <site|--all>
+
+Environment:
+  WEBDEV_WORKSPACE  Host-mounted workspace root. Default: /workspace
+  WEBDEV_CONFIG     Site registry JSON file. Default: /workspace/sites.json
+  WEBDEV_STATE_DIR  Runtime state directory. Default: /home/node/.webdev
+EOF
+}
+
+function fail() {
+  echo "webdev: $*" >&2
+  exit 1
+}
+
+function have_command() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+function require_command() {
+  have_command "$1" || fail "missing required command: $1"
+}
+
+function require_config() {
+  [[ -f "$WEBDEV_CONFIG" ]] || fail "missing site config: $WEBDEV_CONFIG"
+}
+
+function ensure_config() {
+  if [[ -f "$WEBDEV_CONFIG" ]]; then
+    return
+  fi
+
+  mkdir -p "$(dirname "$WEBDEV_CONFIG")"
+  cat > "$WEBDEV_CONFIG" <<'JSON'
+{
+  "defaults": {
+    "cert": {
+      "fullchain": "/workspace/certs/dev/fullchain.pem",
+      "key": "/workspace/certs/dev/privkey.pem"
+    }
+  },
+  "sites": []
+}
+JSON
+}
+
+function site_exists() {
+  local selector=$1
+  jq -e --arg selector "$selector" \
+    'any(.sites[]?; (.host == $selector) or ((.name // "") == $selector))' \
+    "$WEBDEV_CONFIG" >/dev/null
+}
+
+function site_field() {
+  local selector=$1
+  local expression=$2
+  jq -er --arg selector "$selector" \
+    "first(.sites[] | select((.host == \$selector) or ((.name // \"\") == \$selector))) | ${expression}" \
+    "$WEBDEV_CONFIG"
+}
+
+function site_optional_field() {
+  local selector=$1
+  local expression=$2
+  jq -r --arg selector "$selector" \
+    "first(.sites[]? | select((.host == \$selector) or ((.name // \"\") == \$selector))) | ${expression} // empty" \
+    "$WEBDEV_CONFIG"
+}
+
+function all_site_selectors() {
+  require_config
+  jq -r '.sites[]? | .name // .host' "$WEBDEV_CONFIG"
+}
+
+function resolve_path() {
+  local base=$1
+  local path=$2
+  if [[ "$path" = /* ]]; then
+    printf '%s\n' "$path"
+  else
+    printf '%s/%s\n' "$base" "$path"
+  fi
+}
+
+function write_if_missing() {
+  local path=$1
+  if [[ -e "$path" ]]; then
+    return
+  fi
+  mkdir -p "$(dirname "$path")"
+  cat > "$path"
+}
+
+function init_site() {
+  local host=${1:-}
+  local root=${2:-}
+  local vite_port=${3:-}
+
+  [[ -n "$host" ]] || fail "init-site requires a host"
+  ensure_config
+
+  if site_exists "$host"; then
+    fail "site already exists in $WEBDEV_CONFIG: $host"
+  fi
+
+  if [[ -z "$root" ]]; then
+    root="$WEBDEV_WORKSPACE/sites/$host"
+  fi
+
+  if [[ -z "$vite_port" ]]; then
+    vite_port=$(jq '[.sites[]?.vitePort // empty] | max // 5172 | . + 1' "$WEBDEV_CONFIG")
+  fi
+
+  mkdir -p "$root/src" "$root/public"
+
+  write_if_missing "$root/package.json" <<JSON
+{
+  "name": "${host//./-}",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "devDependencies": {
+    "vite": "latest"
+  }
+}
+JSON
+
+  write_if_missing "$root/index.html" <<HTML
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>$host</title>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
+HTML
+
+  write_if_missing "$root/src/main.js" <<JS
+import "./style.css";
+
+const app = document.querySelector("#app");
+app.innerHTML = "";
+
+const shell = document.createElement("section");
+shell.className = "shell";
+
+const eyebrow = document.createElement("p");
+eyebrow.className = "eyebrow";
+eyebrow.textContent = "Data Civilization development site";
+
+const heading = document.createElement("h1");
+heading.textContent = "$host";
+
+const body = document.createElement("p");
+body.textContent = "This placeholder runs from index.html during Vite development and packages to index.php.";
+
+shell.append(eyebrow, heading, body);
+app.append(shell);
+JS
+
+  write_if_missing "$root/src/style.css" <<'CSS'
+:root {
+  color: #1f2937;
+  background: #f8fafc;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.shell {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 48px;
+  display: grid;
+  align-content: center;
+  gap: 16px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #0f766e;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  color: #111827;
+  font-size: clamp(2rem, 7vw, 5rem);
+  line-height: 1;
+}
+
+p {
+  max-width: 720px;
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
+CSS
+
+  local tmp
+  tmp=$(mktemp)
+  jq --arg host "$host" --arg root "$root" --argjson vite_port "$vite_port" \
+    '.sites += [{
+      name: $host,
+      host: $host,
+      root: $root,
+      vitePort: $vite_port,
+      mode: "vite"
+    }]' "$WEBDEV_CONFIG" > "$tmp"
+  mv "$tmp" "$WEBDEV_CONFIG"
+
+  echo "Created site $host at $root"
+  echo "Added $host to $WEBDEV_CONFIG with Vite port $vite_port"
+}
+
+function list_sites() {
+  require_config
+  jq -r '
+    if (.sites | length) == 0 then
+      "No sites configured."
+    else
+      .sites[]
+      | [
+          (.name // .host),
+          .host,
+          (.mode // "vite"),
+          (.vitePort // "-"),
+          .root
+        ]
+      | @tsv
+    end
+  ' "$WEBDEV_CONFIG"
+}
+
+function npm_install_if_needed() {
+  local root=$1
+  [[ -f "$root/package.json" ]] || return
+
+  if [[ -d "$root/node_modules" ]]; then
+    return
+  fi
+
+  if [[ -f "$root/package-lock.json" ]]; then
+    (cd "$root" && npm ci)
+  else
+    (cd "$root" && npm install)
+  fi
+}
+
+function dev_site() {
+  local selector=$1
+  require_config
+  site_exists "$selector" || fail "unknown site: $selector"
+
+  local root
+  local vite_port
+  root=$(site_field "$selector" '.root')
+  vite_port=$(site_field "$selector" '.vitePort // 5173')
+  [[ -d "$root" ]] || fail "site root does not exist: $root"
+  [[ -f "$root/package.json" ]] || fail "site has no package.json: $root"
+
+  npm_install_if_needed "$root"
+  echo "Starting Vite for $selector on 0.0.0.0:$vite_port"
+  (cd "$root" && npm run dev -- --host 0.0.0.0 --port "$vite_port")
+}
+
+function package_site() {
+  local selector=$1
+  require_config
+  site_exists "$selector" || fail "unknown site: $selector"
+
+  local root
+  local package_dir
+  root=$(site_field "$selector" '.root')
+  package_dir=$(site_optional_field "$selector" '.packageDir')
+  [[ -n "$package_dir" ]] || package_dir="dist"
+  package_dir=$(resolve_path "$root" "$package_dir")
+
+  [[ -d "$root" ]] || fail "site root does not exist: $root"
+
+  if [[ -f "$root/package.json" ]]; then
+    npm_install_if_needed "$root"
+    (cd "$root" && npm run build)
+  else
+    mkdir -p "$package_dir"
+    [[ -f "$root/index.html" ]] || fail "site has neither package.json nor index.html: $root"
+    cp "$root/index.html" "$package_dir/index.html"
+  fi
+
+  local index_html="$package_dir/index.html"
+  local index_php="$package_dir/index.php"
+  [[ -f "$index_html" ]] || fail "build did not produce $index_html"
+  cp "$index_html" "$index_php"
+  echo "Packaged $selector: $index_php"
+}
+
+function run_for_selector() {
+  local selector=$1
+  local callback=$2
+
+  if [[ "$selector" == "--all" ]]; then
+    local site
+    while IFS= read -r site; do
+      [[ -n "$site" ]] || continue
+      "$callback" "$site"
+    done < <(all_site_selectors)
+  else
+    "$callback" "$selector"
+  fi
+}
+
+function dev_all_or_one() {
+  local selector=$1
+  if [[ "$selector" != "--all" ]]; then
+    dev_site "$selector"
+    return
+  fi
+
+  local pids=()
+  local site
+  while IFS= read -r site; do
+    [[ -n "$site" ]] || continue
+    dev_site "$site" &
+    pids+=("$!")
+  done < <(all_site_selectors)
+
+  if [[ ${#pids[@]} -eq 0 ]]; then
+    fail "no sites configured"
+  fi
+
+  wait "${pids[@]}"
+}
+
+function cert_for_site() {
+  local site_json=$1
+  local host=$2
+  local fullchain
+  local key
+
+  fullchain=$(jq -r '.cert.fullchain // empty' <<<"$site_json")
+  key=$(jq -r '.cert.key // empty' <<<"$site_json")
+
+  if [[ -z "$fullchain" ]]; then
+    fullchain=$(jq -r '.defaults.cert.fullchain // empty' "$WEBDEV_CONFIG")
+  fi
+  if [[ -z "$key" ]]; then
+    key=$(jq -r '.defaults.cert.key // empty' "$WEBDEV_CONFIG")
+  fi
+
+  if [[ -f "$fullchain" && -f "$key" ]]; then
+    printf '%s\t%s\n' "$fullchain" "$key"
+    return
+  fi
+
+  if [[ "${WEBDEV_ALLOW_SELF_SIGNED:-0}" == "1" ]]; then
+    local cert_dir="$WEBDEV_STATE_DIR/certs/$host"
+    mkdir -p "$cert_dir"
+    fullchain="$cert_dir/fullchain.pem"
+    key="$cert_dir/privkey.pem"
+    if [[ ! -f "$fullchain" || ! -f "$key" ]]; then
+      openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+        -keyout "$key" \
+        -out "$fullchain" \
+        -subj "/CN=$host" \
+        -addext "subjectAltName=DNS:$host" >/dev/null 2>&1
+    fi
+    printf '%s\t%s\n' "$fullchain" "$key"
+    return
+  fi
+
+  fail "missing TLS certificate for $host. Set cert.fullchain/cert.key in $WEBDEV_CONFIG, or set WEBDEV_ALLOW_SELF_SIGNED=1 for local fallback certs."
+}
+
+function nginx_config() {
+  require_config
+  mkdir -p "$WEBDEV_NGINX_DIR"
+
+  {
+    cat <<'NGINX'
+map $http_upgrade $webdev_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+NGINX
+
+    jq -c '.sites[]?' "$WEBDEV_CONFIG" | while IFS= read -r site_json; do
+      local host
+      local mode
+      local root
+      local vite_port
+      local web_root
+      local cert_pair
+      local fullchain
+      local key
+
+      host=$(jq -r '.host' <<<"$site_json")
+      mode=$(jq -r '.mode // "vite"' <<<"$site_json")
+      root=$(jq -r '.root' <<<"$site_json")
+      vite_port=$(jq -r '.vitePort // 5173' <<<"$site_json")
+      web_root=$(jq -r '.webRoot // empty' <<<"$site_json")
+
+      [[ -n "$host" && "$host" != "null" ]] || fail "site entry is missing host"
+      [[ -n "$root" && "$root" != "null" ]] || fail "site $host is missing root"
+
+      if [[ -z "$web_root" ]]; then
+        if [[ -d "$root/dist" ]]; then
+          web_root="$root/dist"
+        else
+          web_root="$root"
+        fi
+      else
+        web_root=$(resolve_path "$root" "$web_root")
+      fi
+
+      cert_pair=$(cert_for_site "$site_json" "$host")
+      fullchain=${cert_pair%%$'\t'*}
+      key=${cert_pair#*$'\t'}
+
+      cat <<NGINX
+server {
+    listen 80;
+    server_name $host;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $host;
+
+    ssl_certificate $fullchain;
+    ssl_certificate_key $key;
+    client_max_body_size 64m;
+
+NGINX
+
+      case "$mode" in
+        vite)
+          cat <<NGINX
+    location / {
+        proxy_pass http://127.0.0.1:$vite_port;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$webdev_connection_upgrade;
+    }
+}
+
+NGINX
+          ;;
+        php)
+          mkdir -p "$web_root"
+          cat <<NGINX
+    root $web_root;
+    index index.php index.html;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+    }
+}
+
+NGINX
+          ;;
+        *)
+          fail "unsupported mode for $host: $mode"
+          ;;
+      esac
+    done
+  } > "$WEBDEV_NGINX_CONF"
+
+  echo "Wrote Nginx config: $WEBDEV_NGINX_CONF"
+}
+
+function start_php_fpm() {
+  mkdir -p /run/php
+  if pgrep -f 'php-fpm.*master process' >/dev/null 2>&1; then
+    return
+  fi
+  php-fpm-webdev -D
+}
+
+function serve() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    fail "serve must run as root so it can start PHP-FPM and Nginx"
+  fi
+
+  install -d -o node -g node "$WEBDEV_STATE_DIR" "$WEBDEV_NGINX_DIR"
+  gosu node webdev nginx-config
+  start_php_fpm
+  nginx -t
+  echo "Starting Nginx. Vite sites must be started separately with: webdev dev <site|--all>"
+  exec nginx -g 'daemon off;'
+}
+
+function test_site() {
+  local selector=$1
+  require_config
+  site_exists "$selector" || fail "unknown site: $selector"
+
+  local root
+  root=$(site_field "$selector" '.root')
+  [[ -f "$root/package.json" ]] || {
+    echo "No package.json for $selector; skipping npm test."
+    return
+  }
+
+  npm_install_if_needed "$root"
+  if jq -e '.scripts.test' "$root/package.json" >/dev/null; then
+    (cd "$root" && npm test)
+  else
+    echo "No npm test script for $selector; running package check."
+    package_site "$selector"
+  fi
+}
+
+function doctor() {
+  local check_config=1
+  if [[ "${1:-}" == "--no-config" ]]; then
+    check_config=0
+  fi
+
+  for command in node npm php composer mysql nginx jq openssl; do
+    require_command "$command"
+  done
+  require_command php-fpm-webdev
+
+  php -m | rg -qi '^pdo_mysql$' || fail "PHP pdo_mysql extension is not enabled"
+  php -m | rg -qi '^mysqli$' || fail "PHP mysqli extension is not enabled"
+
+  if [[ "$check_config" -eq 1 ]]; then
+    require_config
+    jq -e '.sites | type == "array"' "$WEBDEV_CONFIG" >/dev/null || fail "$WEBDEV_CONFIG must contain a sites array"
+    list_sites
+  fi
+
+  echo "webdev environment is ready"
+}
+
+command=${1:-help}
+shift || true
+
+case "$command" in
+  help|-h|--help)
+    usage
+    ;;
+  doctor)
+    doctor "$@"
+    ;;
+  init-site)
+    init_site "$@"
+    ;;
+  list)
+    list_sites
+    ;;
+  dev)
+    selector=${1:-}
+    [[ -n "$selector" ]] || fail "dev requires <site|--all>"
+    dev_all_or_one "$selector"
+    ;;
+  package)
+    selector=${1:-}
+    [[ -n "$selector" ]] || fail "package requires <site|--all>"
+    run_for_selector "$selector" package_site
+    ;;
+  nginx-config)
+    nginx_config
+    ;;
+  serve)
+    serve
+    ;;
+  test)
+    selector=${1:-}
+    [[ -n "$selector" ]] || fail "test requires <site|--all>"
+    run_for_selector "$selector" test_site
+    ;;
+  *)
+    usage >&2
+    fail "unknown command: $command"
+    ;;
+esac
