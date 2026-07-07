@@ -239,7 +239,7 @@ CSS
       host: $host,
       root: $root,
       vitePort: $vite_port,
-      mode: "vite"
+      mode: "vite-php"
     }]' "$WEBDEV_CONFIG" > "$tmp"
   mv "$tmp" "$WEBDEV_CONFIG"
 
@@ -424,6 +424,7 @@ NGINX
       local root
       local vite_port
       local web_root
+      local php_root
       local cert_pair
       local fullchain
       local key
@@ -433,6 +434,7 @@ NGINX
       root=$(jq -r '.root' <<<"$site_json")
       vite_port=$(jq -r '.vitePort // 5173' <<<"$site_json")
       web_root=$(jq -r '.webRoot // empty' <<<"$site_json")
+      php_root=$(jq -r '.phpRoot // empty' <<<"$site_json")
 
       [[ -n "$host" && "$host" != "null" ]] || fail "site entry is missing host"
       [[ -n "$root" && "$root" != "null" ]] || fail "site $host is missing root"
@@ -445,6 +447,11 @@ NGINX
         fi
       else
         web_root=$(resolve_path "$root" "$web_root")
+      fi
+      if [[ -z "$php_root" ]]; then
+        php_root="$root"
+      else
+        php_root=$(resolve_path "$root" "$php_root")
       fi
 
       cert_pair=$(cert_for_site "$site_json" "$host")
@@ -471,6 +478,31 @@ NGINX
       case "$mode" in
         vite)
           cat <<NGINX
+    location / {
+        proxy_pass http://127.0.0.1:$vite_port;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$webdev_connection_upgrade;
+    }
+}
+
+NGINX
+          ;;
+        vite-php)
+          mkdir -p "$php_root"
+          cat <<NGINX
+    root $php_root;
+    index index.php index.html;
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:$vite_port;
         proxy_http_version 1.1;
@@ -530,7 +562,7 @@ function serve() {
   gosu node webdev nginx-config
   start_php_fpm
   nginx -t
-  echo "Starting Nginx. Vite sites must be started separately with: webdev dev <site|--all>"
+  echo "Starting Nginx. Vite and vite-php sites must start Vite separately with: webdev dev <site|--all>"
   exec nginx -g 'daemon off;'
 }
 
