@@ -57,14 +57,19 @@ workspace/
       "host": "app.local.test",
       "root": "/workspace/sites/app.local.test",
       "vitePort": 5173,
-      "mode": "vite"
+      "mode": "vite-php"
     }
   ]
 }
 ```
 
-Set `mode` to `vite` when Nginx should proxy HTTPS traffic to a Vite dev
-server. Set `mode` to `php` when Nginx should serve the packaged PHP output.
+Set `mode` to `vite-php` for the usual development workflow: Nginx executes
+`.php` files through PHP-FPM and proxies everything else to the Vite dev server.
+Set `mode` to `vite` when Nginx should proxy all HTTPS traffic to Vite. Set
+`mode` to `php` when Nginx should serve the packaged PHP output.
+
+In `vite-php` mode, PHP files are executed from `root` by default. Set
+`phpRoot` only when your PHP backend lives in a different directory.
 
 ## Build
 
@@ -257,7 +262,7 @@ cat > "$APP/sites.json" <<EOF
       "host": "$DOMAIN",
       "root": "/workspace",
       "vitePort": 5173,
-      "mode": "vite",
+      "mode": "vite-php",
       "webRoot": "dist"
     }
   ]
@@ -297,8 +302,8 @@ WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/doc
 WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/docker/pi-web/compose.yaml exec web nginx -s reload
 ```
 
-Comment: this makes Nginx proxy HTTPS traffic to Vite because the site is
-currently in `"mode": "vite"`.
+Comment: this makes Nginx execute `.php` files through PHP-FPM and proxy other
+HTTPS traffic to Vite because the site is currently in `"mode": "vite-php"`.
 
 ### 10. Start Vite For Development
 
@@ -311,6 +316,10 @@ Comment: leave this running. Development URL should now work:
 ```text
 https://$DOMAIN/index.html
 ```
+
+JavaScript in `index.html` can call PHP endpoints on the same domain, for
+example `fetch("/t.php")`, and Nginx will execute those `.php` requests through
+PHP-FPM.
 
 ### 11. Package To PHP
 
@@ -340,8 +349,8 @@ mv "$tmp" "$APP/sites.json"
 chmod -R a+rX "$APP"
 ```
 
-Comment: this changes Nginx from "proxy to Vite" mode to "serve packaged PHP
-from `/workspace/dist`" mode.
+Comment: this changes Nginx from "Vite frontend plus PHP backend" mode to
+"serve packaged PHP from `/workspace/dist`" mode.
 
 ### 13. Regenerate And Reload Nginx Again
 
@@ -377,7 +386,7 @@ config.
 
 ```shell
 tmp=$(mktemp)
-jq --arg host "$DOMAIN" '(.sites[] | select(.host == $host).mode) = "vite"' "$APP/sites.json" > "$tmp"
+jq --arg host "$DOMAIN" '(.sites[] | select(.host == $host).mode) = "vite-php"' "$APP/sites.json" > "$tmp"
 mv "$tmp" "$APP/sites.json"
 chmod -R a+rX "$APP"
 ```
@@ -391,17 +400,17 @@ WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/doc
 WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/docker/pi-web/compose.yaml exec --user node web webdev dev "$DOMAIN"
 ```
 
-Comment: this switches Nginx back to the Vite reverse proxy and resumes the
-normal development loop.
+Comment: this switches Nginx back to the hybrid Vite frontend plus PHP backend
+mode and resumes the normal development loop.
 
 The cycle is:
 
 ```text
-mode=vite -> develop
+mode=vite-php -> develop with Vite frontend and PHP backend
 webdev package -> create dist/
 mode=php -> test packaged output locally
 ship dist/ -> hosting provider
-mode=vite -> continue development
+mode=vite-php -> continue development
 ```
 
 ## Add A Website
@@ -413,7 +422,8 @@ webdev init-site app.local.test
 ```
 
 This creates a starter Vite app under `/workspace/sites/<host>` and adds a
-site entry to `/workspace/sites.json`. You can pass an explicit root and port:
+`vite-php` site entry to `/workspace/sites.json`. You can pass an explicit root
+and port:
 
 ```shell
 webdev init-site app.local.test /workspace/sites/app 5173
@@ -424,7 +434,21 @@ host workspace. They are not baked into the image or scripts.
 
 ## Development Modes
 
-Direct Vite development:
+Hybrid Vite plus PHP development, recommended for PHP-backed apps:
+
+```json
+{
+  "mode": "vite-php",
+  "root": "/workspace/sites/app.local.test",
+  "vitePort": 5173
+}
+```
+
+In this mode, Nginx sends `.php` requests to PHP-FPM and sends everything else
+to Vite. This lets `index.html` use Vite/HMR while JavaScript calls PHP
+endpoints on the same HTTPS domain.
+
+Direct Vite development, useful for frontend-only work:
 
 ```shell
 webdev dev app.local.test
@@ -444,12 +468,15 @@ http://<host>:5173/
 
 HTTPS reverse proxy development:
 
-1. Keep the site `mode` as `vite` in `sites.json`.
+1. Keep the site `mode` as `vite-php` in `sites.json` for PHP-backed apps, or
+   `vite` for frontend-only apps.
 2. Start Nginx/PHP-FPM with `webdev serve`.
 3. Start Vite with `webdev dev <site>`.
 4. Visit `https://<configured-domain>/`.
 
 Nginx forwards websocket upgrade headers so Vite HMR can work through HTTPS.
+In `vite-php` mode, PHP endpoints such as `/t.php` execute through PHP-FPM
+instead of being served as static text.
 
 Packaged PHP mode:
 
@@ -511,6 +538,15 @@ export default defineConfig({
     allowedHosts: ["app.local.test"],
   },
 });
+```
+
+If a PHP file displays its source code in the browser, Nginx is proxying that
+request to Vite instead of PHP-FPM. Use `mode: "vite-php"` for development with
+PHP endpoints, then regenerate and reload Nginx:
+
+```shell
+WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/docker/pi-web/compose.yaml exec --user node web webdev nginx-config
+WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/docker/pi-web/compose.yaml exec web nginx -s reload
 ```
 
 If Nginx returns `404` even though the file exists, check the error log:
