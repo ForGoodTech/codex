@@ -66,10 +66,16 @@ workspace/
 Set `mode` to `vite-php` for the usual development workflow: Nginx executes
 `.php` files through PHP-FPM and proxies everything else to the Vite dev server.
 Set `mode` to `vite` when Nginx should proxy all HTTPS traffic to Vite. Set
-`mode` to `php` when Nginx should serve the packaged PHP output.
+`mode` to `php` when Nginx should serve the packaged PHP output from the site
+root. Set `webRoot` only when packaged output lives somewhere else.
 
 In `vite-php` mode, PHP files are executed from `root` by default. Set
 `phpRoot` only when your PHP backend lives in a different directory.
+
+By default, `webdev package` writes the packaged entry point to `index.php` in
+the site root and replaces the reserved `assets/` directory with generated
+frontend assets. It leaves the development `index.html` in place. Use
+`webdev package-release` when you want a separate clean directory to upload.
 
 ## Build
 
@@ -262,8 +268,7 @@ cat > "$APP/sites.json" <<EOF
       "host": "$DOMAIN",
       "root": "/workspace",
       "vitePort": 5173,
-      "mode": "vite-php",
-      "webRoot": "dist"
+      "mode": "vite-php"
     }
   ]
 }
@@ -329,16 +334,19 @@ In another terminal:
 WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/docker/pi-web/compose.yaml exec --user node web webdev package "$DOMAIN"
 ```
 
-Comment: this builds the Vite app and creates:
+Comment: this builds the Vite app in a temporary directory, leaves the
+development entry point alone, and writes the packaged PHP entry point plus
+generated frontend assets into the app root:
 
 ```text
-$APP/dist/index.html
-$APP/dist/index.php
+$APP/index.html   # original development entry point, unchanged
+$APP/index.php    # packaged entry point
+$APP/assets/      # generated packaged frontend assets
 ```
 
-For the real production workflow, ship the contents of `$APP/dist/` to the
-hosting provider. The important production entry point is `index.php`, plus the
-generated assets.
+The command does not create a packaged `index.html`. The root-level layout keeps
+relative PHP paths such as `/p/...` and `/cots/...` working without copying
+backend folders into a separate `dist/` directory.
 
 ### 12. Switch To PHP Mode
 
@@ -350,7 +358,7 @@ chmod -R a+rX "$APP"
 ```
 
 Comment: this changes Nginx from "Vite frontend plus PHP backend" mode to
-"serve packaged PHP from `/workspace/dist`" mode.
+"serve packaged PHP from `/workspace`" mode.
 
 ### 13. Regenerate And Reload Nginx Again
 
@@ -378,11 +386,33 @@ should now work:
 https://$DOMAIN/index.php
 ```
 
-`/index.html` may also work in PHP mode because Nginx falls back to
-`/index.php` for missing files. That is expected with the current SPA-friendly
-config.
+`/index.html` may also load in PHP mode, but it is still the development
+`index.html`; use `/index.php` when testing the packaged result.
 
-### 15. Switch Back To Development Mode
+### 15. Build A Clean Release Directory
+
+```shell
+WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/docker/pi-web/compose.yaml exec --user node web webdev package-release "$DOMAIN"
+```
+
+Comment: this refreshes the root-level package, then writes a clean uploadable
+directory:
+
+```text
+$APP/release/
+  index.php
+  assets/
+  p/          # if present
+  cots/       # if present
+  ...
+```
+
+The release command excludes common development-only files and directories such
+as `index.html`, `src/`, `node_modules/`, `package.json`, `vite.config.*`,
+`sites.json`, certificates, and logs. Ship the contents of `$APP/release/` to
+the hosting provider when you want a clean artifact.
+
+### 16. Switch Back To Development Mode
 
 ```shell
 tmp=$(mktemp)
@@ -407,9 +437,10 @@ The cycle is:
 
 ```text
 mode=vite-php -> develop with Vite frontend and PHP backend
-webdev package -> create dist/
-mode=php -> test packaged output locally
-ship dist/ -> hosting provider
+webdev package -> create index.php and assets/ beside index.html
+mode=php -> test /index.php locally
+webdev package-release -> create release/ for upload
+ship release/ -> hosting provider
 mode=vite-php -> continue development
 ```
 
@@ -484,9 +515,12 @@ Packaged PHP mode:
 webdev package app.local.test
 ```
 
-The package command runs the site's build, then copies built `dist/index.html`
-to `dist/index.php`. Static HTML is valid PHP, so this gives a production entry
-point while preserving the Vite development entry point.
+The package command runs the site's build in a temporary directory, copies the
+generated output except `index.html` into the site root, then writes the built
+entry point as `index.php`. Static HTML is valid PHP, so this gives a
+production entry point while preserving the Vite development `index.html`.
+`assets/` is reserved for packaged frontend assets and is replaced during
+packaging.
 
 Switch the site to packaged serving:
 
@@ -495,6 +529,29 @@ Switch the site to packaged serving:
   "host": "app.local.test",
   "root": "/workspace/sites/app.local.test",
   "mode": "php"
+}
+```
+
+Set `packageDir` and `webRoot` only when you intentionally want packaged output
+somewhere other than the site root.
+
+Create a clean upload directory:
+
+```shell
+webdev package-release app.local.test
+```
+
+By default this writes `release/` under the site root. Use `releaseDir` to pick
+a different output directory. Use `releaseExclude` for extra rsync exclude
+patterns:
+
+```json
+{
+  "host": "app.local.test",
+  "root": "/workspace/sites/app.local.test",
+  "mode": "php",
+  "releaseDir": "release",
+  "releaseExclude": ["/local-only/"]
 }
 ```
 
@@ -512,6 +569,7 @@ webdev doctor
 webdev list
 webdev dev <site|--all>
 webdev package <site|--all>
+webdev package-release <site|--all>
 webdev test <site|--all>
 webdev nginx-config
 webdev serve
