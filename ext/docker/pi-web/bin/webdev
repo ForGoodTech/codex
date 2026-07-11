@@ -15,6 +15,7 @@ Usage:
   webdev list
   webdev dev <site|--all>
   webdev package <site|--all>
+  webdev package-release <site|--all>
   webdev nginx-config
   webdev serve
   webdev test <site|--all>
@@ -304,28 +305,100 @@ function package_site() {
   site_exists "$selector" || fail "unknown site: $selector"
 
   local root
+  local build_dir
   local package_dir
   root=$(site_field "$selector" '.root')
   package_dir=$(site_optional_field "$selector" '.packageDir')
-  [[ -n "$package_dir" ]] || package_dir="dist"
-  package_dir=$(resolve_path "$root" "$package_dir")
+  if [[ -n "$package_dir" ]]; then
+    package_dir=$(resolve_path "$root" "$package_dir")
+  else
+    package_dir="$root"
+  fi
 
   [[ -d "$root" ]] || fail "site root does not exist: $root"
 
+  build_dir=$(mktemp -d "${TMPDIR:-/tmp}/webdev-package.XXXXXX")
   if [[ -f "$root/package.json" ]]; then
     npm_install_if_needed "$root"
-    (cd "$root" && npm run build)
+    (cd "$root" && npm run build -- --outDir "$build_dir" --emptyOutDir)
   else
-    mkdir -p "$package_dir"
     [[ -f "$root/index.html" ]] || fail "site has neither package.json nor index.html: $root"
-    cp "$root/index.html" "$package_dir/index.html"
+    cp "$root/index.html" "$build_dir/index.html"
   fi
 
-  local index_html="$package_dir/index.html"
+  local index_html="$build_dir/index.html"
   local index_php="$package_dir/index.php"
   [[ -f "$index_html" ]] || fail "build did not produce $index_html"
+
+  mkdir -p "$package_dir"
+  rm -rf "$package_dir/assets"
+  shopt -s dotglob nullglob
+  local artifact
+  for artifact in "$build_dir"/*; do
+    [[ "$(basename "$artifact")" == "index.html" ]] && continue
+    cp -a "$artifact" "$package_dir"/
+  done
+  shopt -u dotglob nullglob
   cp "$index_html" "$index_php"
+  rm -rf "$build_dir"
   echo "Packaged $selector: $index_php"
+}
+
+function package_release_site() {
+  local selector=$1
+  require_config
+  site_exists "$selector" || fail "unknown site: $selector"
+
+  local root
+  local release_dir
+  root=$(site_field "$selector" '.root')
+  release_dir=$(site_optional_field "$selector" '.releaseDir')
+  [[ -n "$release_dir" ]] || release_dir="release"
+  release_dir=$(resolve_path "$root" "$release_dir")
+
+  [[ -d "$root" ]] || fail "site root does not exist: $root"
+  [[ "$release_dir" != "$root" ]] || fail "releaseDir cannot be the site root"
+
+  package_site "$selector"
+
+  rm -rf "$release_dir"
+  mkdir -p "$release_dir"
+
+  local excludes=(
+    --exclude '/.git/'
+    --exclude '/.webdev-package-build/'
+    --exclude '/certs/'
+    --exclude '/dist/'
+    --exclude '/mysql-init/'
+    --exclude '/node_modules/'
+    --exclude '/public/'
+    --exclude '/release/'
+    --exclude '/src/'
+    --exclude '/logs/'
+    --exclude '/.env'
+    --exclude '/.env.*'
+    --exclude '/index.html'
+    --exclude '/package.json'
+    --exclude '/package-lock.json'
+    --exclude '/sites.json'
+    --exclude '/tsconfig.json'
+    --exclude '/vite.config.*'
+  )
+
+  local release_base
+  release_base=$(basename "$release_dir")
+  excludes+=(--exclude "/$release_base/")
+
+  while IFS= read -r pattern; do
+    [[ -n "$pattern" ]] || continue
+    excludes+=(--exclude "$pattern")
+  done < <(jq -r --arg selector "$selector" '
+    first(.sites[]? | select((.host == $selector) or ((.name // "") == $selector)))
+    | .releaseExclude[]? // empty
+  ' "$WEBDEV_CONFIG")
+
+  rsync -a --delete "${excludes[@]}" "$root"/ "$release_dir"/
+  echo "Wrote release for $selector: $release_dir"
 }
 
 function run_for_selector() {
@@ -440,11 +513,7 @@ NGINX
       [[ -n "$root" && "$root" != "null" ]] || fail "site $host is missing root"
 
       if [[ -z "$web_root" ]]; then
-        if [[ -d "$root/dist" ]]; then
-          web_root="$root/dist"
-        else
-          web_root="$root"
-        fi
+        web_root="$root"
       else
         web_root=$(resolve_path "$root" "$web_root")
       fi
@@ -593,7 +662,7 @@ function doctor() {
     check_config=0
   fi
 
-  for command in node npm php composer mysql nginx jq openssl; do
+  for command in node npm php composer mysql nginx jq openssl rsync; do
     require_command "$command"
   done
   require_command php-fpm-webdev
@@ -635,6 +704,11 @@ case "$command" in
     selector=${1:-}
     [[ -n "$selector" ]] || fail "package requires <site|--all>"
     run_for_selector "$selector" package_site
+    ;;
+  package-release)
+    selector=${1:-}
+    [[ -n "$selector" ]] || fail "package-release requires <site|--all>"
+    run_for_selector "$selector" package_release_site
     ;;
   nginx-config)
     nginx_config
