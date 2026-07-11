@@ -350,55 +350,104 @@ function package_release_site() {
   site_exists "$selector" || fail "unknown site: $selector"
 
   local root
+  local package_dir
   local release_dir
+  local site_filter
   root=$(site_field "$selector" '.root')
+  package_dir=$(site_optional_field "$selector" '.packageDir')
+  if [[ -n "$package_dir" ]]; then
+    package_dir=$(resolve_path "$root" "$package_dir")
+  else
+    package_dir="$root"
+  fi
   release_dir=$(site_optional_field "$selector" '.releaseDir')
   [[ -n "$release_dir" ]] || release_dir="release"
   release_dir=$(resolve_path "$root" "$release_dir")
+  site_filter='first(.sites[]? | select((.host == $selector) or ((.name // "") == $selector)))'
 
   [[ -d "$root" ]] || fail "site root does not exist: $root"
   [[ "$release_dir" != "$root" ]] || fail "releaseDir cannot be the site root"
+  [[ "$release_dir" != "$package_dir" ]] || fail "releaseDir cannot be the packageDir"
 
   package_site "$selector"
 
   rm -rf "$release_dir"
   mkdir -p "$release_dir"
+  [[ -f "$package_dir/index.php" ]] || fail "package did not produce $package_dir/index.php"
+  cp -a "$package_dir/index.php" "$release_dir/index.php"
+  if [[ -d "$package_dir/assets" ]]; then
+    cp -a "$package_dir/assets" "$release_dir/assets"
+  fi
 
   local excludes=(
-    --exclude '/.git/'
-    --exclude '/.webdev-package-build/'
-    --exclude '/certs/'
-    --exclude '/dist/'
-    --exclude '/mysql-init/'
-    --exclude '/node_modules/'
-    --exclude '/public/'
-    --exclude '/release/'
-    --exclude '/src/'
-    --exclude '/logs/'
-    --exclude '/.env'
-    --exclude '/.env.*'
-    --exclude '/index.html'
-    --exclude '/package.json'
-    --exclude '/package-lock.json'
-    --exclude '/sites.json'
-    --exclude '/tsconfig.json'
-    --exclude '/vite.config.*'
+    --exclude '.git/'
+    --exclude 'node_modules/'
+    --exclude 'logs/'
+    --exclude '.env'
+    --exclude '.env.*'
+    --exclude '*.sql'
   )
-
-  local release_base
-  release_base=$(basename "$release_dir")
-  excludes+=(--exclude "/$release_base/")
 
   while IFS= read -r pattern; do
     [[ -n "$pattern" ]] || continue
     excludes+=(--exclude "$pattern")
   done < <(jq -r --arg selector "$selector" '
-    first(.sites[]? | select((.host == $selector) or ((.name // "") == $selector)))
+    '"$site_filter"'
     | .releaseExclude[]? // empty
   ' "$WEBDEV_CONFIG")
 
-  rsync -a --delete "${excludes[@]}" "$root"/ "$release_dir"/
+  local include
+  while IFS= read -r include; do
+    [[ -n "$include" ]] || continue
+    copy_release_include "$root" "$release_dir" "$include" required "${excludes[@]}"
+  done < <(jq -r --arg selector "$selector" '
+    '"$site_filter"'
+    | .releaseInclude[]? // empty
+  ' "$WEBDEV_CONFIG")
+
+  while IFS= read -r include; do
+    [[ -n "$include" ]] || continue
+    copy_release_include "$root" "$release_dir" "$include" optional "${excludes[@]}"
+  done < <(jq -r --arg selector "$selector" '
+    '"$site_filter"'
+    | .releaseOptionalInclude[]? // empty
+  ' "$WEBDEV_CONFIG")
+
   echo "Wrote release for $selector: $release_dir"
+}
+
+function copy_release_include() {
+  local root=$1
+  local release_dir=$2
+  local include=$3
+  local requirement=$4
+  shift 4
+  local excludes=("$@")
+
+  include=${include#./}
+  include=${include%/}
+  [[ -n "$include" ]] || fail "release include cannot be empty"
+  [[ "$include" != /* ]] || fail "release include must be relative: $include"
+  [[ "$include" != ".." && "$include" != ../* && "$include" != */.. && "$include" != */../* ]] || fail "release include cannot escape the site root: $include"
+  [[ "$include" != "index.php" ]] || return
+  [[ "$include" != "assets" ]] || return
+
+  local source="$root/$include"
+  if [[ ! -e "$source" ]]; then
+    if [[ "$requirement" == "optional" ]]; then
+      return
+    fi
+    fail "release include does not exist: $include"
+  fi
+
+  local parent
+  parent=$(dirname "$include")
+  if [[ "$parent" == "." ]]; then
+    parent=""
+  fi
+
+  mkdir -p "$release_dir/$parent"
+  rsync -a "${excludes[@]}" "$source" "$release_dir/$parent/"
 }
 
 function run_for_selector() {
