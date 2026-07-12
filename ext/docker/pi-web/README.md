@@ -76,6 +76,9 @@ By default, `webdev package` writes the packaged entry point to `index.php` in
 the site root and replaces the reserved `assets/` directory with generated
 frontend assets. It leaves the development `index.html` in place. Use
 `webdev package-release` when you want a separate clean directory to upload.
+Release packaging always includes the generated `index.php` and `assets/`, then
+copies only the extra paths listed in `releaseInclude` and
+`releaseOptionalInclude`.
 
 ## Build
 
@@ -268,7 +271,21 @@ cat > "$APP/sites.json" <<EOF
       "host": "$DOMAIN",
       "root": "/workspace",
       "vitePort": 5173,
-      "mode": "vite-php"
+      "mode": "vite-php",
+      "releaseOptionalInclude": [
+        "p/",
+        "cots/",
+        "log4php/"
+      ],
+      "releaseExclude": [
+        "*.js",
+        "*.map",
+        "*.ts",
+        "logs/",
+        "*.sql",
+        ".env",
+        ".env.*"
+      ]
     }
   ]
 }
@@ -276,17 +293,24 @@ EOF
 ```
 
 Comment: this tells the container about the site. Use `/workspace`, not the
-host `/media/...` or other host filesystem path.
+host `/media/...` or other host filesystem path. `releaseOptionalInclude` is an
+allowlist of extra backend/shared paths to copy into a production release if
+they exist; `index.php` and `assets/` are always included from the packaged
+output. `releaseExclude` removes source-only or local-only files from those
+extra included paths.
 
 ### 7. Fix Host Permissions
 
 ```shell
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
-Comment: this is required because Nginx runs as `www-data` inside the
-container. Without this, Nginx can see that files exist but still returns `404`
-because `stat()` fails with permission denied.
+Comment: this treats `APP` as a temporary development test bed. It returns all
+files under `APP` to your host user and makes the tree broadly readable and
+writable so Nginx, PHP-FPM, Vite, packaging, and app-generated logs can all use
+it. This intentionally favors local development convenience over production
+security.
 
 ### 8. Start Web And MySQL Containers
 
@@ -354,7 +378,8 @@ backend folders into a separate `dist/` directory.
 tmp=$(mktemp)
 jq --arg host "$DOMAIN" '(.sites[] | select(.host == $host).mode) = "php"' "$APP/sites.json" > "$tmp"
 mv "$tmp" "$APP/sites.json"
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
 Comment: this changes Nginx from "Vite frontend plus PHP backend" mode to
@@ -396,21 +421,24 @@ WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/doc
 ```
 
 Comment: this refreshes the root-level package, then writes a clean uploadable
-directory:
+directory from an allowlist:
 
 ```text
 $APP/release/
-  index.php
-  assets/
-  p/          # if present
-  cots/       # if present
+  index.php   # always copied from packaged output
+  assets/     # always copied from packaged output, if present
+  p/          # copied only if listed in releaseInclude/releaseOptionalInclude
+  cots/       # copied only if listed in releaseInclude/releaseOptionalInclude
   ...
 ```
 
-The release command excludes common development-only files and directories such
-as `index.html`, `src/`, `node_modules/`, `package.json`, `vite.config.*`,
-`sites.json`, certificates, and logs. Ship the contents of `$APP/release/` to
-the hosting provider when you want a clean artifact.
+The release command does not copy the whole app root. It always includes the
+packaged `index.php` and generated `assets/`, then copies only paths listed in
+`releaseInclude` and `releaseOptionalInclude`. `releaseExclude` applies to
+those extra included paths, so you can exclude source file types such as
+`*.js` and `*.map` from backend folders without removing bundled files
+from `assets/`. Ship the contents of `$APP/release/` to the hosting provider
+when you want a clean artifact.
 
 ### 16. Switch Back To Development Mode
 
@@ -418,7 +446,8 @@ the hosting provider when you want a clean artifact.
 tmp=$(mktemp)
 jq --arg host "$DOMAIN" '(.sites[] | select(.host == $host).mode) = "vite-php"' "$APP/sites.json" > "$tmp"
 mv "$tmp" "$APP/sites.json"
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
 ```shell
@@ -541,9 +570,16 @@ Create a clean upload directory:
 webdev package-release app.local.test
 ```
 
-By default this writes `release/` under the site root. Use `releaseDir` to pick
-a different output directory. Use `releaseExclude` for extra rsync exclude
-patterns:
+By default this writes `release/` under the site root. The release command is
+allowlist-first: it always copies packaged `index.php` and generated `assets/`,
+then copies only the extra paths listed in `releaseInclude` and
+`releaseOptionalInclude`.
+
+Use `releaseDir` to pick a different output directory. Use `releaseInclude` for
+required backend/shared paths that must exist. Use `releaseOptionalInclude` for
+paths that should be copied when present. Use `releaseExclude` for rsync exclude
+patterns that apply only to those extra included paths, not to generated
+`assets/`:
 
 ```json
 {
@@ -551,9 +587,28 @@ patterns:
   "root": "/workspace/sites/app.local.test",
   "mode": "php",
   "releaseDir": "release",
-  "releaseExclude": ["/local-only/"]
+  "releaseInclude": [
+    "p/",
+    "cots/",
+    "log4php/"
+  ],
+  "releaseOptionalInclude": [
+    "vendor/"
+  ],
+  "releaseExclude": [
+    "*.js",
+    "*.map",
+    "*.ts",
+    "logs/",
+    "*.sql",
+    ".env",
+    ".env.*"
+  ]
 }
 ```
+
+With that example, `assets/app.js` from the packaged frontend is shipped, while
+JavaScript source files inside `cots/` or `p/` are excluded.
 
 Regenerate and reload Nginx by restarting `webdev serve`, or run:
 
@@ -614,10 +669,12 @@ WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/doc
 ```
 
 If the log says `stat() ".../index.php" failed (13: Permission denied)`, fix
-host-side permissions:
+host-side permissions. Use `sudo` because app logs, generated files, or
+container-created files may be owned by a different user:
 
 ```shell
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
 If you edit `sites.json`, regenerate the Nginx config before reloading:
