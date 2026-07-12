@@ -302,12 +302,15 @@ extra included paths.
 ### 7. Fix Host Permissions
 
 ```shell
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
-Comment: this is required because Nginx runs as `www-data` inside the
-container. Without this, Nginx can see that files exist but still returns `404`
-because `stat()` fails with permission denied.
+Comment: this treats `APP` as a temporary development test bed. It returns all
+files under `APP` to your host user and makes the tree broadly readable and
+writable so Nginx, PHP-FPM, Vite, packaging, and app-generated logs can all use
+it. This intentionally favors local development convenience over production
+security.
 
 ### 8. Start Web And MySQL Containers
 
@@ -375,7 +378,8 @@ backend folders into a separate `dist/` directory.
 tmp=$(mktemp)
 jq --arg host "$DOMAIN" '(.sites[] | select(.host == $host).mode) = "php"' "$APP/sites.json" > "$tmp"
 mv "$tmp" "$APP/sites.json"
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
 Comment: this changes Nginx from "Vite frontend plus PHP backend" mode to
@@ -442,7 +446,8 @@ when you want a clean artifact.
 tmp=$(mktemp)
 jq --arg host "$DOMAIN" '(.sites[] | select(.host == $host).mode) = "vite-php"' "$APP/sites.json" > "$tmp"
 mv "$tmp" "$APP/sites.json"
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
 ```shell
@@ -664,10 +669,12 @@ WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/doc
 ```
 
 If the log says `stat() ".../index.php" failed (13: Permission denied)`, fix
-host-side permissions:
+host-side permissions. Use `sudo` because app logs, generated files, or
+container-created files may be owned by a different user:
 
 ```shell
-chmod -R a+rX "$APP"
+sudo chown -R "$(id -u):$(id -g)" "$APP"
+sudo chmod -R a+rwX "$APP"
 ```
 
 If you edit `sites.json`, regenerate the Nginx config before reloading:
