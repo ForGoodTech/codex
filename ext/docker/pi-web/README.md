@@ -310,12 +310,13 @@ sudo chmod -R a+rwX "$APP"
 Comment: this treats `APP` as a temporary development test bed. It returns all
 files under `APP` to your host user and makes the tree broadly readable and
 writable so Nginx, PHP-FPM, Vite, packaging, and app-generated logs can all use
-it. PHP-FPM workers run as the image's `node` development user and `webdev`
-uses `WEBDEV_UMASK=0002` by default, so newly-created runtime files remain
-editable by the development user/group. The broad chmod is still useful for
-throwaway workspaces, old container-created files, or host/container UID
-mismatches. This intentionally favors local development convenience over
-production security.
+it. PHP-FPM workers run as the image's `node` development user. At `webdev
+serve` startup, `WEBDEV_PERMISSIVE_WORKSPACE=1` makes the mounted workspace
+`a+rwX`, and `WEBDEV_UMASK=0000` keeps newly-created runtime files writable
+across host/container user boundaries. This intentionally favors local
+development convenience over production security. Set
+`WEBDEV_PERMISSIVE_WORKSPACE=0` or a stricter `WEBDEV_UMASK` only when you want
+to manage mounted workspace permissions yourself.
 
 ### 8. Start Web And MySQL Containers
 
@@ -674,9 +675,11 @@ WEBDEV_WORKSPACE_MOUNT="$APP" CODEX_WEB_IMAGE="$IMAGE" docker compose -f ext/doc
 ```
 
 If the log says `stat() ".../index.php" failed (13: Permission denied)` or PHP
-cannot create logs, uploads, or temporary files under `/workspace`, fix
-host-side permissions. Use `sudo` because old app logs, generated files, or
-container-created files may be owned by a different user:
+cannot create logs, uploads, or temporary files under `/workspace`, recreate the
+web container so `webdev serve` can re-apply the default permissive workspace
+mode. If you disabled `WEBDEV_PERMISSIVE_WORKSPACE`, fix host-side permissions
+manually. Use `sudo` because old app logs, generated files, or container-created
+files may be owned by a different user:
 
 ```shell
 sudo chown -R "$(id -u):$(id -g)" "$APP"

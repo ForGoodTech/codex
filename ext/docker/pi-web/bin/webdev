@@ -6,7 +6,8 @@ WEBDEV_CONFIG=${WEBDEV_CONFIG:-$WEBDEV_WORKSPACE/sites.json}
 WEBDEV_STATE_DIR=${WEBDEV_STATE_DIR:-/home/node/.webdev}
 WEBDEV_NGINX_DIR=${WEBDEV_NGINX_DIR:-$WEBDEV_STATE_DIR/nginx}
 WEBDEV_NGINX_CONF=${WEBDEV_NGINX_CONF:-$WEBDEV_NGINX_DIR/sites.conf}
-WEBDEV_UMASK=${WEBDEV_UMASK:-0002}
+WEBDEV_UMASK=${WEBDEV_UMASK:-0000}
+WEBDEV_PERMISSIVE_WORKSPACE=${WEBDEV_PERMISSIVE_WORKSPACE:-1}
 
 umask "$WEBDEV_UMASK"
 
@@ -27,7 +28,9 @@ Environment:
   WEBDEV_WORKSPACE  Host-mounted workspace root. Default: /workspace
   WEBDEV_CONFIG     Site registry JSON file. Default: /workspace/sites.json
   WEBDEV_STATE_DIR  Runtime state directory. Default: /home/node/.webdev
-  WEBDEV_UMASK      File creation umask for webdev and PHP-FPM. Default: 0002
+  WEBDEV_UMASK      File creation umask for webdev and PHP-FPM. Default: 0000
+  WEBDEV_PERMISSIVE_WORKSPACE
+                    chmod the mounted workspace a+rwX at serve startup. Default: 1
 EOF
 }
 
@@ -675,12 +678,25 @@ function start_php_fpm() {
   php-fpm-webdev -D
 }
 
+function prepare_workspace_permissions() {
+  if [[ "$WEBDEV_PERMISSIVE_WORKSPACE" != "1" ]]; then
+    return
+  fi
+  if [[ ! -d "$WEBDEV_WORKSPACE" ]]; then
+    return
+  fi
+
+  echo "Making mounted workspace writable for local development: $WEBDEV_WORKSPACE"
+  chmod -R a+rwX "$WEBDEV_WORKSPACE"
+}
+
 function serve() {
   if [[ "$(id -u)" -ne 0 ]]; then
     fail "serve must run as root so it can start PHP-FPM and Nginx"
   fi
 
   install -d -o node -g node "$WEBDEV_STATE_DIR" "$WEBDEV_NGINX_DIR"
+  prepare_workspace_permissions
   gosu node webdev nginx-config
   start_php_fpm
   nginx -t
