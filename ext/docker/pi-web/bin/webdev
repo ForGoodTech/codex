@@ -6,6 +6,9 @@ WEBDEV_CONFIG=${WEBDEV_CONFIG:-$WEBDEV_WORKSPACE/sites.json}
 WEBDEV_STATE_DIR=${WEBDEV_STATE_DIR:-/home/node/.webdev}
 WEBDEV_NGINX_DIR=${WEBDEV_NGINX_DIR:-$WEBDEV_STATE_DIR/nginx}
 WEBDEV_NGINX_CONF=${WEBDEV_NGINX_CONF:-$WEBDEV_NGINX_DIR/sites.conf}
+WEBDEV_UMASK=${WEBDEV_UMASK:-0002}
+
+umask "$WEBDEV_UMASK"
 
 function usage() {
   cat <<'EOF'
@@ -24,6 +27,7 @@ Environment:
   WEBDEV_WORKSPACE  Host-mounted workspace root. Default: /workspace
   WEBDEV_CONFIG     Site registry JSON file. Default: /workspace/sites.json
   WEBDEV_STATE_DIR  Runtime state directory. Default: /home/node/.webdev
+  WEBDEV_UMASK      File creation umask for webdev and PHP-FPM. Default: 0002
 EOF
 }
 
