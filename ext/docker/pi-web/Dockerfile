@@ -37,6 +37,23 @@ RUN set -eux; \
   php_version="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"; \
   pool_conf="/etc/php/${php_version}/fpm/pool.d/www.conf"; \
   sed -i 's|^listen = .*|listen = /run/php/php-fpm.sock|' "$pool_conf"; \
+  sed -i 's|^user = .*|user = node|' "$pool_conf"; \
+  sed -i 's|^group = .*|group = node|' "$pool_conf"; \
+  if grep -q '^;*listen.owner = ' "$pool_conf"; then \
+    sed -i 's|^;*listen.owner = .*|listen.owner = www-data|' "$pool_conf"; \
+  else \
+    printf '%s\n' 'listen.owner = www-data' >> "$pool_conf"; \
+  fi; \
+  if grep -q '^;*listen.group = ' "$pool_conf"; then \
+    sed -i 's|^;*listen.group = .*|listen.group = www-data|' "$pool_conf"; \
+  else \
+    printf '%s\n' 'listen.group = www-data' >> "$pool_conf"; \
+  fi; \
+  if grep -q '^;*listen.mode = ' "$pool_conf"; then \
+    sed -i 's|^;*listen.mode = .*|listen.mode = 0660|' "$pool_conf"; \
+  else \
+    printf '%s\n' 'listen.mode = 0660' >> "$pool_conf"; \
+  fi; \
   if grep -q '^;*clear_env = ' "$pool_conf"; then \
     sed -i 's|^;*clear_env = .*|clear_env = no|' "$pool_conf"; \
   else \
