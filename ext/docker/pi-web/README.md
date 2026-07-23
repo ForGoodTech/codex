@@ -102,7 +102,7 @@ base image is missing, it builds `ext/docker/pi` first. Useful overrides:
 ```shell
 CODEX_BASE_IMAGE_TAG=my-codex-docker-image
 BUILD_BASE_IMAGE=auto
-CODEX_RELEASE_TAG=rust-v0.142.3
+CODEX_RELEASE_TAG=rust-v0.145.0
 ```
 
 ## Compose Full Stack
