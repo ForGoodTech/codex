@@ -259,6 +259,7 @@ rm -rf "$PAYLOAD_DIR"
 mkdir -p "$PAYLOAD_DIR/sdk"
 install_host_file "$CLI_ROOT/dist/codex.tgz" "$PAYLOAD_DIR/codex.tgz" 644
 install_host_file "$DOCKER_PI_DIR/app-server-proxy.js" "$PAYLOAD_DIR/app-server-proxy.js" 755
+install_host_file "$DOCKER_PI_DIR/app-server-proxy-perf.js" "$PAYLOAD_DIR/app-server-proxy-perf.js" 644
 install_host_file "$DOCKER_PI_DIR/sdk-proxy.js" "$PAYLOAD_DIR/sdk-proxy.js" 755
 install_host_file "$SCRIPT_DIR/codex-proxy.service" "$PAYLOAD_DIR/codex-proxy.service" 644
 install_host_file "$SCRIPT_DIR/20-eth0.network" "$PAYLOAD_DIR/20-eth0.network" 644

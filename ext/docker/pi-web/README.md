@@ -97,7 +97,11 @@ The default image tag is `my-codex-pi-web-image`. Override it with:
 ```
 
 The script uses `my-codex-docker-image` as the base image by default. If that
-base image is missing, it builds `ext/docker/pi` first. Useful overrides:
+base image is missing, it builds `ext/docker/pi` first. In the default
+`BUILD_BASE_IMAGE=auto` mode, the script also compares the Pi proxy and
+performance-tracing helper in an existing base image with the current checkout.
+It rebuilds the base when either inherited asset is stale or missing, and
+verifies the same assets again in the completed Pi Web image. Useful overrides:
 
 ```shell
 CODEX_BASE_IMAGE_TAG=my-codex-docker-image

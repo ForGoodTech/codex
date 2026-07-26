@@ -37,6 +37,10 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const perfModulePath = fs.existsSync(path.join(__dirname, 'app-server-proxy-perf.js'))
+  ? path.join(__dirname, 'app-server-proxy-perf.js')
+  : path.join(__dirname, '../pi/app-server-proxy-perf.js');
+const { createThreadListProxyPerfTracker } = require(perfModulePath);
 
 function tokenFingerprint(value) {
   const token = (value ?? '').toString().trim();
@@ -356,6 +360,7 @@ const server = net.createServer((socket) => {
   let authBuffer = Buffer.alloc(0);
   let frameLineBuffer = '';
   let lastAuthMaterialLength = null;
+  const threadListPerf = createThreadListProxyPerfTracker();
   const authTimeout = setTimeout(() => {
     if (isAuthenticated) {
       return;
@@ -363,7 +368,18 @@ const server = net.createServer((socket) => {
     socket.destroy(new Error(`Authentication timeout after ${authTimeoutMs}ms.`));
   }, authTimeoutMs);
   const forwardStdout = (chunk) => {
-    socket.write(chunk);
+    const chunkReceivedAtNs = process.hrtime.bigint();
+    const socketBufferedBefore = socket.writableLength;
+    const socketWriteStartedAtNs = process.hrtime.bigint();
+    const socketWriteAccepted = socket.write(chunk);
+    const socketWriteCompletedAtNs = process.hrtime.bigint();
+    threadListPerf.observeAppServerStdout(chunk, {
+      chunkReceivedAtNs,
+      socketWriteCallMs: Number(socketWriteCompletedAtNs - socketWriteStartedAtNs) / 1_000_000,
+      socketWriteAccepted,
+      socketBufferedBefore,
+      socketBufferedAfter: socket.writableLength,
+    });
   };
   const handleSocketData = (chunk) => {
     if (!isAuthenticated) {
@@ -427,6 +443,7 @@ const server = net.createServer((socket) => {
     const lines = frameLineBuffer.split('\n');
     frameLineBuffer = lines.pop() ?? '';
     for (const rawLine of lines) {
+      const requestReceivedAtNs = process.hrtime.bigint();
       const line = rawLine.trim();
       if (!line) {
         appServer.stdin.write('\n');
@@ -435,6 +452,7 @@ const server = net.createServer((socket) => {
       try {
         const frame = JSON.parse(line);
         const encodedLine = `${JSON.stringify(frame)}\n`;
+        const requestParsedAtNs = process.hrtime.bigint();
         if (frame.method === 'turn/start') {
           const prompt = Array.isArray(frame.params?.input)
             ? frame.params.input.find((entry) => entry.type === 'text')?.text
@@ -455,7 +473,22 @@ const server = net.createServer((socket) => {
           lastAuthMaterialLength = authMaterialLength;
           console.log(`TEMP: proxy auth material length=${authMaterialLength}`);
         }
+        const stdinBufferedBefore = appServer.stdin.writableLength;
+        const perfKey = threadListPerf.beginRequest(frame, {
+          receivedAtNs: requestReceivedAtNs,
+          requestBytes: Buffer.byteLength(encodedLine, 'utf8'),
+          parseSerializeMs: Number(requestParsedAtNs - requestReceivedAtNs) / 1_000_000,
+          stdinBufferedBefore,
+        });
+        const stdinWriteStartedAtNs = process.hrtime.bigint();
         const writeOk = appServer.stdin.write(encodedLine);
+        const stdinWriteCompletedAtNs = process.hrtime.bigint();
+        threadListPerf.recordStdinWrite(perfKey, {
+          completedAtNs: stdinWriteCompletedAtNs,
+          writeCallMs: Number(stdinWriteCompletedAtNs - stdinWriteStartedAtNs) / 1_000_000,
+          writeAccepted: writeOk,
+          stdinBufferedAfter: appServer.stdin.writableLength,
+        });
         if (!writeOk) {
           socket.pause();
         }
@@ -469,6 +502,7 @@ const server = net.createServer((socket) => {
     }
   };
   const resumeSocket = () => {
+    threadListPerf.recordStdinDrain();
     socket.resume();
   };
   const teardown = (reason) => {
@@ -496,6 +530,7 @@ const server = net.createServer((socket) => {
     socket.off('data', handleSocketData);
     socket.off('close', teardown);
     socket.off('error', teardown);
+    threadListPerf.abandonPending('client_disconnected');
     if (!socket.destroyed) {
       if (frameLineBuffer.length > 0) {
         const writeOk = appServer.stdin.write(frameLineBuffer);
