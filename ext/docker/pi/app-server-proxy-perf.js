@@ -3,6 +3,18 @@
 const { StringDecoder } = require("node:string_decoder");
 
 const traceVersion = 1;
+const disabledValues = new Set(["0", "false", "no", "off"]);
+const disabledTracker = Object.freeze({
+  beginRequest: () => null,
+  recordStdinWrite: () => {},
+  recordStdinDrain: () => {},
+  observeAppServerStdout: () => {},
+  abandonPending: () => {},
+});
+
+function loggingEnabled(value) {
+  return !disabledValues.has((value ?? "").toString().trim().toLowerCase());
+}
 
 function durationMs(startedAtNs, completedAtNs) {
   if (typeof startedAtNs !== "bigint" || typeof completedAtNs !== "bigint") {
@@ -19,6 +31,12 @@ function requestKey(requestId) {
 }
 
 function createThreadListProxyPerfTracker(options = {}) {
+  const enabled =
+    options.enabled ??
+    loggingEnabled(process.env.CODEX_THREAD_LIST_PERF_LOGGING);
+  if (!enabled) {
+    return disabledTracker;
+  }
   const nowNs = options.nowNs ?? (() => process.hrtime.bigint());
   const epochMs = options.epochMs ?? Date.now;
   const emit =

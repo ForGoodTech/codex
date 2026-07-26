@@ -11,6 +11,7 @@ function createHarness() {
   let currentNs = 0n;
   const records = [];
   const tracker = createThreadListProxyPerfTracker({
+    enabled: true,
     nowNs: () => currentNs,
     epochMs: () => 1_785_100_000_000,
     emit: (record) => records.push(record),
@@ -229,4 +230,39 @@ test("ignores unrelated requests and reports abandoned thread/list requests", ()
   );
   assert.equal(harness.records.at(-1).elapsedMs, 30);
   assert.equal(harness.records.at(-1).reason, "client_disconnected");
+});
+
+test("becomes a no-op when performance logging is disabled by environment", () => {
+  const records = [];
+  const previousValue = process.env.CODEX_THREAD_LIST_PERF_LOGGING;
+  process.env.CODEX_THREAD_LIST_PERF_LOGGING = "0";
+  try {
+    const tracker = createThreadListProxyPerfTracker({
+      emit: (record) => records.push(record),
+    });
+
+    const key = tracker.beginRequest({
+      id: 12,
+      method: "thread/list",
+      params: {
+        cursor: "cursor",
+        searchTerm: "search",
+      },
+    });
+    tracker.recordStdinWrite(key);
+    tracker.recordStdinDrain();
+    tracker.observeAppServerStdout(
+      Buffer.from('{"id":12,"result":{"data":[]}}\n'),
+    );
+    tracker.abandonPending();
+
+    assert.equal(key, null);
+    assert.deepEqual(records, []);
+  } finally {
+    if (previousValue === undefined) {
+      delete process.env.CODEX_THREAD_LIST_PERF_LOGGING;
+    } else {
+      process.env.CODEX_THREAD_LIST_PERF_LOGGING = previousValue;
+    }
+  }
 });
