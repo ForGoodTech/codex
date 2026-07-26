@@ -148,6 +148,7 @@ if [[ -d "${INSTALL_ROOT}/vendor" ]]; then
 fi
 
 install -m 755 "${PAYLOAD_DIR}/app-server-proxy.js" /usr/local/bin/codex-app-server-proxy
+install -m 644 "${PAYLOAD_DIR}/app-server-proxy-perf.js" /usr/local/bin/app-server-proxy-perf.js
 install -m 755 "${PAYLOAD_DIR}/sdk-proxy.js" /usr/local/bin/codex-sdk-proxy
 
 install -d -o node -g node /home/node/node_modules/@openai/codex-sdk/dist
