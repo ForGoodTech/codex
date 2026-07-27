@@ -220,11 +220,12 @@ Use the helper script in `ext/examples/app-server-auth.js` to derive this value
 from `auth.json`, then pass it to the proxy container. App-server clients must
 send the same token in their first auth frame.
 
-The proxy emits content-free `[ThreadPerf]` timing records for `thread/list`
-requests by default. These records are observability only: they do not alter
-projects, caching, requests, or responses. Set
-`CODEX_THREAD_LIST_PERF_LOGGING=0` in the proxy environment to disable them
-without changing proxy behavior.
+The proxy emits content-free `[ThreadPerf]` timing records for `thread/list`,
+`thread/read`, and `thread/resume` requests by default. These records are
+observability only: they do not alter projects, caching, requests, or responses.
+Set `CODEX_THREAD_PERF_LOGGING=0` in the proxy environment to disable them
+without changing proxy behavior. The older
+`CODEX_THREAD_LIST_PERF_LOGGING=0` setting remains supported for compatibility.
 
 The app-server examples do not copy `auth.json` into the proxy container.
 Instead, they read auth on the client side and forward runtime auth material to
