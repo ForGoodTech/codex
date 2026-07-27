@@ -4,13 +4,13 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
-  createThreadListProxyPerfTracker,
+  createThreadProxyPerfTracker,
 } = require("./app-server-proxy-perf.js");
 
 function createHarness() {
   let currentNs = 0n;
   const records = [];
-  const tracker = createThreadListProxyPerfTracker({
+  const tracker = createThreadProxyPerfTracker({
     enabled: true,
     nowNs: () => currentNs,
     epochMs: () => 1_785_100_000_000,
@@ -68,12 +68,15 @@ test("reports proxy and app-server timing for a thread/list response", () => {
       event: "proxy.request_received",
       rpcId: 42,
       atEpochMs: 1_785_100_000_000,
+      rpcMethod: "thread/list",
       requestBytes: 180,
       parseSerializeMs: 0.25,
       cursorPresent: false,
       requestedLimit: 40,
       searchLength: 0,
       useStateDbOnly: false,
+      threadIdPresent: false,
+      includeTurns: false,
       stdinBufferedBefore: 0,
     },
     {
@@ -81,6 +84,7 @@ test("reports proxy and app-server timing for a thread/list response", () => {
       event: "proxy.request_forwarded",
       rpcId: 42,
       atEpochMs: 1_785_100_000_000,
+      rpcMethod: "thread/list",
       parseSerializeMs: 0.25,
       stdinWriteCallMs: 0.1,
       stdinWriteAccepted: true,
@@ -92,6 +96,7 @@ test("reports proxy and app-server timing for a thread/list response", () => {
       event: "proxy.response_forwarded",
       rpcId: 42,
       atEpochMs: 1_785_100_000_000,
+      rpcMethod: "thread/list",
       requestToResponseMs: 301,
       appServerWaitMs: 300,
       parseSerializeMs: 0.25,
@@ -150,6 +155,88 @@ test("matches a UTF-8 response split across stdout chunks", () => {
   assert.equal(responseRecord.responseBytes, response.length - 1);
 });
 
+test("reports a large thread/resume response without logging thread contents", () => {
+  const harness = createHarness();
+  const secretThreadId = "thread-private-123";
+  const secretContent = "private-tool-output-".repeat(100_000);
+  const key = harness.tracker.beginRequest(
+    {
+      id: 77,
+      method: "thread/resume",
+      params: { threadId: secretThreadId },
+    },
+    {
+      receivedAtNs: 1_000_000n,
+      requestBytes: 96,
+    },
+  );
+  harness.tracker.recordStdinWrite(key, {
+    completedAtNs: 2_000_000n,
+  });
+
+  const response = Buffer.from(
+    `${JSON.stringify({
+      id: 77,
+      result: {
+        thread: {
+          id: secretThreadId,
+          turns: [{ items: [{ content: secretContent }] }],
+        },
+      },
+    })}\n`,
+  );
+  const splitAt = 137;
+  harness.tracker.observeAppServerStdout(response.subarray(0, splitAt), {
+    chunkReceivedAtNs: 200_000_000n,
+  });
+  harness.tracker.observeAppServerStdout(response.subarray(splitAt), {
+    chunkReceivedAtNs: 402_000_000n,
+  });
+
+  const requestRecord = harness.records.find(
+    (record) => record.event === "proxy.request_received",
+  );
+  assert.equal(requestRecord.rpcMethod, "thread/resume");
+  assert.equal(requestRecord.threadIdPresent, true);
+  assert.equal(requestRecord.includeTurns, false);
+
+  const responseRecord = harness.records.find(
+    (record) => record.event === "proxy.response_forwarded",
+  );
+  assert.equal(responseRecord.rpcMethod, "thread/resume");
+  assert.equal(responseRecord.requestToResponseMs, 401);
+  assert.equal(responseRecord.appServerWaitMs, 400);
+  assert.equal(responseRecord.responseBytes, response.length - 1);
+
+  const serializedRecords = JSON.stringify(harness.records);
+  assert.equal(serializedRecords.includes(secretThreadId), false);
+  assert.equal(serializedRecords.includes(secretContent.slice(0, 40)), false);
+});
+
+test("reports thread/read intent without logging its thread id", () => {
+  const harness = createHarness();
+  const key = harness.tracker.beginRequest({
+    id: 78,
+    method: "thread/read",
+    params: {
+      threadId: "private-read-thread",
+      includeTurns: true,
+    },
+  });
+  harness.tracker.recordStdinWrite(key);
+  harness.tracker.observeAppServerStdout(
+    Buffer.from('{"id":78,"result":{"thread":{"turns":[]}}}\n'),
+  );
+
+  const requestRecord = harness.records.find(
+    (record) => record.event === "proxy.request_received",
+  );
+  assert.equal(requestRecord.rpcMethod, "thread/read");
+  assert.equal(requestRecord.threadIdPresent, true);
+  assert.equal(requestRecord.includeTurns, true);
+  assert.equal(JSON.stringify(harness.records).includes("private-read-thread"), false);
+});
+
 test("records stdin backpressure without logging request values", () => {
   const harness = createHarness();
   const secretSearch = "private-search-contents";
@@ -196,7 +283,7 @@ test("records stdin backpressure without logging request values", () => {
   assert.match(serializedRecords, /"cursorPresent":true/);
 });
 
-test("ignores unrelated requests and reports abandoned thread/list requests", () => {
+test("ignores unrelated requests and reports abandoned observed requests", () => {
   const harness = createHarness();
   const unrelatedKey = harness.tracker.beginRequest({
     id: 1,
@@ -230,14 +317,17 @@ test("ignores unrelated requests and reports abandoned thread/list requests", ()
   );
   assert.equal(harness.records.at(-1).elapsedMs, 30);
   assert.equal(harness.records.at(-1).reason, "client_disconnected");
+  assert.equal(harness.records.at(-1).rpcMethod, "thread/list");
 });
 
 test("becomes a no-op when performance logging is disabled by environment", () => {
   const records = [];
-  const previousValue = process.env.CODEX_THREAD_LIST_PERF_LOGGING;
+  const previousGeneralValue = process.env.CODEX_THREAD_PERF_LOGGING;
+  const previousListValue = process.env.CODEX_THREAD_LIST_PERF_LOGGING;
+  delete process.env.CODEX_THREAD_PERF_LOGGING;
   process.env.CODEX_THREAD_LIST_PERF_LOGGING = "0";
   try {
-    const tracker = createThreadListProxyPerfTracker({
+    const tracker = createThreadProxyPerfTracker({
       emit: (record) => records.push(record),
     });
 
@@ -259,10 +349,15 @@ test("becomes a no-op when performance logging is disabled by environment", () =
     assert.equal(key, null);
     assert.deepEqual(records, []);
   } finally {
-    if (previousValue === undefined) {
+    if (previousGeneralValue === undefined) {
+      delete process.env.CODEX_THREAD_PERF_LOGGING;
+    } else {
+      process.env.CODEX_THREAD_PERF_LOGGING = previousGeneralValue;
+    }
+    if (previousListValue === undefined) {
       delete process.env.CODEX_THREAD_LIST_PERF_LOGGING;
     } else {
-      process.env.CODEX_THREAD_LIST_PERF_LOGGING = previousValue;
+      process.env.CODEX_THREAD_LIST_PERF_LOGGING = previousListValue;
     }
   }
 });

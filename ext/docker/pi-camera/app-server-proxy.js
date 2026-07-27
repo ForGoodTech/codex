@@ -40,7 +40,7 @@ const path = require('node:path');
 const perfModulePath = fs.existsSync(path.join(__dirname, 'app-server-proxy-perf.js'))
   ? path.join(__dirname, 'app-server-proxy-perf.js')
   : path.join(__dirname, '../pi/app-server-proxy-perf.js');
-const { createThreadListProxyPerfTracker } = require(perfModulePath);
+const { createThreadProxyPerfTracker } = require(perfModulePath);
 const envProxyToken = process.env.APP_SERVER_PROXY_TOKEN?.trim() ?? '';
 if (!envProxyToken) {
   console.warn(
@@ -362,7 +362,7 @@ const server = net.createServer((socket) => {
   let authBuffer = Buffer.alloc(0);
   let frameLineBuffer = '';
   let lastAuthMaterialLength = null;
-  const threadListPerf = createThreadListProxyPerfTracker();
+  const threadPerf = createThreadProxyPerfTracker();
   const authTimeout = setTimeout(() => {
     if (isAuthenticated) {
       return;
@@ -375,7 +375,7 @@ const server = net.createServer((socket) => {
     const socketWriteStartedAtNs = process.hrtime.bigint();
     const socketWriteAccepted = socket.write(chunk);
     const socketWriteCompletedAtNs = process.hrtime.bigint();
-    threadListPerf.observeAppServerStdout(chunk, {
+    threadPerf.observeAppServerStdout(chunk, {
       chunkReceivedAtNs,
       socketWriteCallMs: Number(socketWriteCompletedAtNs - socketWriteStartedAtNs) / 1_000_000,
       socketWriteAccepted,
@@ -462,7 +462,7 @@ const server = net.createServer((socket) => {
           console.log(`TEMP: proxy auth material length=${authMaterialLength}`);
         }
         const stdinBufferedBefore = appServer.stdin.writableLength;
-        const perfKey = threadListPerf.beginRequest(frame, {
+        const perfKey = threadPerf.beginRequest(frame, {
           receivedAtNs: requestReceivedAtNs,
           requestBytes: Buffer.byteLength(encodedLine, 'utf8'),
           parseSerializeMs: Number(requestParsedAtNs - requestReceivedAtNs) / 1_000_000,
@@ -471,7 +471,7 @@ const server = net.createServer((socket) => {
         const stdinWriteStartedAtNs = process.hrtime.bigint();
         const writeOk = appServer.stdin.write(encodedLine);
         const stdinWriteCompletedAtNs = process.hrtime.bigint();
-        threadListPerf.recordStdinWrite(perfKey, {
+        threadPerf.recordStdinWrite(perfKey, {
           completedAtNs: stdinWriteCompletedAtNs,
           writeCallMs: Number(stdinWriteCompletedAtNs - stdinWriteStartedAtNs) / 1_000_000,
           writeAccepted: writeOk,
@@ -490,7 +490,7 @@ const server = net.createServer((socket) => {
     }
   };
   const resumeSocket = () => {
-    threadListPerf.recordStdinDrain();
+    threadPerf.recordStdinDrain();
     socket.resume();
   };
   const teardown = () => {
@@ -503,7 +503,7 @@ const server = net.createServer((socket) => {
     socket.off('data', handleSocketData);
     socket.off('close', teardown);
     socket.off('error', teardown);
-    threadListPerf.abandonPending('client_disconnected');
+    threadPerf.abandonPending('client_disconnected');
     if (!socket.destroyed) {
       if (frameLineBuffer.length > 0) {
         const writeOk = appServer.stdin.write(frameLineBuffer);
