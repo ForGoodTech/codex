@@ -1,8 +1,12 @@
 "use strict";
 
-const { StringDecoder } = require("node:string_decoder");
-
 const traceVersion = 1;
+const responseIdPrefixBytes = 4096;
+const observedMethods = new Set([
+  "thread/list",
+  "thread/read",
+  "thread/resume",
+]);
 const disabledValues = new Set(["0", "false", "no", "off"]);
 const disabledTracker = Object.freeze({
   beginRequest: () => null,
@@ -30,10 +34,26 @@ function requestKey(requestId) {
   return `${typeof requestId}:${requestId}`;
 }
 
-function createThreadListProxyPerfTracker(options = {}) {
+function responseIdFromPrefix(prefix) {
+  const match = prefix.match(
+    /^\s*\{\s*"id"\s*:\s*("(?:\\.|[^"\\])*"|-?\d+)/,
+  );
+  if (!match) {
+    return null;
+  }
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function createThreadProxyPerfTracker(options = {}) {
+  const configuredLogging =
+    process.env.CODEX_THREAD_PERF_LOGGING ??
+    process.env.CODEX_THREAD_LIST_PERF_LOGGING;
   const enabled =
-    options.enabled ??
-    loggingEnabled(process.env.CODEX_THREAD_LIST_PERF_LOGGING);
+    options.enabled ?? loggingEnabled(configuredLogging);
   if (!enabled) {
     return disabledTracker;
   }
@@ -45,12 +65,12 @@ function createThreadListProxyPerfTracker(options = {}) {
       console.log(`[ThreadPerf] ${JSON.stringify(record)}`);
     });
   const pending = new Map();
-  let stdoutDecoder = new StringDecoder("utf8");
-  let stdoutLineBuffer = "";
+  let stdoutLineBytes = 0;
+  let stdoutLinePrefix = Buffer.alloc(0);
 
   function resetStdoutObservation() {
-    stdoutDecoder = new StringDecoder("utf8");
-    stdoutLineBuffer = "";
+    stdoutLineBytes = 0;
+    stdoutLinePrefix = Buffer.alloc(0);
   }
 
   function log(event, entry, fields = {}) {
@@ -64,7 +84,7 @@ function createThreadListProxyPerfTracker(options = {}) {
   }
 
   function beginRequest(frame, metrics = {}) {
-    if (!frame || frame.method !== "thread/list") {
+    if (!frame || !observedMethods.has(frame.method)) {
       return null;
     }
     const key = requestKey(frame.id);
@@ -79,6 +99,7 @@ function createThreadListProxyPerfTracker(options = {}) {
     const entry = {
       key,
       requestId: frame.id,
+      rpcMethod: frame.method,
       receivedAtNs,
       requestBytes: metrics.requestBytes ?? 0,
       parseSerializeMs: metrics.parseSerializeMs ?? 0,
@@ -97,6 +118,9 @@ function createThreadListProxyPerfTracker(options = {}) {
       searchLength:
         typeof params.searchTerm === "string" ? params.searchTerm.length : 0,
       useStateDbOnly: params.useStateDbOnly === true,
+      threadIdPresent:
+        typeof params.threadId === "string" && params.threadId.trim() !== "",
+      includeTurns: params.includeTurns === true,
     };
     pending.set(key, entry);
     return key;
@@ -115,15 +139,19 @@ function createThreadListProxyPerfTracker(options = {}) {
       entry.stdinBackpressureStartedAtNs = entry.stdinWriteCompletedAtNs;
     }
     log("proxy.request_received", entry, {
+      rpcMethod: entry.rpcMethod,
       requestBytes: entry.requestBytes,
       parseSerializeMs: entry.parseSerializeMs,
       cursorPresent: entry.cursorPresent,
       requestedLimit: entry.requestedLimit,
       searchLength: entry.searchLength,
       useStateDbOnly: entry.useStateDbOnly,
+      threadIdPresent: entry.threadIdPresent,
+      includeTurns: entry.includeTurns,
       stdinBufferedBefore: entry.stdinBufferedBefore,
     });
     log("proxy.request_forwarded", entry, {
+      rpcMethod: entry.rpcMethod,
       parseSerializeMs: entry.parseSerializeMs,
       stdinWriteCallMs: entry.stdinWriteCallMs,
       stdinWriteAccepted: entry.stdinWriteAccepted,
@@ -148,44 +176,50 @@ function createThreadListProxyPerfTracker(options = {}) {
       return;
     }
     const chunkReceivedAtNs = metrics.chunkReceivedAtNs ?? nowNs();
-    stdoutLineBuffer += stdoutDecoder.write(chunk);
-    const lines = stdoutLineBuffer.split("\n");
-    stdoutLineBuffer = lines.pop() ?? "";
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const newlineIndex = buffer.indexOf(0x0a, offset);
+      const end = newlineIndex < 0 ? buffer.length : newlineIndex;
+      const segment = buffer.subarray(offset, end);
+      stdoutLineBytes += segment.length;
+      if (stdoutLinePrefix.length < responseIdPrefixBytes) {
+        const remaining = responseIdPrefixBytes - stdoutLinePrefix.length;
+        stdoutLinePrefix = Buffer.concat([
+          stdoutLinePrefix,
+          segment.subarray(0, remaining),
+        ]);
+      }
+      if (newlineIndex < 0) {
+        break;
+      }
 
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) {
-        continue;
-      }
-      let frame;
-      try {
-        frame = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const key = requestKey(frame?.id);
+      const responseId = responseIdFromPrefix(stdoutLinePrefix.toString("utf8"));
+      const key = requestKey(responseId);
       const entry = key ? pending.get(key) : null;
-      if (!entry) {
-        continue;
+      if (entry) {
+        pending.delete(key);
+        const stdinWriteCompletedAtNs =
+          entry.stdinWriteCompletedAtNs ?? entry.receivedAtNs;
+        log("proxy.response_forwarded", entry, {
+          rpcMethod: entry.rpcMethod,
+          requestToResponseMs: durationMs(entry.receivedAtNs, chunkReceivedAtNs),
+          appServerWaitMs: durationMs(stdinWriteCompletedAtNs, chunkReceivedAtNs),
+          parseSerializeMs: entry.parseSerializeMs,
+          stdinWriteCallMs: entry.stdinWriteCallMs,
+          stdinWriteAccepted: entry.stdinWriteAccepted,
+          stdinDrainWaitMs: entry.stdinDrainWaitMs,
+          stdinBufferedBefore: entry.stdinBufferedBefore,
+          stdinBufferedAfter: entry.stdinBufferedAfter,
+          responseBytes: stdoutLineBytes,
+          socketWriteCallMs: metrics.socketWriteCallMs ?? 0,
+          socketWriteAccepted: metrics.socketWriteAccepted !== false,
+          socketBufferedBefore: metrics.socketBufferedBefore ?? 0,
+          socketBufferedAfter: metrics.socketBufferedAfter ?? 0,
+        });
       }
-      pending.delete(key);
-      const stdinWriteCompletedAtNs =
-        entry.stdinWriteCompletedAtNs ?? entry.receivedAtNs;
-      log("proxy.response_forwarded", entry, {
-        requestToResponseMs: durationMs(entry.receivedAtNs, chunkReceivedAtNs),
-        appServerWaitMs: durationMs(stdinWriteCompletedAtNs, chunkReceivedAtNs),
-        parseSerializeMs: entry.parseSerializeMs,
-        stdinWriteCallMs: entry.stdinWriteCallMs,
-        stdinWriteAccepted: entry.stdinWriteAccepted,
-        stdinDrainWaitMs: entry.stdinDrainWaitMs,
-        stdinBufferedBefore: entry.stdinBufferedBefore,
-        stdinBufferedAfter: entry.stdinBufferedAfter,
-        responseBytes: Buffer.byteLength(line, "utf8"),
-        socketWriteCallMs: metrics.socketWriteCallMs ?? 0,
-        socketWriteAccepted: metrics.socketWriteAccepted !== false,
-        socketBufferedBefore: metrics.socketBufferedBefore ?? 0,
-        socketBufferedAfter: metrics.socketBufferedAfter ?? 0,
-      });
+      resetStdoutObservation();
+      offset = newlineIndex + 1;
     }
 
     if (pending.size === 0) {
@@ -196,6 +230,7 @@ function createThreadListProxyPerfTracker(options = {}) {
   function abandonPending(reason = "connection_closed") {
     for (const entry of pending.values()) {
       log("proxy.request_abandoned", entry, {
+        rpcMethod: entry.rpcMethod,
         reason,
         elapsedMs: durationMs(entry.receivedAtNs, nowNs()),
       });
@@ -214,5 +249,6 @@ function createThreadListProxyPerfTracker(options = {}) {
 }
 
 module.exports = {
-  createThreadListProxyPerfTracker,
+  createThreadProxyPerfTracker,
+  createThreadListProxyPerfTracker: createThreadProxyPerfTracker,
 };
