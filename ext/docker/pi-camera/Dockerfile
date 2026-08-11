@@ -1,4 +1,78 @@
+ARG NCNN_VERSION="20260526"
+ARG NCNN_SOURCE_SHA256="754659d6fe65545cf2ef4483ffb84526fea631f8764c44b150f1601d0fb4004b"
+ARG NCNN_VULKAN="OFF"
+
+FROM node:24-bookworm AS ncnn-builder
+
+ARG NCNN_VERSION
+ARG NCNN_SOURCE_SHA256
+ARG NCNN_VULKAN
+
+RUN set -eux; \
+    case "${NCNN_VULKAN}" in \
+      ON|OFF) ;; \
+      *) echo "Unsupported NCNN_VULKAN=${NCNN_VULKAN}; expected ON or OFF" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      cmake \
+      curl \
+      libprotobuf-dev \
+      ninja-build \
+      protobuf-compiler \
+      python3-dev \
+      python3-numpy \
+      python3-pip \
+      python3-setuptools \
+      python3-wheel \
+      unzip; \
+    if [ "${NCNN_VULKAN}" = "ON" ]; then \
+      apt-get install -y --no-install-recommends glslang-tools libvulkan-dev; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    mkdir -p /tmp/ncnn-source /tmp/ncnn-wheel /opt/ncnn /opt/ncnn-python; \
+    curl --fail --location --show-error --silent --retry 3 \
+      "https://github.com/Tencent/ncnn/releases/download/${NCNN_VERSION}/ncnn-${NCNN_VERSION}-full-source.zip" \
+      --output /tmp/ncnn.zip; \
+    printf '%s  %s\n' "${NCNN_SOURCE_SHA256}" /tmp/ncnn.zip | sha256sum --check --strict -; \
+    unzip -q /tmp/ncnn.zip -d /tmp/ncnn-source; \
+    cmake -S /tmp/ncnn-source -B /tmp/ncnn-build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/ncnn \
+      -DNCNN_BUILD_BENCHMARK=OFF \
+      -DNCNN_BUILD_EXAMPLES=OFF \
+      -DNCNN_BUILD_TESTS=OFF \
+      -DNCNN_BUILD_TOOLS=ON \
+      -DNCNN_DISABLE_EXCEPTION=OFF \
+      -DNCNN_DISABLE_RTTI=OFF \
+      -DNCNN_PYTHON=ON \
+      -DNCNN_SHARED_LIB=ON \
+      -DNCNN_VERSION="${NCNN_VERSION}" \
+      -DNCNN_VULKAN="${NCNN_VULKAN}" \
+      -DPYTHON_EXECUTABLE=/usr/bin/python3 \
+      -DPython_EXECUTABLE=/usr/bin/python3 \
+      -DPython3_EXECUTABLE=/usr/bin/python3; \
+    cmake --build /tmp/ncnn-build --parallel "$(nproc)"; \
+    cmake --install /tmp/ncnn-build; \
+    python3 -m pip wheel \
+      --no-build-isolation \
+      --no-deps \
+      --wheel-dir /tmp/ncnn-wheel \
+      /tmp/ncnn-source/python; \
+    python3 -m pip install \
+      --no-deps \
+      --no-index \
+      --target /opt/ncnn-python \
+      /tmp/ncnn-wheel/ncnn-*.whl
+
 FROM node:24-bookworm
+
+ARG NCNN_VERSION
+ARG NCNN_VULKAN
 
 ARG TZ
 ENV TZ="$TZ"
@@ -15,6 +89,8 @@ ARG PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="30"
 ARG CHROME_MCP_STARTUP_TIMEOUT_SEC="30"
 ARG INSTALL_RPICAM_PACKAGES="auto"
 ARG RASPBERRY_PI_APT_SUITE="bookworm"
+ENV NCNN_VERSION="${NCNN_VERSION}"
+ENV NCNN_VULKAN="${NCNN_VULKAN}"
 ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
 ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
 ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
@@ -28,8 +104,15 @@ ENV PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}"
 ENV CHROME_MCP_STARTUP_TIMEOUT_SEC="${CHROME_MCP_STARTUP_TIMEOUT_SEC}"
 ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
 
-# Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install basic development tools, computer vision runtimes, ca-certificates, and
+# iptables/ipset, then clean up apt cache to reduce image size.
+RUN set -eux; \
+  case "${NCNN_VULKAN}" in \
+    ON|OFF) ;; \
+    *) echo "Unsupported NCNN_VULKAN=${NCNN_VULKAN}; expected ON or OFF" >&2; exit 1 ;; \
+  esac; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
   aggregate \
   ca-certificates \
   curl \
@@ -57,8 +140,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libdrm2 \
   libgtk-3-0 \
   libgbm1 \
+  libgomp1 \
   libnspr4 \
   libnss3 \
+  libprotobuf32 \
   libssl3 \
   libxcomposite1 \
   libxdamage1 \
@@ -69,20 +154,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   procps \
   pulseaudio \
   pulseaudio-utils \
+  python3 \
+  python3-numpy \
+  python3-opencv \
+  python3-portalocker \
+  python3-requests \
+  python3-tqdm \
   unzip \
   util-linux \
   v4l-utils \
   ripgrep \
   xvfb \
   xauth \
-  zsh \
-  && if [ -x /usr/bin/chromium ]; then \
+  zsh; \
+  if [ "${NCNN_VULKAN}" = "ON" ]; then \
+    apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers; \
+  fi; \
+  if [ -x /usr/bin/chromium ]; then \
        mkdir -p /opt/google/chrome; \
        printf '%s\n' '#!/bin/sh' 'if [ -r /home/node/browser-audio-setup.sh ]; then' '  . /home/node/browser-audio-setup.sh' 'fi' 'if command -v xvfb-run >/dev/null 2>&1; then' '  exec xvfb-run -a --server-args="-screen 0 1280x720x24 -nolisten tcp" /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' 'fi' 'exec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' > /opt/google/chrome/chrome; \
        chmod 755 /opt/google/chrome/chrome; \
-     fi \
-  && { setcap -r /usr/bin/ping 2>/dev/null || true; } \
-  && rm -rf /var/lib/apt/lists/*
+  fi; \
+  { setcap -r /usr/bin/ping 2>/dev/null || true; }; \
+  rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
@@ -104,11 +198,20 @@ RUN set -eux; \
       echo "deb [arch=${arch} signed-by=/usr/share/keyrings/raspberrypi-archive-keyring.gpg] http://archive.raspberrypi.com/debian ${RASPBERRY_PI_APT_SUITE} main" \
         > /etc/apt/sources.list.d/raspberrypi.list; \
       apt-get update; \
-      apt-get install -y --no-install-recommends rpicam-apps-core rpicam-apps-encoder; \
+      apt-get install -y --no-install-recommends \
+        rpicam-apps-core \
+        rpicam-apps-encoder \
+        rpicam-apps-opencv-postprocess; \
       rm -rf /var/lib/apt/lists/*; \
     else \
       echo "Skipping Raspberry Pi camera packages for architecture ${arch}."; \
     fi
+
+COPY --from=ncnn-builder /opt/ncnn /opt/ncnn
+COPY --from=ncnn-builder /opt/ncnn-python /opt/ncnn-python
+ENV PATH="/opt/ncnn/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/ncnn/lib"
+ENV PYTHONPATH="/opt/ncnn-python"
 
 # Ensure default node user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global && \
@@ -210,7 +313,8 @@ COPY --chown=node:node ext/docker/pi/browser-audio-rtp-stream.sh /home/node/brow
 COPY --chown=node:node ext/docker/pi-camera/sdk-proxy.js /home/node/sdk-proxy.js
 COPY --chown=node:node ext/docker/pi-camera/camera-smoke-test.sh /home/node/camera-smoke-test.sh
 COPY --chown=node:node ext/docker/pi-camera/camera-rtp-stream.sh /home/node/camera-rtp-stream.sh
-RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /home/node/browser-audio-setup.sh /home/node/browser-audio-rtp-stream.sh /home/node/sdk-proxy.js /home/node/camera-smoke-test.sh /home/node/camera-rtp-stream.sh && \
+COPY --chown=node:node ext/docker/pi-camera/vision-smoke-test.sh /home/node/vision-smoke-test.sh
+RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /home/node/browser-audio-setup.sh /home/node/browser-audio-rtp-stream.sh /home/node/sdk-proxy.js /home/node/camera-smoke-test.sh /home/node/camera-rtp-stream.sh /home/node/vision-smoke-test.sh && \
   ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
   ln -sf /home/node/app-surface-send.js /usr/local/share/npm-global/bin/codex-app-surface-send && \
   ln -sf /home/node/browser-audio-setup.sh /home/node/runtime-audio-setup.sh && \
@@ -222,6 +326,7 @@ RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /hom
   ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy && \
   ln -sf /home/node/camera-smoke-test.sh /usr/local/share/npm-global/bin/codex-camera-smoke-test && \
   ln -sf /home/node/camera-rtp-stream.sh /usr/local/share/npm-global/bin/codex-camera-rtp-stream && \
+  ln -sf /home/node/vision-smoke-test.sh /usr/local/share/npm-global/bin/codex-vision-smoke-test && \
   mkdir -p /home/node/.codex && \
   mkdir -p /home/node/node_modules/@openai/codex-sdk
 

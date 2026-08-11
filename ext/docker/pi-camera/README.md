@@ -3,20 +3,28 @@
 This directory is a camera-enabled sibling of `ext/docker/pi`. The original
 image stays intact; this variant keeps the Codex CLI, app-server proxy,
 SDK proxy, MCP configuration, and Playwright/Chrome tooling, then adds a
-Raspberry Pi camera runtime for agentic camera work inside Docker.
+Raspberry Pi camera, OpenCV, and NCNN runtime for agentic vision work inside
+Docker.
 
 ## What gets added
 
 - `v4l-utils` from Debian. The base Pi image already includes `ffmpeg` for
   media and RTP workflows.
-- `rpicam-apps-core` and `rpicam-apps-encoder` from the Raspberry Pi Bookworm
-  apt archive on `arm64` and `armhf` builds.
+- OpenCV and NumPy Python bindings from Debian for frame decoding, transforms,
+  feature extraction, and other computer vision tasks.
+- A pinned NCNN release built with its Python API, shared C++ library, headers,
+  and model optimization tools. CPU inference is enabled by default.
+- `rpicam-apps-core`, `rpicam-apps-encoder`, and
+  `rpicam-apps-opencv-postprocess` from the Raspberry Pi Bookworm apt archive on
+  `arm64` and `armhf` builds.
 - `/home/node/app-surface-send.js`, the same app-surface notification helper
   provided by the base Pi runtime image. The `codex-app-surface-send` symlink is
   also available when PATH resolves it.
 - `codex-runtime-audio-rtp-stream`, the same runtime-audio Opus RTP helper
   provided by the base Pi runtime image.
 - `codex-camera-smoke-test`, a container-side camera/device sanity check.
+- `codex-vision-smoke-test`, a hardware-independent OpenCV-to-NCNN inference
+  check.
 - `codex-camera-rtp-stream`, a container-side RTP helper around
   `rpicam-vid | ffmpeg`.
 - `run_camera_container.sh`, a host-side launcher that maps selected camera
@@ -55,6 +63,22 @@ RASPBERRY_PI_APT_SUITE=bookworm
 
 Set `INSTALL_RPICAM_PACKAGES=false` to build a non-camera development image, or
 `INSTALL_RPICAM_PACKAGES=true` to force the package install.
+
+NCNN is built from a checksummed upstream full-source archive. CPU inference is
+the default and works without GPU device access:
+
+```shell
+NCNN_VERSION=20260526
+NCNN_SOURCE_SHA256=754659d6fe65545cf2ef4483ffb84526fea631f8764c44b150f1601d0fb4004b
+NCNN_VULKAN=OFF
+```
+
+When changing `NCNN_VERSION`, also provide the SHA-256 digest published for that
+release's `ncnn-<version>-full-source.zip` asset. To compile the optional Vulkan
+backend and add the Mesa Vulkan runtime, set `NCNN_VULKAN=ON`. CPU inference
+remains available in Vulkan builds. Validate Vulkan builds on the target Pi and
+driver combination; a Docker build can confirm that support was compiled, but
+cannot prove that a host GPU is usable.
 
 Like `ext/docker/pi`, the build defaults to
 `PLAYWRIGHT_BROWSER_SOURCE=system`. This is the recommended setting for
@@ -156,6 +180,34 @@ rpicam-hello --list-cameras
 rpicam-vid -t 1000 -n --inline -o /tmp/test.h264
 ffprobe /tmp/test.h264
 ```
+
+## Validate Computer Vision and Inference
+
+The hardware-independent smoke test converts a synthetic BGR image with OpenCV,
+feeds the resulting tensor through an NCNN network, and checks the inference
+output:
+
+```shell
+codex-vision-smoke-test
+```
+
+Codex can use both libraries directly from Python:
+
+```python
+import cv2
+import ncnn
+import numpy as np
+
+frame = np.zeros((480, 640, 3), dtype=np.uint8)
+gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+net = ncnn.Net()
+```
+
+The C++ headers and CMake package are under `/opt/ncnn`, and tools such as
+`ncnnoptimize` are on `PATH`. The runtime consumes NCNN `.param` and `.bin`
+models. Convert PyTorch or ONNX models with PNNX in a separate development
+environment and mount the resulting files into the container; PyTorch and PNNX
+are intentionally excluded from this image to keep the camera runtime smaller.
 
 ## RTP Streaming
 

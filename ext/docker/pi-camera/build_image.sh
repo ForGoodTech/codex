@@ -23,6 +23,11 @@ OPENAI_DOCS_MCP_URL=${OPENAI_DOCS_MCP_URL:-https://developers.openai.com/mcp}
 PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC=${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC:-30}
 INSTALL_RPICAM_PACKAGES=${INSTALL_RPICAM_PACKAGES:-auto}
 RASPBERRY_PI_APT_SUITE=${RASPBERRY_PI_APT_SUITE:-bookworm}
+DEFAULT_NCNN_VERSION="20260526"
+DEFAULT_NCNN_SOURCE_SHA256="754659d6fe65545cf2ef4483ffb84526fea631f8764c44b150f1601d0fb4004b"
+NCNN_VERSION=${NCNN_VERSION:-$DEFAULT_NCNN_VERSION}
+NCNN_SOURCE_SHA256=${NCNN_SOURCE_SHA256:-$DEFAULT_NCNN_SOURCE_SHA256}
+NCNN_VULKAN=${NCNN_VULKAN:-OFF}
 
 if [[ $# -gt 2 ]]; then
   echo "Usage: $(basename "$0") [image-tag] [release-tag]" >&2
@@ -48,6 +53,30 @@ esac
 case "$PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC" in
   ''|*[!0-9]*|0)
     echo "PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC must be a positive integer number of seconds" >&2
+    exit 1
+    ;;
+esac
+
+if [[ ! "$NCNN_VERSION" =~ ^[0-9]{8}$ ]]; then
+  echo "NCNN_VERSION must be an eight-digit release tag such as 20260526" >&2
+  exit 1
+fi
+
+if [[ ! "$NCNN_SOURCE_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
+  echo "NCNN_SOURCE_SHA256 must be a 64-character SHA-256 digest" >&2
+  exit 1
+fi
+NCNN_SOURCE_SHA256=${NCNN_SOURCE_SHA256,,}
+
+case "${NCNN_VULKAN,,}" in
+  1|true|yes|on)
+    NCNN_VULKAN=ON
+    ;;
+  0|false|no|off)
+    NCNN_VULKAN=OFF
+    ;;
+  *)
+    echo "Unsupported NCNN_VULKAN=$NCNN_VULKAN; expected ON or OFF" >&2
     exit 1
     ;;
 esac
@@ -83,6 +112,7 @@ if [[ "$CODEX_VERSION" == "$CODEX_RELEASE_TAG" ]]; then
 fi
 
 echo "Using Codex release tag: $CODEX_RELEASE_TAG (default: $DEFAULT_CODEX_RELEASE_TAG)"
+echo "Using NCNN release: $NCNN_VERSION (Vulkan: $NCNN_VULKAN)"
 
 pushd "$CLI_ROOT" > /dev/null
 
@@ -195,6 +225,9 @@ function cleanup_existing_image() {
 cleanup_existing_image
 
 docker build \
+  --build-arg NCNN_VERSION="$NCNN_VERSION" \
+  --build-arg NCNN_SOURCE_SHA256="$NCNN_SOURCE_SHA256" \
+  --build-arg NCNN_VULKAN="$NCNN_VULKAN" \
   --build-arg PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
   --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
   --build-arg PLAYWRIGHT_BROWSER_SOURCE="$PLAYWRIGHT_BROWSER_SOURCE" \
@@ -219,6 +252,8 @@ docker run --rm \
   -e CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   -e GITHUB_MCP_URL="$GITHUB_MCP_URL" \
   -e INSTALL_RPICAM_PACKAGES="$INSTALL_RPICAM_PACKAGES" \
+  -e NCNN_VERSION="$NCNN_VERSION" \
+  -e NCNN_VULKAN="$NCNN_VULKAN" \
   -e IMAGE_TAG="$IMAGE_TAG" \
   "$IMAGE_TAG" bash -c '
 set -euo pipefail
@@ -325,12 +360,35 @@ case "$playwright_browser_source" in
     ;;
 esac
 
-for binary in v4l2-ctl codex-browser-audio-setup codex-browser-audio-rtp-stream codex-runtime-audio-setup codex-runtime-audio-rtp-stream codex-camera-device-setup codex-camera-entrypoint codex-camera-smoke-test codex-camera-rtp-stream; do
+required_binaries=(
+  python3
+  ncnnoptimize
+  v4l2-ctl
+  codex-browser-audio-setup
+  codex-browser-audio-rtp-stream
+  codex-runtime-audio-setup
+  codex-runtime-audio-rtp-stream
+  codex-camera-device-setup
+  codex-camera-entrypoint
+  codex-camera-smoke-test
+  codex-camera-rtp-stream
+  codex-vision-smoke-test
+)
+for binary in "${required_binaries[@]}"; do
   if ! command -v "$binary" >/dev/null 2>&1; then
     echo "Missing expected runtime binary: $binary" >&2
     exit 1
   fi
 done
+
+for path in /opt/ncnn/include/ncnn/net.h /opt/ncnn/lib/libncnn.so; do
+  if [[ ! -e "$path" ]]; then
+    echo "Missing expected NCNN runtime path: $path" >&2
+    exit 1
+  fi
+done
+
+codex-vision-smoke-test
 
 should_have_rpicam=0
 case "${INSTALL_RPICAM_PACKAGES:-auto}" in
@@ -349,6 +407,11 @@ esac
 
 if [[ "$should_have_rpicam" -eq 1 ]] && ! command -v rpicam-vid >/dev/null 2>&1; then
   echo "Missing rpicam-vid. Raspberry Pi camera builds should install rpicam-apps-core." >&2
+  exit 1
+fi
+
+if [[ "$should_have_rpicam" -eq 1 ]] && ! dpkg-query -W rpicam-apps-opencv-postprocess >/dev/null 2>&1; then
+  echo "Missing rpicam-apps-opencv-postprocess. Raspberry Pi camera builds should include the OpenCV post-processing stage." >&2
   exit 1
 fi
 
@@ -434,7 +497,7 @@ then
   exit 1
 fi
 
-echo "Verified Codex CLI, MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
+echo "Verified Codex CLI, OpenCV/NCNN vision runtime, MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
 '
 
 popd > /dev/null
