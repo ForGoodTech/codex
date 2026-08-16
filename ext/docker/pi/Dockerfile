@@ -174,6 +174,7 @@ RUN set -eux; \
 # Make the TCP proxy available inside the image and accessible from the default home directory.
 COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-proxy.js
 COPY --chown=node:node ext/docker/pi/app-server-proxy-perf.js /home/node/app-server-proxy-perf.js
+COPY --chown=node:node ext/docker/pi/cli-auth-broker.js /home/node/cli-auth-broker.js
 COPY --chown=node:node ext/docker/pi/app-surface-send.js /home/node/app-surface-send.js
 COPY --chown=node:node ext/docker/pi/browser-audio-setup.sh /home/node/browser-audio-setup.sh
 COPY --chown=node:node ext/docker/pi/browser-audio-rtp-stream.sh /home/node/browser-audio-rtp-stream.sh
@@ -219,6 +220,7 @@ RUN mkdir -p /home/node/workdir /home/node/.codex && \
   esac && \
   cat <<EOF > /home/node/.codex/config.toml
 sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
 
 [mcp_servers.openai_docs]
 url = "${OPENAI_DOCS_MCP_URL}"
