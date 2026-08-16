@@ -15,6 +15,10 @@ The image built from `ext/docker/pi` includes:
 - **codex-app-server-proxy** - a Node-based TCP bridge that spawns
   `codex-app-server` inside the container and exposes it over a single TCP port
   so you can forward it to the host.
+- **Runtime CLI auth adapter** - an optional loopback OAuth endpoint used by
+  SurestInfo-managed runtimes. It lets the unmodified Codex CLI refresh a
+  projected `auth.json` through the authenticated gateway connection without
+  placing the canonical refresh token in the container.
 - **codex-sdk-proxy** - a Node-based TCP bridge that uses the Codex TypeScript
   SDK, which shells out to the CLI, to run turns and stream JSONL events back to
   a single TCP client.
@@ -230,6 +234,26 @@ without changing proxy behavior. The older
 The app-server examples do not copy `auth.json` into the proxy container.
 Instead, they read auth on the client side and forward runtime auth material to
 app-server via `account/login/start` with `type: "chatgptAuthTokens"`.
+
+### SurestInfo runtime CLI auth projection
+
+The gateway may enable a managed, file-backed CLI login with
+`APP_SERVER_CLI_AUTH_BROKER_ENABLED=1`. In that mode it mounts a per-runtime
+projection at the path in `APP_SERVER_CLI_AUTH_PROJECTION_PATH` and sets the
+Codex refresh/revoke endpoint overrides to the proxy's loopback listener. The
+proxy creates `/home/node/.codex/auth.json` as a symlink to the mounted
+projection before spawning `codex-app-server`.
+
+The projection is deliberately not a copy of the operator credential: its
+refresh-token field is an opaque runtime lease. `cli-auth-broker.js` accepts
+only the OAuth refresh and revoke calls needed by stock Codex, forwards them as
+private JSONL notifications over the authenticated gateway connection, and
+never logs request bodies or tokens. The gateway owns canonical refresh-token
+rotation and republishes the projection after every successful refresh.
+
+This integration is isolated to `ext/docker/pi`; it does not patch Codex's Rust
+auth implementation. Without the enable flag, the image retains its ordinary
+Codex auth behavior.
 
 You can also run the helper standalone to print the token for quick verification
 or testing:
