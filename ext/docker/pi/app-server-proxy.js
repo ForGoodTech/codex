@@ -41,6 +41,8 @@ const perfModulePath = fs.existsSync(path.join(__dirname, 'app-server-proxy-perf
   ? path.join(__dirname, 'app-server-proxy-perf.js')
   : path.join(__dirname, '../pi/app-server-proxy-perf.js');
 const { createThreadProxyPerfTracker } = require(perfModulePath);
+const cliAuthBrokerModulePath = path.join(__dirname, 'cli-auth-broker.js');
+const { createCliAuthBroker, prepareCliAuthProjection } = require(cliAuthBrokerModulePath);
 
 function tokenFingerprint(value) {
   const token = (value ?? '').toString().trim();
@@ -101,6 +103,7 @@ const sandboxExe =
   process.env.CODEX_LINUX_SANDBOX_EXE?.trim() ||
   defaultSandboxExe;
 const githubPat = process.env.CODEX_GITHUB_PERSONAL_ACCESS_TOKEN?.trim() ?? '';
+const cliAuthBrokerEnabled = process.env.APP_SERVER_CLI_AUTH_BROKER_ENABLED === '1';
 let gitAskPassPath = null;
 
 function createGitAskPassScript() {
@@ -176,6 +179,11 @@ if (gitAskPassPath) {
   console.log('GitHub PAT bridge is disabled (CODEX_GITHUB_PERSONAL_ACCESS_TOKEN is unset).');
 }
 
+if (cliAuthBrokerEnabled) {
+  const cliAuthPath = prepareCliAuthProjection({ enabled: true });
+  console.log(`Runtime CLI ChatGPT auth projection is available at ${cliAuthPath}.`);
+}
+
 const appServerEnv = {
   ...buildGitEnv(process.env, gitAskPassPath),
   PATH: normalizeRuntimePath(process.env.PATH),
@@ -200,6 +208,8 @@ appServer.on('close', () => {
 
 let activeSocket = null;
 let activeSocketAuthenticated = false;
+let activeAppServerStdoutHasPartialLine = false;
+let pendingGatewayNotifications = [];
 let appSurfaceIpcServer = null;
 
 function normalizeAppSurfaceMethod(value) {
@@ -247,15 +257,55 @@ function appSurfaceNotificationFromPayload(payload) {
 }
 
 function sendAppSurfaceNotification(method, params) {
+  sendGatewayNotification(normalizeAppSurfaceMethod(method), params);
+}
+
+function sendGatewayNotification(method, params) {
   if (!activeSocket || activeSocket.destroyed || !activeSocketAuthenticated) {
     throw new Error('gateway connection is not authenticated');
   }
   const frame = {
-    method: normalizeAppSurfaceMethod(method),
+    method,
     params,
   };
-  activeSocket.write(`${JSON.stringify(frame)}\n`);
+  const encodedFrame = `${JSON.stringify(frame)}\n`;
+  if (activeAppServerStdoutHasPartialLine) {
+    pendingGatewayNotifications.push(encodedFrame);
+    return;
+  }
+  activeSocket.write(encodedFrame);
 }
+
+function updateAppServerStdoutLineState(chunk) {
+  const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  if (bytes.length === 0) {
+    return;
+  }
+  const lastNewline = bytes.lastIndexOf(0x0a);
+  if (lastNewline < 0) {
+    activeAppServerStdoutHasPartialLine = true;
+    return;
+  }
+  activeAppServerStdoutHasPartialLine = lastNewline !== bytes.length - 1;
+}
+
+function flushPendingGatewayNotifications(socket) {
+  if (activeAppServerStdoutHasPartialLine || activeSocket !== socket || socket.destroyed) {
+    return;
+  }
+  const notifications = pendingGatewayNotifications;
+  pendingGatewayNotifications = [];
+  for (const notification of notifications) {
+    socket.write(notification);
+  }
+}
+
+const cliAuthBroker = createCliAuthBroker({
+  enabled: cliAuthBrokerEnabled,
+  host: process.env.APP_SERVER_CLI_AUTH_BROKER_HOST?.trim() || '127.0.0.1',
+  port: Number.parseInt(process.env.APP_SERVER_CLI_AUTH_BROKER_PORT ?? '', 10) || 9396,
+  sendGatewayNotification,
+});
 
 function cleanupAppSurfaceIpc() {
   if (appSurfaceIpcServer) {
@@ -278,6 +328,7 @@ function cleanupAppSurfaceIpc() {
 function cleanupRuntime() {
   cleanupGitAskPass();
   cleanupAppSurfaceIpc();
+  void cliAuthBroker.close();
 }
 
 function startAppSurfaceIpcServer() {
@@ -380,6 +431,8 @@ const server = net.createServer((socket) => {
       socketBufferedBefore,
       socketBufferedAfter: socket.writableLength,
     });
+    updateAppServerStdoutLineState(chunk);
+    flushPendingGatewayNotifications(socket);
   };
   const handleSocketData = (chunk) => {
     if (!isAuthenticated) {
@@ -451,6 +504,9 @@ const server = net.createServer((socket) => {
       }
       try {
         const frame = JSON.parse(line);
+        if (cliAuthBroker.handleGatewayFrame(frame)) {
+          continue;
+        }
         const encodedLine = `${JSON.stringify(frame)}\n`;
         const requestParsedAtNs = process.hrtime.bigint();
         if (frame.method === 'turn/start') {
@@ -543,6 +599,9 @@ const server = net.createServer((socket) => {
     }
     activeSocket = null;
     activeSocketAuthenticated = false;
+    activeAppServerStdoutHasPartialLine = false;
+    pendingGatewayNotifications = [];
+    cliAuthBroker.handleGatewayDisconnect();
     console.log('Client disconnected; proxy is idle and ready for the next connection.');
   };
   appServer.stdout.on('data', forwardStdout);
@@ -554,6 +613,17 @@ const server = net.createServer((socket) => {
 server.listen(port, host, () => {
   console.log(`Proxy listening on ${host}:${port}`);
 });
+void cliAuthBroker
+  .start()
+  .then((address) => {
+    if (address) {
+      console.log(`Runtime CLI auth broker listening on ${address.address}:${address.port}`);
+    }
+  })
+  .catch((error) => {
+    console.error('Failed to start runtime CLI auth broker:', error?.message ?? error);
+    shutdownProxy('SIGTERM', 1);
+  });
 startAppSurfaceIpcServer();
 
 function shutdownProxy(signal, exitCode) {
