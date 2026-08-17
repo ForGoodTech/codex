@@ -251,9 +251,13 @@ private JSONL notifications over the authenticated gateway connection, and
 never logs request bodies or tokens. The gateway owns canonical refresh-token
 rotation and republishes the projection after every successful refresh.
 
-This integration is isolated to `ext/docker/pi`; it does not patch Codex's Rust
-auth implementation. Without the enable flag, the image retains its ordinary
-Codex auth behavior.
+This integration is owned by the `ext/docker/pi` runtime base and does not patch
+Codex's Rust auth implementation. The base publishes runtime-image contract
+`com.surestinfo.codex.runtime-contract=1`; every `ext/docker/pi-*` variant must
+inherit that base and its build must verify the exact shared proxy/broker assets.
+The gateway rejects missing or stale contracts, so a future runtime image cannot
+silently omit managed `auth.json` support. Without the enable flag, images retain
+ordinary Codex auth behavior.
 
 You can also run the helper standalone to print the token for quick verification
 or testing:

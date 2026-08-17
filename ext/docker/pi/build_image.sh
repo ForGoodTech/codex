@@ -8,6 +8,7 @@ set -euo pipefail
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
 CLI_ROOT="$REPO_ROOT/codex-cli"
+source "$SCRIPT_DIR/runtime-image-contract.sh"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-docker-image}
 DEFAULT_CODEX_RELEASE_TAG="rust-v0.145.0"
 CODEX_RELEASE_TAG=${CODEX_RELEASE_TAG:-$DEFAULT_CODEX_RELEASE_TAG}
@@ -206,6 +207,11 @@ docker build \
   -t "$IMAGE_TAG" \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$REPO_ROOT"
+
+if ! codex_runtime_image_has_current_contract "$IMAGE_TAG"; then
+  echo "Built image $IMAGE_TAG does not satisfy Codex runtime image contract v$CODEX_RUNTIME_IMAGE_CONTRACT_VERSION" >&2
+  exit 1
+fi
 
 docker run --rm \
   -e PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
