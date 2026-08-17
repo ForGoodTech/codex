@@ -1,10 +1,10 @@
 # Codex Docker Image for Pi Camera
 
-This directory is a camera-enabled sibling of `ext/docker/pi`. The original
-image stays intact; this variant keeps the Codex CLI, app-server proxy,
-SDK proxy, MCP configuration, and Playwright/Chrome tooling, then adds a
-Raspberry Pi camera, OpenCV, and NCNN runtime for agentic vision work inside
-Docker.
+This directory is the camera/vision extension of `ext/docker/pi`. Its runtime
+stage inherits the Pi base image, including the Codex CLI, app-server and SDK
+proxies, managed `auth.json` broker, MCP configuration, and
+Playwright/Chrome tooling, then adds Raspberry Pi camera, OpenCV, and NCNN
+support for agentic vision work inside Docker.
 
 ## What gets added
 
@@ -51,6 +51,17 @@ positional argument or `CODEX_IMAGE_TAG`:
 
 ```shell
 ./build_image.sh codex-pi-camera
+```
+
+The script uses `my-codex-docker-image` as its base by default. In
+`BUILD_BASE_IMAGE=auto` mode it builds that image when missing and rebuilds it
+when its versioned runtime contract or any shared control-plane asset is stale.
+It verifies the same contract in the completed Camera image. Useful overrides:
+
+```shell
+CODEX_BASE_IMAGE_TAG=my-codex-docker-image
+BUILD_BASE_IMAGE=auto
+CODEX_RELEASE_TAG=rust-v0.145.0
 ```
 
 The build installs Raspberry Pi camera packages only on `arm64`/`armhf` by
@@ -239,8 +250,9 @@ Docker, `127.0.0.1` means the current container.
 
 ## App Server Proxy
 
-The app-server proxy behavior is copied from `ext/docker/pi`, including the
-app-surface IPC socket when `CODEX_APP_SURFACE_CONTAINER=1` or
+The app-server proxy is inherited directly from `ext/docker/pi`; Camera does
+not maintain a private copy. That also provides the managed CLI auth broker and
+the app-surface IPC socket when `CODEX_APP_SURFACE_CONTAINER=1` or
 `APP_SERVER_APP_SURFACE_IPC_ENABLED=1`. Use `APP_SERVER_PROXY_TOKEN` for the
 first-frame proxy handshake:
 

@@ -5,10 +5,18 @@ SCRIPT_DIR=$(realpath "$(dirname "$0")")
 source "$SCRIPT_DIR/build_image.sh"
 
 TEST_IMAGE_STATE=current
+TEST_LABEL_STATE=current
 BASE_BUILD_CALLS=0
 
 function docker() {
   if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+    if [[ "${3:-}" == "--format" ]]; then
+      if [[ "$TEST_LABEL_STATE" == "current" ]]; then
+        printf '%s\n' "$CODEX_RUNTIME_IMAGE_CONTRACT_VERSION"
+      else
+        printf '%s\n' "stale"
+      fi
+    fi
     return 0
   fi
   if [[ "$1" != "run" ]]; then
@@ -18,16 +26,16 @@ function docker() {
 
   case "$TEST_IMAGE_STATE" in
     current)
-      printf '%s  %s\n' \
-        "$(sha256sum "$PI_PROXY_SOURCE" | awk '{print $1}')" \
-        /home/node/app-server-proxy.js
-      printf '%s  %s\n' \
-        "$(sha256sum "$PI_PROXY_PERF_SOURCE" | awk '{print $1}')" \
-        /home/node/app-server-proxy-perf.js
+      for index in "${!CODEX_RUNTIME_IMAGE_CONTRACT_SOURCES[@]}"; do
+        printf '%s  %s\n' \
+          "$(sha256sum "${CODEX_RUNTIME_IMAGE_CONTRACT_SOURCES[$index]}" | awk '{print $1}')" \
+          "${CODEX_RUNTIME_IMAGE_CONTRACT_PATHS[$index]}"
+      done
       ;;
     stale)
-      printf '%064d  %s\n' 0 /home/node/app-server-proxy.js
-      printf '%064d  %s\n' 0 /home/node/app-server-proxy-perf.js
+      for path in "${CODEX_RUNTIME_IMAGE_CONTRACT_PATHS[@]}"; do
+        printf '%064d  %s\n' 0 "$path"
+      done
       ;;
     missing)
       return 1
@@ -43,21 +51,29 @@ function build_base_image() {
   BASE_BUILD_CALLS=$((BASE_BUILD_CALLS + 1))
 }
 
-image_has_current_pi_proxy_assets test-image
+codex_runtime_image_has_current_contract test-image
 
 TEST_IMAGE_STATE=stale
-if image_has_current_pi_proxy_assets test-image; then
-  echo "Stale Pi proxy assets were accepted" >&2
+if codex_runtime_image_has_current_contract test-image; then
+  echo "Stale runtime image contract assets were accepted" >&2
   exit 1
 fi
 
 TEST_IMAGE_STATE=missing
-if image_has_current_pi_proxy_assets test-image; then
-  echo "Missing Pi proxy assets were accepted" >&2
+if codex_runtime_image_has_current_contract test-image; then
+  echo "Missing runtime image contract assets were accepted" >&2
   exit 1
 fi
 
 TEST_IMAGE_STATE=current
+TEST_LABEL_STATE=stale
+if codex_runtime_image_has_current_contract test-image; then
+  echo "Stale runtime image contract label was accepted" >&2
+  exit 1
+fi
+
+TEST_IMAGE_STATE=current
+TEST_LABEL_STATE=current
 BUILD_BASE_IMAGE=auto
 build_base_if_needed
 [[ "$BASE_BUILD_CALLS" -eq 0 ]]
@@ -70,4 +86,4 @@ TEST_IMAGE_STATE=missing
 build_base_if_needed
 [[ "$BASE_BUILD_CALLS" -eq 2 ]]
 
-echo "Pi Web base-image proxy asset checks passed"
+echo "Pi Web runtime image contract checks passed"

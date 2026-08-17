@@ -1,14 +1,13 @@
 #!/bin/bash
 
-# Build a Codex Docker image for Raspberry Pi camera access.
-# This script stages runtime binaries from an upstream Codex release and bundles them into the
-# local Docker image together with repository-local proxy/config/camera assets.
+# Build the camera/vision extension of the shared Codex Pi runtime image.
 set -euo pipefail
 
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 REPO_ROOT=$(realpath "$SCRIPT_DIR/../../..")
-CLI_ROOT="$REPO_ROOT/codex-cli"
 IMAGE_TAG=${CODEX_IMAGE_TAG:-my-codex-pi-camera-image}
+BASE_IMAGE=${CODEX_BASE_IMAGE_TAG:-my-codex-docker-image}
+BUILD_BASE_IMAGE=${BUILD_BASE_IMAGE:-auto}
 DEFAULT_CODEX_RELEASE_TAG="rust-v0.145.0"
 CODEX_RELEASE_TAG=${CODEX_RELEASE_TAG:-$DEFAULT_CODEX_RELEASE_TAG}
 PLAYWRIGHT_MCP_PACKAGE=${PLAYWRIGHT_MCP_PACKAGE:-@playwright/mcp}
@@ -28,6 +27,7 @@ DEFAULT_NCNN_SOURCE_SHA256="754659d6fe65545cf2ef4483ffb84526fea631f8764c44b150f1
 NCNN_VERSION=${NCNN_VERSION:-$DEFAULT_NCNN_VERSION}
 NCNN_SOURCE_SHA256=${NCNN_SOURCE_SHA256:-$DEFAULT_NCNN_SOURCE_SHA256}
 NCNN_VULKAN=${NCNN_VULKAN:-OFF}
+source "$REPO_ROOT/ext/docker/pi/runtime-image-contract.sh"
 
 if [[ $# -gt 2 ]]; then
   echo "Usage: $(basename "$0") [image-tag] [release-tag]" >&2
@@ -57,6 +57,14 @@ case "$PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC" in
     ;;
 esac
 
+case "$BUILD_BASE_IMAGE" in
+  auto|true|false) ;;
+  *)
+    echo "Unsupported BUILD_BASE_IMAGE=$BUILD_BASE_IMAGE; expected auto, true, or false" >&2
+    exit 1
+    ;;
+esac
+
 if [[ ! "$NCNN_VERSION" =~ ^[0-9]{8}$ ]]; then
   echo "NCNN_VERSION must be an eight-digit release tag such as 20260526" >&2
   exit 1
@@ -81,104 +89,46 @@ case "${NCNN_VULKAN,,}" in
     ;;
 esac
 
-if [[ ! -d "$CLI_ROOT" ]]; then
-  echo "Codex CLI directory not found at: $CLI_ROOT" >&2
-  exit 1
-fi
-
-# Determine the target triple expected by the CLI launcher.
-ARCH=$(uname -m)
-case "$ARCH" in
-  aarch64)
-    TARGET_TRIPLE="aarch64-unknown-linux-musl"
-    NPM_PLATFORM="linux-arm64"
-    PLATFORM_PACKAGE_NAME="@openai/codex-linux-arm64"
-    ;;
-  x86_64)
-    TARGET_TRIPLE="x86_64-unknown-linux-musl"
-    NPM_PLATFORM="linux-x64"
-    PLATFORM_PACKAGE_NAME="@openai/codex-linux-x64"
-    ;;
-  *)
-    echo "Unsupported architecture: $ARCH" >&2
-    exit 1
-    ;;
-esac
-
-CODEX_VERSION=${CODEX_RELEASE_TAG#rust-v}
-if [[ "$CODEX_VERSION" == "$CODEX_RELEASE_TAG" ]]; then
-  echo "Unsupported Codex release tag: $CODEX_RELEASE_TAG (expected rust-v<version>)" >&2
-  exit 1
-fi
-
 echo "Using Codex release tag: $CODEX_RELEASE_TAG (default: $DEFAULT_CODEX_RELEASE_TAG)"
 echo "Using NCNN release: $NCNN_VERSION (Vulkan: $NCNN_VULKAN)"
 
-pushd "$CLI_ROOT" > /dev/null
-
-function download_release_asset() {
-  local asset_name=$1
-  local output_path=$2
-  local download_url="https://github.com/openai/codex/releases/download/${CODEX_RELEASE_TAG}/${asset_name}"
-
-  mkdir -p "$(dirname "$output_path")"
-  if ! curl -fLsS "$download_url" -o "$output_path"; then
-    rm -f "$output_path"
-    echo "Failed to download $asset_name from $download_url" >&2
-    echo "If this release does not publish $asset_name, set CODEX_RELEASE_TAG to a compatible tag." >&2
-    exit 1
-  fi
+function build_base_image() {
+  CODEX_IMAGE_TAG="$BASE_IMAGE" \
+    CODEX_RELEASE_TAG="$CODEX_RELEASE_TAG" \
+    PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
+    PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
+    PLAYWRIGHT_BROWSER_SOURCE="$PLAYWRIGHT_BROWSER_SOURCE" \
+    PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="$PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC" \
+    PLAYWRIGHT_MCP_EXECUTABLE_PATH="$PLAYWRIGHT_MCP_EXECUTABLE_PATH" \
+    CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
+    CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
+    GITHUB_MCP_URL="$GITHUB_MCP_URL" \
+    OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
+    PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="$PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC" \
+    "$REPO_ROOT/ext/docker/pi/build_image.sh"
 }
 
-function build_platform_alias_package() {
-  local platform_tarball=$1
-  local output_path=$2
-  local package_name=$3
-  local tmpdir
-  tmpdir=$(mktemp -d)
-
-  tar -xzf "$platform_tarball" -C "$tmpdir"
-
-  if [[ ! -x "$tmpdir/package/vendor/$TARGET_TRIPLE/bin/codex" || ! -f "$tmpdir/package/vendor/$TARGET_TRIPLE/codex-package.json" ]]; then
-    echo "Expected Codex platform package layout was not found in $platform_tarball" >&2
-    echo "Archive contents:" >&2
-    find "$tmpdir/package" -maxdepth 5 -type f | sed "s|$tmpdir/package/||" >&2 || true
-    rm -rf "$tmpdir"
-    exit 1
-  fi
-
-  node - "$tmpdir/package/package.json" "$package_name" <<'NODE'
-const fs = require("node:fs");
-
-const packageJsonPath = process.argv[2];
-const packageName = process.argv[3];
-const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-packageJson.name = packageName;
-packageJson.private = true;
-fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-NODE
-
-  mkdir -p "$tmpdir/pack"
-  npm pack "$tmpdir/package" --pack-destination "$tmpdir/pack" >/dev/null
-  local packed_tarball
-  packed_tarball=$(find "$tmpdir/pack" -maxdepth 1 -type f -name "*.tgz" | head -n 1)
-  if [[ -z "$packed_tarball" ]]; then
-    echo "Failed to pack $package_name" >&2
-    rm -rf "$tmpdir"
-    exit 1
-  fi
-
-  mkdir -p "$(dirname "$output_path")"
-  mv "$packed_tarball" "$output_path"
-  rm -rf "$tmpdir"
+function build_base_if_needed() {
+  case "$BUILD_BASE_IMAGE" in
+    false)
+      return
+      ;;
+    true)
+      build_base_image
+      return
+      ;;
+    auto)
+      if docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
+        if codex_runtime_image_has_current_contract "$BASE_IMAGE"; then
+          echo "Reusing base image $BASE_IMAGE with current runtime image contract"
+          return
+        fi
+        echo "Rebuilding base image $BASE_IMAGE because its runtime image contract is stale or missing"
+      fi
+      build_base_image
+      ;;
+  esac
 }
-
-mkdir -p dist
-rm -f dist/codex.tgz dist/codex-platform-source.tgz dist/codex-platform.tgz
-download_release_asset "codex-npm-${CODEX_VERSION}.tgz" dist/codex.tgz
-download_release_asset "codex-npm-${NPM_PLATFORM}-${CODEX_VERSION}.tgz" dist/codex-platform-source.tgz
-build_platform_alias_package dist/codex-platform-source.tgz dist/codex-platform.tgz "$PLATFORM_PACKAGE_NAME"
-rm -f dist/codex-platform-source.tgz
 
 function cleanup_existing_image() {
   if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
@@ -222,27 +172,25 @@ function cleanup_existing_image() {
   exit 1
 }
 
+function main() {
+build_base_if_needed
 cleanup_existing_image
 
 docker build \
+  --build-arg BASE_IMAGE="$BASE_IMAGE" \
   --build-arg NCNN_VERSION="$NCNN_VERSION" \
   --build-arg NCNN_SOURCE_SHA256="$NCNN_SOURCE_SHA256" \
   --build-arg NCNN_VULKAN="$NCNN_VULKAN" \
-  --build-arg PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
-  --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
-  --build-arg PLAYWRIGHT_BROWSER_SOURCE="$PLAYWRIGHT_BROWSER_SOURCE" \
-  --build-arg PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="$PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC" \
-  --build-arg PLAYWRIGHT_MCP_EXECUTABLE_PATH="$PLAYWRIGHT_MCP_EXECUTABLE_PATH" \
-  --build-arg CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
-  --build-arg CHROME_MCP_VERSION="$CHROME_MCP_VERSION" \
-  --build-arg GITHUB_MCP_URL="$GITHUB_MCP_URL" \
-  --build-arg OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
-  --build-arg PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="$PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC" \
   --build-arg INSTALL_RPICAM_PACKAGES="$INSTALL_RPICAM_PACKAGES" \
   --build-arg RASPBERRY_PI_APT_SUITE="$RASPBERRY_PI_APT_SUITE" \
   -t "$IMAGE_TAG" \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$REPO_ROOT"
+
+if ! codex_runtime_image_has_current_contract "$IMAGE_TAG"; then
+  echo "Built image $IMAGE_TAG does not satisfy inherited Codex runtime image contract v$CODEX_RUNTIME_IMAGE_CONTRACT_VERSION" >&2
+  exit 1
+fi
 
 docker run --rm \
   -e PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
@@ -497,7 +445,10 @@ then
   exit 1
 fi
 
-echo "Verified Codex CLI, OpenCV/NCNN vision runtime, MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
+echo "Verified Codex runtime contract, CLI, OpenCV/NCNN vision runtime, MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
 '
+}
 
-popd > /dev/null
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main
+fi
