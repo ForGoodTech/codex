@@ -1,5 +1,7 @@
 FROM node:24-bookworm
 
+LABEL com.surestinfo.codex.runtime-contract="1"
+
 ARG TZ
 ENV TZ="$TZ"
 ARG PLAYWRIGHT_MCP_PACKAGE="@playwright/mcp"
