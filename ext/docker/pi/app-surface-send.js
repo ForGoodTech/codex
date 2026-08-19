@@ -28,15 +28,19 @@ function usage() {
   codex-app-surface-send media <overlay|side|background|hidden>
   codex-app-surface-send status <message>
   codex-app-surface-send clear
+  codex-app-surface-send state [--full]
   codex-app-surface-send raw <json-or-file>
 
 Options:
-  --socket <path>  Override the proxy IPC socket path.
+  --socket <path>       Override the proxy IPC socket path.
+  --source <name>       Identify this writer (default: gateway or cli).
+  --if-revision <n>     Publish only if the shared state is still at revision n.
 
 Examples:
   codex-app-surface-send media side
   codex-app-surface-send frame '{"type":"app.surface.html","title":"Clock","html":"<main>...</main>"}'
-  codex-app-surface-send html /tmp/clock.html --title Clock --css /tmp/clock.css --script /tmp/clock.js`);
+  codex-app-surface-send html /tmp/clock.html --title Clock --css /tmp/clock.css --script /tmp/clock.js
+  codex-app-surface-send state`);
 }
 
 function normalizeAppSurfaceMethod(value) {
@@ -90,17 +94,33 @@ function takeOption(args, name) {
 
 function extractGlobalOptions(args) {
   let socketPath = defaultSocketPath;
+  let source = process.env.CODEX_APP_SURFACE_SOURCE?.trim() || 'cli';
+  let expectedRevision;
   for (let i = 0; i < args.length; i += 1) {
-    if (args[i] === '--socket') {
+    const option = args[i];
+    if (option === '--socket' || option === '--source' || option === '--if-revision') {
       if (i === args.length - 1) {
-        throw new Error('--socket requires a value');
+        throw new Error(`${option} requires a value`);
       }
-      socketPath = args[i + 1];
+      const value = args[i + 1];
+      if (option === '--socket') {
+        socketPath = value;
+      } else if (option === '--source') {
+        source = value.trim();
+      } else {
+        expectedRevision = Number(value);
+        if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+          throw new Error('--if-revision requires a non-negative integer');
+        }
+      }
       args.splice(i, 2);
       i -= 1;
     }
   }
-  return { socketPath };
+  if (!source) {
+    throw new Error('--source must not be empty');
+  }
+  return { socketPath, source, expectedRevision };
 }
 
 function notificationFromFrame(frame) {
@@ -194,7 +214,31 @@ function buildNotification(command, args) {
   }
 }
 
-function sendNotification(socketPath, notification) {
+function buildIpcRequest(command, args, options) {
+  if (command === 'state' || command === 'get-state') {
+    const fullIndex = args.indexOf('--full');
+    const includeContent = fullIndex >= 0;
+    if (includeContent) {
+      args.splice(fullIndex, 1);
+    }
+    if (args.length > 0) {
+      throw new Error(`unexpected state argument: ${args[0]}`);
+    }
+    return {
+      op: 'state.get',
+      includeContent,
+    };
+  }
+
+  return {
+    op: 'surface.publish',
+    source: options.source,
+    expectedRevision: options.expectedRevision,
+    notification: buildNotification(command, args),
+  };
+}
+
+function sendIpcRequest(socketPath, request) {
   return new Promise((resolve, reject) => {
     const client = net.createConnection({ path: socketPath });
     let response = '';
@@ -211,7 +255,7 @@ function sendNotification(socketPath, notification) {
     client.setEncoding('utf8');
     client.setTimeout(sendTimeoutMs);
     client.on('connect', () => {
-      client.end(JSON.stringify(notification));
+      client.end(JSON.stringify(request));
     });
     client.on('data', (chunk) => {
       response += chunk;
@@ -244,14 +288,29 @@ async function main() {
     process.exit(args.length === 0 ? 1 : 0);
   }
 
-  const { socketPath } = extractGlobalOptions(args);
+  const options = extractGlobalOptions(args);
   const command = args.shift();
-  const notification = buildNotification(command, args);
-  await sendNotification(socketPath, notification);
-  console.log(`App surface notification sent: ${normalizeAppSurfaceMethod(notification.method || appSurfaceFrameMethod)}`);
+  const request = buildIpcRequest(command, args, options);
+  const response = await sendIpcRequest(options.socketPath, request);
+  if (request.op === 'state.get') {
+    console.log(JSON.stringify(response.state, null, 2));
+    return;
+  }
+  const method = normalizeAppSurfaceMethod(request.notification.method || appSurfaceFrameMethod);
+  console.log(
+    `App surface notification sent: ${method} (revision ${response.state.revision}, source ${request.source})`,
+  );
 }
 
-main().catch((error) => {
-  console.error(`codex-app-surface-send: ${error?.message ?? error}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`codex-app-surface-send: ${error?.message ?? error}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  buildIpcRequest,
+  buildNotification,
+  extractGlobalOptions,
+};

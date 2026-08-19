@@ -26,7 +26,8 @@ support for agentic vision work inside Docker.
 - `codex-vision-smoke-test`, a hardware-independent OpenCV-to-NCNN inference
   check.
 - `codex-camera-rtp-stream`, a container-side RTP helper around
-  `rpicam-vid | ffmpeg`.
+  `rpicam-vid | ffmpeg`. The same FFmpeg process atomically refreshes a latest
+  JPEG so vision consumers do not need to compete for the camera device.
 - `run_camera_container.sh`, a host-side launcher that maps selected camera
   devices without using `--privileged` by default.
 - A root entrypoint that creates container-local device nodes for root-only
@@ -236,6 +237,13 @@ producing H.264:
 FFMPEG_VCODEC=copy codex-camera-rtp-stream 'rtp://receiver:5004?pkt_size=1200'
 ```
 
+The running streamer also writes `/tmp/codex-camera/latest.jpg` atomically at
+one frame per second. This is the shared analysis input for OpenCV/NCNN and does
+not interrupt browser RTP. Configure it with `CAMERA_LATEST_FRAME_PATH`,
+`CAMERA_LATEST_FRAME_FPS`, and `CAMERA_LATEST_FRAME_QUALITY`; set the path to
+`off` to disable it. Avoid starting another long-running `rpicam-vid`
+process while the gateway streamer owns the device.
+
 Codex can still run the exact raw pipeline directly:
 
 ```shell
@@ -273,6 +281,7 @@ When the app-surface IPC socket is enabled, camera runtimes can use the same
 helper as agent runtimes:
 
 ```shell
+/home/node/app-surface-send.js state
 /home/node/app-surface-send.js media side
 /home/node/app-surface-send.js frame '{"type":"app.surface.html","title":"Camera Monitor","html":"<main>...</main>"}'
 /home/node/app-surface-send.js status "Live analysis running"
@@ -280,6 +289,10 @@ helper as agent runtimes:
 
 The live camera RTP stream remains the media plane; app-surface frames should add
 UI, overlays, monitoring state, controls, or alerts around that stream.
+The RTP stream itself is not model input. `state` reports the atomic analysis
+frame under `camera`, including its path, age, and availability. Gateway-driven
+Codex and an interactive CLI share revisioned app-surface state and should use
+`--if-revision` when both may publish.
 
 ## Runtime Audio RTP
 

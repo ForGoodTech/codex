@@ -43,6 +43,8 @@ const perfModulePath = fs.existsSync(path.join(__dirname, 'app-server-proxy-perf
 const { createThreadProxyPerfTracker } = require(perfModulePath);
 const cliAuthBrokerModulePath = path.join(__dirname, 'cli-auth-broker.js');
 const { createCliAuthBroker, prepareCliAuthProjection } = require(cliAuthBrokerModulePath);
+const appSurfaceCoordinatorModulePath = path.join(__dirname, 'app-surface-coordinator.js');
+const { createAppSurfaceCoordinator } = require(appSurfaceCoordinatorModulePath);
 
 function tokenFingerprint(value) {
   const token = (value ?? '').toString().trim();
@@ -188,6 +190,7 @@ const appServerEnv = {
   ...buildGitEnv(process.env, gitAskPassPath),
   PATH: normalizeRuntimePath(process.env.PATH),
   CODEX_LINUX_SANDBOX_EXE: sandboxExe,
+  CODEX_APP_SURFACE_SOURCE: 'gateway',
 };
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
 const appServer = spawn(appServerCmd, appServerArgs, {
@@ -211,6 +214,7 @@ let activeSocketAuthenticated = false;
 let activeAppServerStdoutHasPartialLine = false;
 let pendingGatewayNotifications = [];
 let appSurfaceIpcServer = null;
+const appSurfaceCoordinator = createAppSurfaceCoordinator();
 
 function normalizeAppSurfaceMethod(value) {
   let method = (value ?? '').toString().trim().toLowerCase();
@@ -258,6 +262,88 @@ function appSurfaceNotificationFromPayload(payload) {
 
 function sendAppSurfaceNotification(method, params) {
   sendGatewayNotification(normalizeAppSurfaceMethod(method), params);
+}
+
+function cameraSurfaceState() {
+  if (process.env.CODEX_CAMERA_CONTAINER !== '1') {
+    return null;
+  }
+  const configuredPath = process.env.CAMERA_LATEST_FRAME_PATH;
+  let latestFramePath =
+    configuredPath === undefined ? path.join(os.tmpdir(), 'codex-camera', 'latest.jpg') : configuredPath.trim();
+  if (['off', 'none', 'disabled'].includes(latestFramePath.toLowerCase())) {
+    latestFramePath = '';
+  }
+  if (!latestFramePath) {
+    return {
+      latestFramePath: null,
+      enabled: false,
+      available: false,
+      updatedAt: null,
+      ageMs: null,
+      sizeBytes: 0,
+    };
+  }
+  try {
+    const frameStat = fs.statSync(latestFramePath);
+    return {
+      latestFramePath,
+      enabled: true,
+      available: frameStat.isFile(),
+      updatedAt: frameStat.mtime.toISOString(),
+      ageMs: Math.max(0, Date.now() - frameStat.mtimeMs),
+      sizeBytes: frameStat.size,
+    };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to inspect latest camera frame:', error?.message ?? error);
+    }
+    return {
+      latestFramePath,
+      enabled: true,
+      available: false,
+      updatedAt: null,
+      ageMs: null,
+      sizeBytes: 0,
+    };
+  }
+}
+
+function currentAppSurfaceState(includeContent = false) {
+  return {
+    ...appSurfaceCoordinator.snapshot({ includeContent }),
+    transport: {
+      gatewayConnected: !!(activeSocket && !activeSocket.destroyed && activeSocketAuthenticated),
+      browserDeliveryConfirmed: null,
+    },
+    camera: cameraSurfaceState(),
+  };
+}
+
+function handleAppSurfaceIpcRequest(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('app-surface IPC request must be a JSON object');
+  }
+  if (payload.op === 'state.get') {
+    return { ok: true, state: currentAppSurfaceState(payload.includeContent === true) };
+  }
+  if (payload.op !== undefined && payload.op !== 'surface.publish') {
+    throw new Error(`unknown app-surface IPC operation: ${payload.op}`);
+  }
+
+  const isPublication = payload.op === 'surface.publish';
+  const notification = appSurfaceNotificationFromPayload(
+    isPublication ? payload.notification : payload,
+  );
+  appSurfaceCoordinator.publish(
+    {
+      notification,
+      source: isPublication ? payload.source : 'legacy',
+      expectedRevision: isPublication ? payload.expectedRevision : undefined,
+    },
+    (outbound) => sendAppSurfaceNotification(outbound.method, outbound.params),
+  );
+  return { ok: true, state: currentAppSurfaceState() };
 }
 
 function sendGatewayNotification(method, params) {
@@ -363,9 +449,7 @@ function startAppSurfaceIpcServer() {
       }
       try {
         const payload = JSON.parse(body.trim());
-        const notification = appSurfaceNotificationFromPayload(payload);
-        sendAppSurfaceNotification(notification.method, notification.params);
-        socket.end(`${JSON.stringify({ ok: true })}\n`);
+        socket.end(`${JSON.stringify(handleAppSurfaceIpcRequest(payload))}\n`);
       } catch (error) {
         socket.end(`${JSON.stringify({ ok: false, error: error?.message ?? String(error) })}\n`);
       }
