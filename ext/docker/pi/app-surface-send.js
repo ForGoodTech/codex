@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const { logAppSurfaceMessageLength, utf8MessageLength } = require('./app-surface-transport-log.js');
 
 const appSurfaceFrameMethod = 'app.surface.frame';
 const defaultSocketPath =
@@ -239,6 +240,7 @@ function buildIpcRequest(command, args, options) {
 }
 
 function sendIpcRequest(socketPath, request) {
+  const encodedRequest = JSON.stringify(request);
   return new Promise((resolve, reject) => {
     const client = net.createConnection({ path: socketPath });
     let response = '';
@@ -255,20 +257,27 @@ function sendIpcRequest(socketPath, request) {
     client.setEncoding('utf8');
     client.setTimeout(sendTimeoutMs);
     client.on('connect', () => {
-      client.end(JSON.stringify(request));
+      logAppSurfaceMessageLength('runtime-sender.ipc.send', utf8MessageLength(encodedRequest));
+      client.end(encodedRequest);
     });
     client.on('data', (chunk) => {
       response += chunk;
     });
     client.on('timeout', () => {
+      logAppSurfaceMessageLength('runtime-sender.ipc.timeout', utf8MessageLength(encodedRequest));
       settle(reject, new Error(`timed out after ${sendTimeoutMs}ms waiting for app-surface IPC response`));
     });
     client.on('error', (error) => {
+      if (!settled) {
+        logAppSurfaceMessageLength('runtime-sender.ipc.error', utf8MessageLength(encodedRequest));
+      }
       settle(reject, error);
     });
     client.on('end', () => {
       try {
-        const parsed = response.trim() ? JSON.parse(response.trim()) : {};
+        const encodedResponse = response.trim();
+        logAppSurfaceMessageLength('runtime-sender.ipc.receive', utf8MessageLength(encodedResponse));
+        const parsed = encodedResponse ? JSON.parse(encodedResponse) : {};
         if (parsed.ok) {
           settle(resolve, parsed);
           return;

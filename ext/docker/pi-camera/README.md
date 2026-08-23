@@ -294,6 +294,11 @@ frame under `camera`, including its path, age, and availability. Gateway-driven
 Codex and an interactive CLI share revisioned app-surface state and should use
 `--if-revision` when both may publish.
 
+The inherited sender and proxy write UTC, length-only app-surface transport
+traces to container stdout. Their format and boundary names are documented in
+the Pi base image README. A normal `app-surface/` file update is observed and
+sent by the gateway, so no sender/proxy payload line is expected for that route.
+
 ## Runtime Audio RTP
 
 The Chromium wrapper sources `/home/node/browser-audio-setup.sh` before launch.

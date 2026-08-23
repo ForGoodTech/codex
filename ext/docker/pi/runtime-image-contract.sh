@@ -7,7 +7,7 @@
 # The image label is also checked by the gateway before it starts a runtime.
 
 CODEX_RUNTIME_IMAGE_CONTRACT_LABEL="com.surestinfo.codex.runtime-contract"
-CODEX_RUNTIME_IMAGE_CONTRACT_VERSION="2"
+CODEX_RUNTIME_IMAGE_CONTRACT_VERSION="3"
 
 CODEX_RUNTIME_IMAGE_CONTRACT_SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT=$(realpath "$CODEX_RUNTIME_IMAGE_CONTRACT_SCRIPT_DIR/../../..")
@@ -17,6 +17,7 @@ CODEX_RUNTIME_IMAGE_CONTRACT_SOURCES=(
   "$CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT/ext/docker/pi/app-server-proxy-perf.js"
   "$CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT/ext/docker/pi/cli-auth-broker.js"
   "$CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT/ext/docker/pi/app-surface-coordinator.js"
+  "$CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT/ext/docker/pi/app-surface-transport-log.js"
   "$CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT/ext/docker/pi/app-surface-send.js"
   "$CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT/ext/docker/pi/browser-audio-setup.sh"
   "$CODEX_RUNTIME_IMAGE_CONTRACT_REPO_ROOT/ext/docker/pi/browser-audio-rtp-stream.sh"
@@ -28,6 +29,7 @@ CODEX_RUNTIME_IMAGE_CONTRACT_PATHS=(
   /home/node/app-server-proxy-perf.js
   /home/node/cli-auth-broker.js
   /home/node/app-surface-coordinator.js
+  /home/node/app-surface-transport-log.js
   /home/node/app-surface-send.js
   /home/node/browser-audio-setup.sh
   /home/node/browser-audio-rtp-stream.sh

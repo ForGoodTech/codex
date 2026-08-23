@@ -1,6 +1,6 @@
 FROM node:24-bookworm
 
-LABEL com.surestinfo.codex.runtime-contract="2"
+LABEL com.surestinfo.codex.runtime-contract="3"
 
 ARG TZ
 ENV TZ="$TZ"
@@ -178,6 +178,7 @@ COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-p
 COPY --chown=node:node ext/docker/pi/app-server-proxy-perf.js /home/node/app-server-proxy-perf.js
 COPY --chown=node:node ext/docker/pi/cli-auth-broker.js /home/node/cli-auth-broker.js
 COPY --chown=node:node ext/docker/pi/app-surface-coordinator.js /home/node/app-surface-coordinator.js
+COPY --chown=node:node ext/docker/pi/app-surface-transport-log.js /home/node/app-surface-transport-log.js
 COPY --chown=node:node ext/docker/pi/app-surface-send.js /home/node/app-surface-send.js
 COPY --chown=node:node ext/docker/pi/browser-audio-setup.sh /home/node/browser-audio-setup.sh
 COPY --chown=node:node ext/docker/pi/browser-audio-rtp-stream.sh /home/node/browser-audio-rtp-stream.sh

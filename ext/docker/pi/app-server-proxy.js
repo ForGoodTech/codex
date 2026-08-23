@@ -45,6 +45,8 @@ const cliAuthBrokerModulePath = path.join(__dirname, 'cli-auth-broker.js');
 const { createCliAuthBroker, prepareCliAuthProjection } = require(cliAuthBrokerModulePath);
 const appSurfaceCoordinatorModulePath = path.join(__dirname, 'app-surface-coordinator.js');
 const { createAppSurfaceCoordinator } = require(appSurfaceCoordinatorModulePath);
+const appSurfaceTransportLogModulePath = path.join(__dirname, 'app-surface-transport-log.js');
+const { logAppSurfaceMessageLength, utf8MessageLength } = require(appSurfaceTransportLogModulePath);
 
 function tokenFingerprint(value) {
   const token = (value ?? '').toString().trim();
@@ -354,11 +356,20 @@ function sendGatewayNotification(method, params) {
     method,
     params,
   };
-  const encodedFrame = `${JSON.stringify(frame)}\n`;
+  const encodedPayload = JSON.stringify(frame);
+  const encodedFrame = `${encodedPayload}\n`;
   if (activeAppServerStdoutHasPartialLine) {
     pendingGatewayNotifications.push(encodedFrame);
+    logAppSurfaceMessageLength(
+      `runtime-proxy.gateway-tcp.queue.${normalizeAppSurfaceMethod(method)}`,
+      utf8MessageLength(encodedPayload),
+    );
     return;
   }
+  logAppSurfaceMessageLength(
+    `runtime-proxy.gateway-tcp.send.${normalizeAppSurfaceMethod(method)}`,
+    utf8MessageLength(encodedPayload),
+  );
   activeSocket.write(encodedFrame);
 }
 
@@ -382,6 +393,10 @@ function flushPendingGatewayNotifications(socket) {
   const notifications = pendingGatewayNotifications;
   pendingGatewayNotifications = [];
   for (const notification of notifications) {
+    logAppSurfaceMessageLength(
+      'runtime-proxy.gateway-tcp.send.queued',
+      utf8MessageLength(notification.endsWith('\n') ? notification.slice(0, -1) : notification),
+    );
     socket.write(notification);
   }
 }
@@ -439,7 +454,10 @@ function startAppSurfaceIpcServer() {
       body += chunk;
       if (Buffer.byteLength(body, 'utf8') > maxAppSurfaceIpcBytes) {
         rejected = true;
-        socket.end(`${JSON.stringify({ ok: false, error: 'app-surface IPC payload is too large' })}\n`);
+        logAppSurfaceMessageLength('runtime-proxy.ipc.receive.rejected', utf8MessageLength(body));
+        const encodedResponse = JSON.stringify({ ok: false, error: 'app-surface IPC payload is too large' });
+        logAppSurfaceMessageLength('runtime-proxy.ipc.send.error', utf8MessageLength(encodedResponse));
+        socket.end(`${encodedResponse}\n`);
         socket.destroy();
       }
     });
@@ -448,10 +466,19 @@ function startAppSurfaceIpcServer() {
         return;
       }
       try {
-        const payload = JSON.parse(body.trim());
-        socket.end(`${JSON.stringify(handleAppSurfaceIpcRequest(payload))}\n`);
+        const encodedRequest = body.trim();
+        logAppSurfaceMessageLength('runtime-proxy.ipc.receive', utf8MessageLength(encodedRequest));
+        const payload = JSON.parse(encodedRequest);
+        const encodedResponse = JSON.stringify(handleAppSurfaceIpcRequest(payload));
+        logAppSurfaceMessageLength('runtime-proxy.ipc.send', utf8MessageLength(encodedResponse));
+        socket.end(`${encodedResponse}\n`);
       } catch (error) {
-        socket.end(`${JSON.stringify({ ok: false, error: error?.message ?? String(error) })}\n`);
+        const encodedResponse = JSON.stringify({
+          ok: false,
+          error: error?.message ?? String(error),
+        });
+        logAppSurfaceMessageLength('runtime-proxy.ipc.send.error', utf8MessageLength(encodedResponse));
+        socket.end(`${encodedResponse}\n`);
       }
     });
   });
@@ -564,6 +591,9 @@ const server = net.createServer((socket) => {
       });
       isAuthenticated = true;
       activeSocketAuthenticated = true;
+      if (appSurfaceIpcEnabled) {
+        logAppSurfaceMessageLength('runtime-proxy.gateway-tcp.open', 0);
+      }
       clearTimeout(authTimeout);
       const remaining = authBuffer.subarray(newlineIndex + 1);
       authBuffer = Buffer.alloc(0);
@@ -683,6 +713,9 @@ const server = net.createServer((socket) => {
     }
     activeSocket = null;
     activeSocketAuthenticated = false;
+    if (appSurfaceIpcEnabled) {
+      logAppSurfaceMessageLength('runtime-proxy.gateway-tcp.close', 0);
+    }
     activeAppServerStdoutHasPartialLine = false;
     pendingGatewayNotifications = [];
     cliAuthBroker.handleGatewayDisconnect();

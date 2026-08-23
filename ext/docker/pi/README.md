@@ -108,6 +108,14 @@ The visible `status <message>` command is a publication, not a state query.
 Successful IPC and gateway delivery still do not prove that the browser rendered
 the frame when `transport.browserDeliveryConfirmed` is null.
 
+The helper and proxy emit privacy-safe transport lines to container stdout in
+this shape: `<UTC RFC3339 timestamp> - surestinfo.app-surface.<stage> - <UTF-8 byte length> bytes`.
+For a transient publication, matching `runtime-sender.ipc.send` and
+`runtime-proxy.ipc.receive` lengths prove local IPC receipt; matching
+`runtime-proxy.gateway-tcp.send.<method>` and the gateway's
+`gateway.runtime-tcp.receive.<method>` prove gateway receipt. Message content is
+not logged. File-backed apps intentionally bypass this transient IPC/TCP branch.
+
 ## Building the image
 
 The helper script builds the npm package, stages native binaries, and produces
@@ -268,7 +276,7 @@ rotation and republishes the projection after every successful refresh.
 
 This integration is owned by the `ext/docker/pi` runtime base and does not patch
 Codex's Rust auth implementation. The base publishes runtime-image contract
-`com.surestinfo.codex.runtime-contract=2`; every `ext/docker/pi-*` variant must
+`com.surestinfo.codex.runtime-contract=3`; every `ext/docker/pi-*` variant must
 inherit that base and its build must verify the exact shared proxy/broker assets.
 The gateway rejects missing or stale contracts, so a future runtime image cannot
 silently omit managed `auth.json` support. Without the enable flag, images retain
