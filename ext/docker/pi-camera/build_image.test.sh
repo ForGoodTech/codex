@@ -47,5 +47,11 @@ if rg -q 'pi-camera/(app-server-proxy|sdk-proxy)\.js' "$SCRIPT_DIR/Dockerfile"; 
   echo "Pi Camera Dockerfile must not install private copies of shared runtime proxies" >&2
   exit 1
 fi
+for expected in CAMERA_LATEST_FRAME_PATH CAMERA_LATEST_FRAME_FPS '-atomic_writing 1'; do
+  if ! rg -F -q -- "$expected" "$SCRIPT_DIR/camera-rtp-stream.sh"; then
+    echo "Pi Camera RTP helper is missing latest-frame support: $expected" >&2
+    exit 1
+  fi
+done
 
 echo "Pi Camera base-image runtime contract checks passed"

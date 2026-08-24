@@ -43,6 +43,10 @@ const perfModulePath = fs.existsSync(path.join(__dirname, 'app-server-proxy-perf
 const { createThreadProxyPerfTracker } = require(perfModulePath);
 const cliAuthBrokerModulePath = path.join(__dirname, 'cli-auth-broker.js');
 const { createCliAuthBroker, prepareCliAuthProjection } = require(cliAuthBrokerModulePath);
+const appSurfaceCoordinatorModulePath = path.join(__dirname, 'app-surface-coordinator.js');
+const { createAppSurfaceCoordinator } = require(appSurfaceCoordinatorModulePath);
+const appSurfaceTransportLogModulePath = path.join(__dirname, 'app-surface-transport-log.js');
+const { logAppSurfaceMessageLength, utf8MessageLength } = require(appSurfaceTransportLogModulePath);
 
 function tokenFingerprint(value) {
   const token = (value ?? '').toString().trim();
@@ -188,6 +192,7 @@ const appServerEnv = {
   ...buildGitEnv(process.env, gitAskPassPath),
   PATH: normalizeRuntimePath(process.env.PATH),
   CODEX_LINUX_SANDBOX_EXE: sandboxExe,
+  CODEX_APP_SURFACE_SOURCE: 'gateway',
 };
 console.log(`Starting ${appServerCmd} ${appServerArgs.join(' ')} ...`);
 const appServer = spawn(appServerCmd, appServerArgs, {
@@ -211,6 +216,7 @@ let activeSocketAuthenticated = false;
 let activeAppServerStdoutHasPartialLine = false;
 let pendingGatewayNotifications = [];
 let appSurfaceIpcServer = null;
+const appSurfaceCoordinator = createAppSurfaceCoordinator();
 
 function normalizeAppSurfaceMethod(value) {
   let method = (value ?? '').toString().trim().toLowerCase();
@@ -260,6 +266,88 @@ function sendAppSurfaceNotification(method, params) {
   sendGatewayNotification(normalizeAppSurfaceMethod(method), params);
 }
 
+function cameraSurfaceState() {
+  if (process.env.CODEX_CAMERA_CONTAINER !== '1') {
+    return null;
+  }
+  const configuredPath = process.env.CAMERA_LATEST_FRAME_PATH;
+  let latestFramePath =
+    configuredPath === undefined ? path.join(os.tmpdir(), 'codex-camera', 'latest.jpg') : configuredPath.trim();
+  if (['off', 'none', 'disabled'].includes(latestFramePath.toLowerCase())) {
+    latestFramePath = '';
+  }
+  if (!latestFramePath) {
+    return {
+      latestFramePath: null,
+      enabled: false,
+      available: false,
+      updatedAt: null,
+      ageMs: null,
+      sizeBytes: 0,
+    };
+  }
+  try {
+    const frameStat = fs.statSync(latestFramePath);
+    return {
+      latestFramePath,
+      enabled: true,
+      available: frameStat.isFile(),
+      updatedAt: frameStat.mtime.toISOString(),
+      ageMs: Math.max(0, Date.now() - frameStat.mtimeMs),
+      sizeBytes: frameStat.size,
+    };
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('Failed to inspect latest camera frame:', error?.message ?? error);
+    }
+    return {
+      latestFramePath,
+      enabled: true,
+      available: false,
+      updatedAt: null,
+      ageMs: null,
+      sizeBytes: 0,
+    };
+  }
+}
+
+function currentAppSurfaceState(includeContent = false) {
+  return {
+    ...appSurfaceCoordinator.snapshot({ includeContent }),
+    transport: {
+      gatewayConnected: !!(activeSocket && !activeSocket.destroyed && activeSocketAuthenticated),
+      browserDeliveryConfirmed: null,
+    },
+    camera: cameraSurfaceState(),
+  };
+}
+
+function handleAppSurfaceIpcRequest(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('app-surface IPC request must be a JSON object');
+  }
+  if (payload.op === 'state.get') {
+    return { ok: true, state: currentAppSurfaceState(payload.includeContent === true) };
+  }
+  if (payload.op !== undefined && payload.op !== 'surface.publish') {
+    throw new Error(`unknown app-surface IPC operation: ${payload.op}`);
+  }
+
+  const isPublication = payload.op === 'surface.publish';
+  const notification = appSurfaceNotificationFromPayload(
+    isPublication ? payload.notification : payload,
+  );
+  appSurfaceCoordinator.publish(
+    {
+      notification,
+      source: isPublication ? payload.source : 'legacy',
+      expectedRevision: isPublication ? payload.expectedRevision : undefined,
+    },
+    (outbound) => sendAppSurfaceNotification(outbound.method, outbound.params),
+  );
+  return { ok: true, state: currentAppSurfaceState() };
+}
+
 function sendGatewayNotification(method, params) {
   if (!activeSocket || activeSocket.destroyed || !activeSocketAuthenticated) {
     throw new Error('gateway connection is not authenticated');
@@ -268,11 +356,20 @@ function sendGatewayNotification(method, params) {
     method,
     params,
   };
-  const encodedFrame = `${JSON.stringify(frame)}\n`;
+  const encodedPayload = JSON.stringify(frame);
+  const encodedFrame = `${encodedPayload}\n`;
   if (activeAppServerStdoutHasPartialLine) {
     pendingGatewayNotifications.push(encodedFrame);
+    logAppSurfaceMessageLength(
+      `runtime-proxy.gateway-tcp.queue.${normalizeAppSurfaceMethod(method)}`,
+      utf8MessageLength(encodedPayload),
+    );
     return;
   }
+  logAppSurfaceMessageLength(
+    `runtime-proxy.gateway-tcp.send.${normalizeAppSurfaceMethod(method)}`,
+    utf8MessageLength(encodedPayload),
+  );
   activeSocket.write(encodedFrame);
 }
 
@@ -296,6 +393,10 @@ function flushPendingGatewayNotifications(socket) {
   const notifications = pendingGatewayNotifications;
   pendingGatewayNotifications = [];
   for (const notification of notifications) {
+    logAppSurfaceMessageLength(
+      'runtime-proxy.gateway-tcp.send.queued',
+      utf8MessageLength(notification.endsWith('\n') ? notification.slice(0, -1) : notification),
+    );
     socket.write(notification);
   }
 }
@@ -353,7 +454,10 @@ function startAppSurfaceIpcServer() {
       body += chunk;
       if (Buffer.byteLength(body, 'utf8') > maxAppSurfaceIpcBytes) {
         rejected = true;
-        socket.end(`${JSON.stringify({ ok: false, error: 'app-surface IPC payload is too large' })}\n`);
+        logAppSurfaceMessageLength('runtime-proxy.ipc.receive.rejected', utf8MessageLength(body));
+        const encodedResponse = JSON.stringify({ ok: false, error: 'app-surface IPC payload is too large' });
+        logAppSurfaceMessageLength('runtime-proxy.ipc.send.error', utf8MessageLength(encodedResponse));
+        socket.end(`${encodedResponse}\n`);
         socket.destroy();
       }
     });
@@ -362,12 +466,19 @@ function startAppSurfaceIpcServer() {
         return;
       }
       try {
-        const payload = JSON.parse(body.trim());
-        const notification = appSurfaceNotificationFromPayload(payload);
-        sendAppSurfaceNotification(notification.method, notification.params);
-        socket.end(`${JSON.stringify({ ok: true })}\n`);
+        const encodedRequest = body.trim();
+        logAppSurfaceMessageLength('runtime-proxy.ipc.receive', utf8MessageLength(encodedRequest));
+        const payload = JSON.parse(encodedRequest);
+        const encodedResponse = JSON.stringify(handleAppSurfaceIpcRequest(payload));
+        logAppSurfaceMessageLength('runtime-proxy.ipc.send', utf8MessageLength(encodedResponse));
+        socket.end(`${encodedResponse}\n`);
       } catch (error) {
-        socket.end(`${JSON.stringify({ ok: false, error: error?.message ?? String(error) })}\n`);
+        const encodedResponse = JSON.stringify({
+          ok: false,
+          error: error?.message ?? String(error),
+        });
+        logAppSurfaceMessageLength('runtime-proxy.ipc.send.error', utf8MessageLength(encodedResponse));
+        socket.end(`${encodedResponse}\n`);
       }
     });
   });
@@ -480,6 +591,9 @@ const server = net.createServer((socket) => {
       });
       isAuthenticated = true;
       activeSocketAuthenticated = true;
+      if (appSurfaceIpcEnabled) {
+        logAppSurfaceMessageLength('runtime-proxy.gateway-tcp.open', 0);
+      }
       clearTimeout(authTimeout);
       const remaining = authBuffer.subarray(newlineIndex + 1);
       authBuffer = Buffer.alloc(0);
@@ -599,6 +713,9 @@ const server = net.createServer((socket) => {
     }
     activeSocket = null;
     activeSocketAuthenticated = false;
+    if (appSurfaceIpcEnabled) {
+      logAppSurfaceMessageLength('runtime-proxy.gateway-tcp.close', 0);
+    }
     activeAppServerStdoutHasPartialLine = false;
     pendingGatewayNotifications = [];
     cliAuthBroker.handleGatewayDisconnect();
