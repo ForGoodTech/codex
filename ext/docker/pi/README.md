@@ -83,6 +83,7 @@ available when PATH resolves it.
 Examples from inside the running container:
 
 ```shell
+/home/node/app-surface-send.js state
 /home/node/app-surface-send.js media side
 /home/node/app-surface-send.js frame '{"type":"app.surface.html","title":"Clock","html":"<main>...</main>"}'
 /home/node/app-surface-send.js html /tmp/clock.html --title Clock --css /tmp/clock.css --script /tmp/clock.js
@@ -92,6 +93,28 @@ Examples from inside the running container:
 The proxy forwards only `app.surface.*` notifications through this local IPC
 path. Override the socket path with `APP_SERVER_APP_SURFACE_IPC_SOCKET`; adjust
 the maximum payload size with `APP_SERVER_APP_SURFACE_IPC_MAX_BYTES`.
+
+The same socket also owns shared coordination state for gateway-driven turns and
+interactive Codex CLI sessions in the container. `state` reports the current
+revision, last writer and method, materialized document/media/status summary,
+gateway connection state, and whether browser delivery is known. Every publish
+increments the revision. Use `--if-revision <n>` for optimistic concurrency when
+another writer may update the surface; a stale write is rejected before it is
+forwarded. Gateway app-server subprocesses identify themselves as `gateway`,
+while a separately launched CLI defaults to `cli`; `--source` can override the
+label. `state --full` includes current document content and the last frame.
+
+The visible `status <message>` command is a publication, not a state query.
+Successful IPC and gateway delivery still do not prove that the browser rendered
+the frame when `transport.browserDeliveryConfirmed` is null.
+
+The helper and proxy emit privacy-safe transport lines to container stdout in
+this shape: `<UTC RFC3339 timestamp> - surestinfo.app-surface.<stage> - <UTF-8 byte length> bytes`.
+For a transient publication, matching `runtime-sender.ipc.send` and
+`runtime-proxy.ipc.receive` lengths prove local IPC receipt; matching
+`runtime-proxy.gateway-tcp.send.<method>` and the gateway's
+`gateway.runtime-tcp.receive.<method>` prove gateway receipt. Message content is
+not logged. File-backed apps intentionally bypass this transient IPC/TCP branch.
 
 ## Building the image
 
@@ -253,7 +276,7 @@ rotation and republishes the projection after every successful refresh.
 
 This integration is owned by the `ext/docker/pi` runtime base and does not patch
 Codex's Rust auth implementation. The base publishes runtime-image contract
-`com.surestinfo.codex.runtime-contract=1`; every `ext/docker/pi-*` variant must
+`com.surestinfo.codex.runtime-contract=3`; every `ext/docker/pi-*` variant must
 inherit that base and its build must verify the exact shared proxy/broker assets.
 The gateway rejects missing or stale contracts, so a future runtime image cannot
 silently omit managed `auth.json` support. Without the enable flag, images retain
