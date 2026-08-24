@@ -120,29 +120,29 @@ not logged. File-backed apps intentionally bypass this transient IPC/TCP branch.
 
 The helper script builds the npm package, stages native binaries, and produces
 the Docker image. The Codex release binary is downloaded from an upstream
-GitHub release tag, `rust-v0.145.0` by default, or an explicitly provided tag.
+GitHub release tag, `rust-v0.149.1` by default, or an explicitly provided tag.
 
 ```shell
 cd ext/docker/pi
 
-# Build an image tagged "my-codex-docker-image" using rust-v0.145.0.
+# Build an image tagged "my-codex-docker-image" using rust-v0.149.1.
 ./build_image.sh
 
 # Build with a custom image tag.
 ./build_image.sh codex-dev
 
 # Build with a custom image tag and an explicit Codex release tag.
-./build_image.sh codex-release rust-v0.145.0
+./build_image.sh codex-release rust-v0.149.1
 ```
 
 The optional arguments are positional: the first sets the image tag; the second
 sets the upstream Codex release tag. You can also set `CODEX_RELEASE_TAG` in the
-environment. If no tag is provided, the script uses `rust-v0.145.0`.
+environment. If no tag is provided, the script uses `rust-v0.149.1`.
 
 What the script does:
 
 1. Prepares Docker build artifacts under `codex-cli/dist/`.
-2. Selects the release tag, `rust-v0.145.0` by default unless a tag is provided
+2. Selects the release tag, `rust-v0.149.1` by default unless a tag is provided
    explicitly.
 3. Downloads the Codex release npm tarballs for the current target triple.
    - The image creates a `codex-app-server` shim that runs
