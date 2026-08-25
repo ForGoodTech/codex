@@ -62,7 +62,7 @@ It verifies the same contract in the completed Camera image. Useful overrides:
 ```shell
 CODEX_BASE_IMAGE_TAG=my-codex-docker-image
 BUILD_BASE_IMAGE=auto
-CODEX_RELEASE_TAG=rust-v0.145.0
+CODEX_RELEASE_TAG=rust-v0.149.1
 ```
 
 The build installs Raspberry Pi camera packages only on `arm64`/`armhf` by
