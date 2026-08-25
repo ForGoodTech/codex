@@ -106,7 +106,7 @@ then verifies the same contract in the completed Pi Web image. Useful overrides:
 ```shell
 CODEX_BASE_IMAGE_TAG=my-codex-docker-image
 BUILD_BASE_IMAGE=auto
-CODEX_RELEASE_TAG=rust-v0.145.0
+CODEX_RELEASE_TAG=rust-v0.149.1
 ```
 
 ## Compose Full Stack
