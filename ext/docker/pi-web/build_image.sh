@@ -105,6 +105,19 @@ function cleanup_existing_image() {
   exit 1
 }
 
+function verify_nginx_site_include() {
+  local image=$1
+
+  docker run --rm --entrypoint bash "$image" -c '
+set -euo pipefail
+
+# A complete Nginx configuration may share this state directory with the
+# generated site fragment. The system configuration must ignore it.
+printf "%s\n" "user node;" > /home/node/.webdev/nginx/nginx.conf
+nginx -t
+'
+}
+
 function main() {
   build_base_if_needed
   cleanup_existing_image
@@ -121,6 +134,7 @@ function main() {
   fi
 
   docker run --rm "$IMAGE_TAG" webdev doctor --no-config
+  verify_nginx_site_include "$IMAGE_TAG"
 
   echo "Built and verified $IMAGE_TAG from base image $BASE_IMAGE"
 }
