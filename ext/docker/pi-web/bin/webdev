@@ -3,11 +3,30 @@ set -euo pipefail
 
 WEBDEV_WORKSPACE=${WEBDEV_WORKSPACE:-/workspace}
 WEBDEV_CONFIG=${WEBDEV_CONFIG:-$WEBDEV_WORKSPACE/sites.json}
+WEBDEV_DECLARED_WORKSPACE=${WEBDEV_DECLARED_WORKSPACE:-/workspace}
 WEBDEV_STATE_DIR=${WEBDEV_STATE_DIR:-/home/node/.webdev}
 WEBDEV_NGINX_DIR=${WEBDEV_NGINX_DIR:-$WEBDEV_STATE_DIR/nginx}
 WEBDEV_NGINX_CONF=${WEBDEV_NGINX_CONF:-$WEBDEV_NGINX_DIR/sites.conf}
+WEBDEV_NGINX_MAIN_CONF=${WEBDEV_NGINX_MAIN_CONF:-$WEBDEV_NGINX_DIR/nginx.conf}
+WEBDEV_PHP_FPM_CONF=${WEBDEV_PHP_FPM_CONF:-$WEBDEV_STATE_DIR/php-fpm.conf}
+WEBDEV_PHP_SOCKET=${WEBDEV_PHP_SOCKET:-$WEBDEV_STATE_DIR/php-fpm.sock}
 WEBDEV_UMASK=${WEBDEV_UMASK:-0000}
 WEBDEV_PERMISSIVE_WORKSPACE=${WEBDEV_PERMISSIVE_WORKSPACE:-1}
+
+if [[ -z "${WEBDEV_HTTP_PORT:-}" ]]; then
+  if [[ "$(id -u)" -eq 0 ]]; then
+    WEBDEV_HTTP_PORT=80
+  else
+    WEBDEV_HTTP_PORT=8080
+  fi
+fi
+if [[ -z "${WEBDEV_HTTPS_PORT:-}" ]]; then
+  if [[ "$(id -u)" -eq 0 ]]; then
+    WEBDEV_HTTPS_PORT=443
+  else
+    WEBDEV_HTTPS_PORT=8443
+  fi
+fi
 
 umask "$WEBDEV_UMASK"
 
@@ -22,12 +41,19 @@ Usage:
   webdev package-release <site|--all>
   webdev nginx-config
   webdev serve
+  webdev reload
+  webdev status
+  webdev stop
   webdev test <site|--all>
 
 Environment:
   WEBDEV_WORKSPACE  Host-mounted workspace root. Default: /workspace
   WEBDEV_CONFIG     Site registry JSON file. Default: /workspace/sites.json
+  WEBDEV_DECLARED_WORKSPACE
+                    Workspace prefix stored in sites.json. Default: /workspace
   WEBDEV_STATE_DIR  Runtime state directory. Default: /home/node/.webdev
+  WEBDEV_HTTP_PORT  Nginx HTTP port. Default: 80 as root, otherwise 8080
+  WEBDEV_HTTPS_PORT Nginx HTTPS port. Default: 443 as root, otherwise 8443
   WEBDEV_UMASK      File creation umask for webdev and PHP-FPM. Default: 0000
   WEBDEV_PERMISSIVE_WORKSPACE
                     chmod the mounted workspace a+rwX at serve startup. Default: 1
@@ -57,12 +83,12 @@ function ensure_config() {
   fi
 
   mkdir -p "$(dirname "$WEBDEV_CONFIG")"
-  cat > "$WEBDEV_CONFIG" <<'JSON'
+  cat > "$WEBDEV_CONFIG" <<JSON
 {
   "defaults": {
     "cert": {
-      "fullchain": "/workspace/certs/dev/fullchain.pem",
-      "key": "/workspace/certs/dev/privkey.pem"
+      "fullchain": "$WEBDEV_DECLARED_WORKSPACE/certs/dev/fullchain.pem",
+      "key": "$WEBDEV_DECLARED_WORKSPACE/certs/dev/privkey.pem"
     }
   },
   "sites": []
@@ -102,10 +128,33 @@ function resolve_path() {
   local base=$1
   local path=$2
   if [[ "$path" = /* ]]; then
-    printf '%s\n' "$path"
+    runtime_path "$path"
   else
     printf '%s/%s\n' "$base" "$path"
   fi
+}
+
+function runtime_path() {
+  local path=$1
+  case "$path" in
+    "$WEBDEV_DECLARED_WORKSPACE")
+      printf '%s\n' "$WEBDEV_WORKSPACE"
+      ;;
+    "$WEBDEV_DECLARED_WORKSPACE"/*)
+      printf '%s/%s\n' "$WEBDEV_WORKSPACE" "${path#"$WEBDEV_DECLARED_WORKSPACE"/}"
+      ;;
+    *)
+      printf '%s\n' "$path"
+      ;;
+  esac
+}
+
+function site_path_field() {
+  local selector=$1
+  local expression=$2
+  local value
+  value=$(site_field "$selector" "$expression")
+  runtime_path "$value"
 }
 
 function write_if_missing() {
@@ -121,6 +170,7 @@ function init_site() {
   local host=${1:-}
   local root=${2:-}
   local vite_port=${3:-}
+  local configured_root
 
   [[ -n "$host" ]] || fail "init-site requires a host"
   ensure_config
@@ -130,7 +180,11 @@ function init_site() {
   fi
 
   if [[ -z "$root" ]]; then
-    root="$WEBDEV_WORKSPACE/sites/$host"
+    configured_root="$WEBDEV_DECLARED_WORKSPACE/sites/$host"
+    root=$(runtime_path "$configured_root")
+  else
+    configured_root=$root
+    root=$(runtime_path "$root")
   fi
 
   if [[ -z "$vite_port" ]]; then
@@ -241,7 +295,7 @@ CSS
 
   local tmp
   tmp=$(mktemp)
-  jq --arg host "$host" --arg root "$root" --argjson vite_port "$vite_port" \
+  jq --arg host "$host" --arg root "$configured_root" --argjson vite_port "$vite_port" \
     '.sites += [{
       name: $host,
       host: $host,
@@ -296,7 +350,7 @@ function dev_site() {
 
   local root
   local vite_port
-  root=$(site_field "$selector" '.root')
+  root=$(site_path_field "$selector" '.root')
   vite_port=$(site_field "$selector" '.vitePort // 5173')
   [[ -d "$root" ]] || fail "site root does not exist: $root"
   [[ -f "$root/package.json" ]] || fail "site has no package.json: $root"
@@ -314,7 +368,7 @@ function package_site() {
   local root
   local build_dir
   local package_dir
-  root=$(site_field "$selector" '.root')
+  root=$(site_path_field "$selector" '.root')
   package_dir=$(site_optional_field "$selector" '.packageDir')
   if [[ -n "$package_dir" ]]; then
     package_dir=$(resolve_path "$root" "$package_dir")
@@ -360,7 +414,7 @@ function package_release_site() {
   local package_dir
   local release_dir
   local site_filter
-  root=$(site_field "$selector" '.root')
+  root=$(site_path_field "$selector" '.root')
   package_dir=$(site_optional_field "$selector" '.packageDir')
   if [[ -n "$package_dir" ]]; then
     package_dir=$(resolve_path "$root" "$package_dir")
@@ -510,6 +564,13 @@ function cert_for_site() {
     key=$(jq -r '.defaults.cert.key // empty' "$WEBDEV_CONFIG")
   fi
 
+  if [[ -n "$fullchain" ]]; then
+    fullchain=$(runtime_path "$fullchain")
+  fi
+  if [[ -n "$key" ]]; then
+    key=$(runtime_path "$key")
+  fi
+
   if [[ -f "$fullchain" && -f "$key" ]]; then
     printf '%s\t%s\n' "$fullchain" "$key"
     return
@@ -560,7 +621,7 @@ NGINX
 
       host=$(jq -r '.host' <<<"$site_json")
       mode=$(jq -r '.mode // "vite"' <<<"$site_json")
-      root=$(jq -r '.root' <<<"$site_json")
+      root=$(runtime_path "$(jq -r '.root' <<<"$site_json")")
       vite_port=$(jq -r '.vitePort // 5173' <<<"$site_json")
       web_root=$(jq -r '.webRoot // empty' <<<"$site_json")
       php_root=$(jq -r '.phpRoot // empty' <<<"$site_json")
@@ -585,13 +646,13 @@ NGINX
 
       cat <<NGINX
 server {
-    listen 80;
+    listen $WEBDEV_HTTP_PORT;
     server_name $host;
-    return 301 https://\$host\$request_uri;
+    return 301 https://\$host:$WEBDEV_HTTPS_PORT\$request_uri;
 }
 
 server {
-    listen 443 ssl http2;
+    listen $WEBDEV_HTTPS_PORT ssl http2;
     server_name $host;
 
     ssl_certificate $fullchain;
@@ -625,7 +686,7 @@ NGINX
 
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_pass unix:$WEBDEV_PHP_SOCKET;
     }
 
     location / {
@@ -654,7 +715,7 @@ NGINX
 
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_pass unix:$WEBDEV_PHP_SOCKET;
     }
 }
 
@@ -670,12 +731,90 @@ NGINX
   echo "Wrote Nginx config: $WEBDEV_NGINX_CONF"
 }
 
+function write_nginx_main_config() {
+  mkdir -p \
+    "$WEBDEV_NGINX_DIR" \
+    "$WEBDEV_STATE_DIR/nginx-client-body" \
+    "$WEBDEV_STATE_DIR/nginx-proxy" \
+    "$WEBDEV_STATE_DIR/nginx-fastcgi" \
+    "$WEBDEV_STATE_DIR/nginx-uwsgi" \
+    "$WEBDEV_STATE_DIR/nginx-scgi"
+
+  local user_directive=""
+  if [[ "$(id -u)" -eq 0 ]]; then
+    user_directive="user node;"
+  fi
+
+  cat >"$WEBDEV_NGINX_MAIN_CONF" <<NGINX
+$user_directive
+worker_processes auto;
+pid $WEBDEV_STATE_DIR/nginx.pid;
+error_log $WEBDEV_STATE_DIR/nginx-error.log notice;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log $WEBDEV_STATE_DIR/nginx-access.log;
+    sendfile on;
+    keepalive_timeout 65;
+    client_body_temp_path $WEBDEV_STATE_DIR/nginx-client-body;
+    proxy_temp_path $WEBDEV_STATE_DIR/nginx-proxy;
+    fastcgi_temp_path $WEBDEV_STATE_DIR/nginx-fastcgi;
+    uwsgi_temp_path $WEBDEV_STATE_DIR/nginx-uwsgi;
+    scgi_temp_path $WEBDEV_STATE_DIR/nginx-scgi;
+    include $WEBDEV_NGINX_CONF;
+}
+NGINX
+}
+
+function write_php_fpm_config() {
+  mkdir -p "$WEBDEV_STATE_DIR"
+  local identity=""
+  local socket_identity=""
+  if [[ "$(id -u)" -eq 0 ]]; then
+    identity=$'user = node\ngroup = node'
+    socket_identity=$'listen.owner = node\nlisten.group = node'
+  fi
+  cat >"$WEBDEV_PHP_FPM_CONF" <<PHPFPM
+[global]
+pid = $WEBDEV_STATE_DIR/php-fpm.pid
+error_log = $WEBDEV_STATE_DIR/php-fpm-error.log
+daemonize = yes
+
+[www]
+$identity
+listen = $WEBDEV_PHP_SOCKET
+$socket_identity
+listen.mode = 0660
+pm = ondemand
+pm.max_children = 8
+pm.process_idle_timeout = 10s
+pm.max_requests = 500
+clear_env = no
+catch_workers_output = yes
+PHPFPM
+}
+
+function pid_is_running() {
+  local pid_file=$1
+  [[ -s "$pid_file" ]] || return 1
+  local pid
+  pid=$(cat "$pid_file")
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
 function start_php_fpm() {
-  mkdir -p /run/php
-  if pgrep -f 'php-fpm.*master process' >/dev/null 2>&1; then
+  if pid_is_running "$WEBDEV_STATE_DIR/php-fpm.pid"; then
     return
   fi
-  php-fpm-webdev -D
+  rm -f "$WEBDEV_STATE_DIR/php-fpm.pid" "$WEBDEV_PHP_SOCKET"
+  write_php_fpm_config
+  php-fpm-webdev -y "$WEBDEV_PHP_FPM_CONF" -D
 }
 
 function prepare_workspace_permissions() {
@@ -691,17 +830,46 @@ function prepare_workspace_permissions() {
 }
 
 function serve() {
-  if [[ "$(id -u)" -ne 0 ]]; then
-    fail "serve must run as root so it can start PHP-FPM and Nginx"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    install -d -o node -g node "$WEBDEV_STATE_DIR" "$WEBDEV_NGINX_DIR"
+  else
+    mkdir -p "$WEBDEV_STATE_DIR" "$WEBDEV_NGINX_DIR"
   fi
-
-  install -d -o node -g node "$WEBDEV_STATE_DIR" "$WEBDEV_NGINX_DIR"
   prepare_workspace_permissions
-  gosu node webdev nginx-config
+  nginx_config
+  write_nginx_main_config
   start_php_fpm
-  nginx -t
-  echo "Starting Nginx. Vite and vite-php sites must start Vite separately with: webdev dev <site|--all>"
-  exec nginx -g 'daemon off;'
+  nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -t
+  echo "Starting Nginx on HTTP $WEBDEV_HTTP_PORT and HTTPS $WEBDEV_HTTPS_PORT. Vite and vite-php sites must start Vite separately with: webdev dev <site|--all>"
+  exec nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -g 'daemon off;'
+}
+
+function reload_services() {
+  nginx_config
+  write_nginx_main_config
+  start_php_fpm
+  nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -t
+  pid_is_running "$WEBDEV_STATE_DIR/nginx.pid" || fail "Nginx is not running; start it with: webdev serve"
+  nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -s reload
+}
+
+function service_status() {
+  pid_is_running "$WEBDEV_STATE_DIR/nginx.pid" || return 1
+  pid_is_running "$WEBDEV_STATE_DIR/php-fpm.pid" || return 1
+  printf 'Nginx: running (HTTP %s, HTTPS %s)\n' "$WEBDEV_HTTP_PORT" "$WEBDEV_HTTPS_PORT"
+  printf 'PHP-FPM: running (%s)\n' "$WEBDEV_PHP_SOCKET"
+}
+
+function stop_services() {
+  local pid
+  if pid_is_running "$WEBDEV_STATE_DIR/nginx.pid"; then
+    pid=$(cat "$WEBDEV_STATE_DIR/nginx.pid")
+    kill -QUIT "$pid"
+  fi
+  if pid_is_running "$WEBDEV_STATE_DIR/php-fpm.pid"; then
+    pid=$(cat "$WEBDEV_STATE_DIR/php-fpm.pid")
+    kill -TERM "$pid"
+  fi
 }
 
 function test_site() {
@@ -710,7 +878,7 @@ function test_site() {
   site_exists "$selector" || fail "unknown site: $selector"
 
   local root
-  root=$(site_field "$selector" '.root')
+  root=$(site_path_field "$selector" '.root')
   [[ -f "$root/package.json" ]] || {
     echo "No package.json for $selector; skipping npm test."
     return
@@ -784,6 +952,15 @@ case "$command" in
     ;;
   serve)
     serve
+    ;;
+  reload)
+    reload_services
+    ;;
+  status)
+    service_status
+    ;;
+  stop)
+    stop_services
     ;;
   test)
     selector=${1:-}
