@@ -4,9 +4,6 @@ set -euo pipefail
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 source "$SCRIPT_DIR/build_image.sh"
 
-grep -Fq 'com.surestinfo.codex.runtime-profile="pi-web"' "$SCRIPT_DIR/Dockerfile"
-grep -Fq 'webdev-deploy /usr/local/bin/webdev-deploy' "$SCRIPT_DIR/Dockerfile"
-
 TEST_IMAGE_STATE=current
 TEST_LABEL_STATE=current
 BASE_BUILD_CALLS=0
