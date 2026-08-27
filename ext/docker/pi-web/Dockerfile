@@ -64,9 +64,9 @@ RUN set -eux; \
   ln -sf "$php_fpm_bin" /usr/local/bin/php-fpm-webdev; \
   rm -f /etc/nginx/sites-enabled/default; \
   mkdir -p /home/node/.webdev/nginx /workspace; \
-  : > /home/node/.webdev/nginx/empty.conf; \
+  : > /home/node/.webdev/nginx/sites.conf; \
   chown -R node:node /home/node/.webdev /workspace; \
-  printf '%s\n' 'include /home/node/.webdev/nginx/*.conf;' > /etc/nginx/conf.d/99-webdev-sites.conf
+  printf '%s\n' 'include /home/node/.webdev/nginx/sites.conf;' > /etc/nginx/conf.d/99-webdev-sites.conf
 
 COPY ext/docker/pi-web/bin/webdev /usr/local/bin/webdev
 COPY ext/docker/pi-web/bin/webdev-entrypoint /usr/local/bin/webdev-entrypoint
