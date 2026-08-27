@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/build_image.sh"
 TEST_IMAGE_STATE=current
 TEST_LABEL_STATE=current
 BASE_BUILD_CALLS=0
+NGINX_INCLUDE_CHECK_IMAGE=
 
 function docker() {
   if [[ "$1" == "image" && "$2" == "inspect" ]]; then
@@ -17,6 +18,10 @@ function docker() {
         printf '%s\n' "stale"
       fi
     fi
+    return 0
+  fi
+  if [[ "$1" == "run" && "${4:-}" == "bash" ]]; then
+    NGINX_INCLUDE_CHECK_IMAGE=${5:-}
     return 0
   fi
   if [[ "$1" != "run" ]]; then
@@ -86,4 +91,7 @@ TEST_IMAGE_STATE=missing
 build_base_if_needed
 [[ "$BASE_BUILD_CALLS" -eq 2 ]]
 
-echo "Pi Web runtime image contract checks passed"
+verify_nginx_site_include test-pi-web-image
+[[ "$NGINX_INCLUDE_CHECK_IMAGE" == "test-pi-web-image" ]]
+
+echo "Pi Web runtime contract and Nginx include checks passed"
