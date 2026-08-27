@@ -16,10 +16,6 @@ databases, and secrets stay outside the image in a host-mounted workspace.
 
 The image does not contain site domains or website source trees.
 
-The image is labeled `com.surestinfo.codex.runtime-profile=pi-web`. Customer
-images can derive from it and keep that profile; the gateway selects the image,
-not a new account type.
-
 ## Runtime Choices
 
 Use Docker Compose for the normal full-stack development workflow. Compose
@@ -29,36 +25,6 @@ by the Hello World walkthrough below.
 Use `run_web_container.sh` when you only need the web container, want quick
 shell access, already have MySQL somewhere else, or want to run one-off webdev
 commands without starting the Compose stack.
-
-Use the normal gateway launcher when a Human should collaborate with Codex in
-the full web environment:
-
-```shell
-APP_SERVER_DOCKER_IMAGE=my-codex-pi-web-image \
-GoWebRTC/codexgateway/run-gateway.sh
-```
-
-The launcher discovers this image's `pi-web` profile automatically. Agent and
-Camera remain the only account-level choices: a normal Agent session receives
-the selected Pi Web image. The gateway starts a network-private persistent
-MySQL sidecar, gives the Web child rootless ports 8080/8443, and publishes HTTPS
-to a random loopback host port so multiple users do not collide. The
-workspace Status view reports the HTTPS preview.
-
-When the mounted project contains `scripts/workflow.sh`, use its normal public
-commands from either the host or the gateway child:
-
-```shell
-scripts/workflow.sh dev
-scripts/workflow.sh php
-scripts/workflow.sh release
-scripts/workflow.sh status
-```
-
-The host path starts/reuses Compose and delegates into the Web service. The
-gateway path detects that it already is the Web service and invokes the same
-container-native implementation. The visible commands and dev/PHP/release
-state transitions are identical.
 
 ## Host Workspace Layout
 
@@ -672,33 +638,7 @@ webdev package-release <site|--all>
 webdev test <site|--all>
 webdev nginx-config
 webdev serve
-webdev reload
-webdev status
-webdev stop
 ```
-
-## Production Deployment Adapter
-
-The image includes `webdev-deploy`, which deploys a verified release directory
-over SSH/rsync. It accepts credentials only as mounted files, enforces batch
-key authentication and a pinned `known_hosts`, uploads to an immutable release
-directory, atomically updates a `current` symlink, and rolls back that symlink
-when the HTTPS health check fails.
-
-Projects should normally expose it through their stable workflow:
-
-```shell
-scripts/workflow.sh deploy
-```
-
-Required settings are `SURESTINFO_DEPLOY_HOST`, `SURESTINFO_DEPLOY_USER`,
-`SURESTINFO_DEPLOY_ROOT`, `SURESTINFO_DEPLOY_IDENTITY_FILE`,
-`SURESTINFO_DEPLOY_KNOWN_HOSTS_FILE`, and
-`SURESTINFO_DEPLOY_HEALTH_URL`; the SSH port defaults to 22. In gateway mode,
-set `APP_SERVER_PI_WEB_DEPLOY_SSH_DIR` to the host directory containing an `id`
-file and `known_hosts`. The gateway mounts it read-only at
-`/run/secrets/webdev-deploy`. Run with `SURESTINFO_DEPLOY_DRY_RUN=1` to validate
-the artifact and settings without connecting to production.
 
 For throwaway local TLS testing without mounted certificates:
 
