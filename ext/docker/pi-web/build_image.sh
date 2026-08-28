@@ -118,6 +118,89 @@ nginx -t
 '
 }
 
+function verify_webdev_nginx_startup() {
+  local image=$1
+
+  docker run --rm --entrypoint bash "$image" -c '
+set -euo pipefail
+
+test_root=$(mktemp -d)
+workspace="$test_root/workspace"
+state="$test_root/state"
+log="$test_root/webdev.log"
+serve_pid=""
+
+cleanup() {
+  if [[ -n "$serve_pid" ]]; then
+    kill -TERM "$serve_pid" >/dev/null 2>&1 || true
+    wait "$serve_pid" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+chmod 755 "$test_root"
+mkdir -p "$workspace"
+cat >"$workspace/sites.json" <<JSON
+{
+  "sites": [{
+    "name": "vite-php.local.test",
+    "host": "vite-php.local.test",
+    "root": "/workspace/vite-php",
+    "mode": "vite-php",
+    "vitePort": 5173
+  }, {
+    "name": "php.local.test",
+    "host": "php.local.test",
+    "root": "/workspace/php",
+    "mode": "php"
+  }]
+}
+JSON
+
+WEBDEV_WORKSPACE="$workspace" \
+WEBDEV_CONFIG="$workspace/sites.json" \
+WEBDEV_DECLARED_WORKSPACE=/workspace \
+WEBDEV_STATE_DIR="$state" \
+WEBDEV_HTTP_PORT=8080 \
+WEBDEV_HTTPS_PORT=8443 \
+WEBDEV_ALLOW_SELF_SIGNED=1 \
+WEBDEV_PERMISSIVE_WORKSPACE=0 \
+webdev serve >"$log" 2>&1 &
+serve_pid=$!
+
+for _ in $(seq 1 300); do
+  if grep -Fq "Starting Nginx on HTTP" "$log"; then
+    sleep 0.2
+    if kill -0 "$serve_pid" >/dev/null 2>&1; then
+      exit 0
+    fi
+    cat "$log" >&2
+    echo "Pi Web Nginx exited immediately after successful configuration validation" >&2
+    exit 1
+  fi
+  if ! kill -0 "$serve_pid" >/dev/null 2>&1; then
+    set +e
+    wait "$serve_pid"
+    status=$?
+    set -e
+    serve_pid=""
+    cat "$log" >&2
+    if [[ "$status" -eq 0 ]]; then
+      echo "Pi Web startup exited before starting Nginx" >&2
+      exit 1
+    fi
+    exit "$status"
+  fi
+  sleep 0.1
+done
+
+cat "$log" >&2
+echo "Timed out waiting for Pi Web Nginx startup" >&2
+exit 1
+'
+}
+
 function main() {
   build_base_if_needed
   cleanup_existing_image
@@ -135,6 +218,7 @@ function main() {
 
   docker run --rm "$IMAGE_TAG" webdev doctor --no-config
   verify_nginx_site_include "$IMAGE_TAG"
+  verify_webdev_nginx_startup "$IMAGE_TAG"
 
   echo "Built and verified $IMAGE_TAG from base image $BASE_IMAGE"
 }
