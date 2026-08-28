@@ -1,6 +1,8 @@
 ARG BASE_IMAGE=my-codex-docker-image
 FROM ${BASE_IMAGE}
 
+LABEL com.surestinfo.codex.runtime-profile="pi-web"
+
 USER root
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -16,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   gosu \
   lsof \
   nginx \
+  openssh-client \
   openssl \
   php-bcmath \
   php-cli \
@@ -69,10 +72,11 @@ RUN set -eux; \
   printf '%s\n' 'include /home/node/.webdev/nginx/sites.conf;' > /etc/nginx/conf.d/99-webdev-sites.conf
 
 COPY ext/docker/pi-web/bin/webdev /usr/local/bin/webdev
+COPY ext/docker/pi-web/bin/webdev-deploy /usr/local/bin/webdev-deploy
 COPY ext/docker/pi-web/bin/webdev-entrypoint /usr/local/bin/webdev-entrypoint
-RUN chmod 755 /usr/local/bin/webdev /usr/local/bin/webdev-entrypoint
+RUN chmod 755 /usr/local/bin/webdev /usr/local/bin/webdev-deploy /usr/local/bin/webdev-entrypoint
 
 WORKDIR /workspace
-EXPOSE 80 443 5173-5199
+EXPOSE 80 443 8080 8443 5173-5199
 ENTRYPOINT ["webdev-entrypoint"]
 CMD ["bash"]
