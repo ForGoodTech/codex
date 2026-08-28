@@ -33,6 +33,11 @@ printf '%s\n' '{
     "mode": "vite-php",
     "releaseDir": "/workspace/release/app",
     "releaseInclude": ["backend/"]
+  }, {
+    "name": "php.local.test",
+    "host": "php.local.test",
+    "root": "/workspace",
+    "mode": "php"
   }]
 }' >"$WORKSPACE/sites.json"
 
@@ -90,6 +95,10 @@ grep -Fq "proxy_pass http://127.0.0.1:5173;" "$STATE/nginx/sites.conf"
 grep -Fq "listen 8080;" "$STATE/nginx/sites.conf"
 grep -Fq "listen 8443 ssl http2;" "$STATE/nginx/sites.conf"
 grep -Fq "fastcgi_pass unix:$STATE/php-fpm.sock;" "$STATE/nginx/sites.conf"
+[[ "$(grep -Fc "include $STATE/nginx/fastcgi-php.conf;" "$STATE/nginx/sites.conf")" -eq 2 ]]
+! grep -Fq 'include snippets/fastcgi-php.conf;' "$STATE/nginx/sites.conf"
+grep -Fq 'include /etc/nginx/fastcgi.conf;' "$STATE/nginx/fastcgi-php.conf"
+! grep -Fq 'include fastcgi.conf;' "$STATE/nginx/fastcgi-php.conf"
 
 "$WEBDEV" init-site second.local.test
 [[ "$(jq -r 'first(.sites[] | select(.host == "second.local.test")).root' "$WORKSPACE/sites.json")" == "/workspace/sites/second.local.test" ]]

@@ -8,6 +8,7 @@ WEBDEV_STATE_DIR=${WEBDEV_STATE_DIR:-/home/node/.webdev}
 WEBDEV_NGINX_DIR=${WEBDEV_NGINX_DIR:-$WEBDEV_STATE_DIR/nginx}
 WEBDEV_NGINX_CONF=${WEBDEV_NGINX_CONF:-$WEBDEV_NGINX_DIR/sites.conf}
 WEBDEV_NGINX_MAIN_CONF=${WEBDEV_NGINX_MAIN_CONF:-$WEBDEV_NGINX_DIR/nginx.conf}
+WEBDEV_NGINX_FASTCGI_CONF=$WEBDEV_NGINX_DIR/fastcgi-php.conf
 WEBDEV_PHP_FPM_CONF=${WEBDEV_PHP_FPM_CONF:-$WEBDEV_STATE_DIR/php-fpm.conf}
 WEBDEV_PHP_SOCKET=${WEBDEV_PHP_SOCKET:-$WEBDEV_STATE_DIR/php-fpm.sock}
 WEBDEV_UMASK=${WEBDEV_UMASK:-0000}
@@ -595,9 +596,21 @@ function cert_for_site() {
   fail "missing TLS certificate for $host. Set cert.fullchain/cert.key in $WEBDEV_CONFIG, or set WEBDEV_ALLOW_SELF_SIGNED=1 for local fallback certs."
 }
 
+function write_nginx_fastcgi_config() {
+  cat >"$WEBDEV_NGINX_FASTCGI_CONF" <<'NGINX'
+fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+try_files $fastcgi_script_name =404;
+set $path_info $fastcgi_path_info;
+fastcgi_param PATH_INFO $path_info;
+fastcgi_index index.php;
+include /etc/nginx/fastcgi.conf;
+NGINX
+}
+
 function nginx_config() {
   require_config
   mkdir -p "$WEBDEV_NGINX_DIR"
+  write_nginx_fastcgi_config
 
   {
     cat <<'NGINX'
@@ -685,7 +698,7 @@ NGINX
     index index.php index.html;
 
     location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
+        include $WEBDEV_NGINX_FASTCGI_CONF;
         fastcgi_pass unix:$WEBDEV_PHP_SOCKET;
     }
 
@@ -714,7 +727,7 @@ NGINX
     }
 
     location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
+        include $WEBDEV_NGINX_FASTCGI_CONF;
         fastcgi_pass unix:$WEBDEV_PHP_SOCKET;
     }
 }
@@ -838,8 +851,8 @@ function serve() {
   prepare_workspace_permissions
   nginx_config
   write_nginx_main_config
-  start_php_fpm
   nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -t
+  start_php_fpm
   echo "Starting Nginx on HTTP $WEBDEV_HTTP_PORT and HTTPS $WEBDEV_HTTPS_PORT. Vite and vite-php sites must start Vite separately with: webdev dev <site|--all>"
   exec nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -g 'daemon off;'
 }
@@ -847,8 +860,8 @@ function serve() {
 function reload_services() {
   nginx_config
   write_nginx_main_config
-  start_php_fpm
   nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -t
+  start_php_fpm
   pid_is_running "$WEBDEV_STATE_DIR/nginx.pid" || fail "Nginx is not running; start it with: webdev serve"
   nginx -p /etc/nginx -c "$WEBDEV_NGINX_MAIN_CONF" -s reload
 }

@@ -11,6 +11,7 @@ TEST_IMAGE_STATE=current
 TEST_LABEL_STATE=current
 BASE_BUILD_CALLS=0
 NGINX_INCLUDE_CHECK_IMAGE=
+NGINX_STARTUP_CHECK_IMAGE=
 
 function docker() {
   if [[ "$1" == "image" && "$2" == "inspect" ]]; then
@@ -24,7 +25,11 @@ function docker() {
     return 0
   fi
   if [[ "$1" == "run" && "${4:-}" == "bash" ]]; then
-    NGINX_INCLUDE_CHECK_IMAGE=${5:-}
+    if [[ "${7:-}" == *"webdev serve"* ]]; then
+      NGINX_STARTUP_CHECK_IMAGE=${5:-}
+    else
+      NGINX_INCLUDE_CHECK_IMAGE=${5:-}
+    fi
     return 0
   fi
   if [[ "$1" != "run" ]]; then
@@ -96,5 +101,7 @@ build_base_if_needed
 
 verify_nginx_site_include test-pi-web-image
 [[ "$NGINX_INCLUDE_CHECK_IMAGE" == "test-pi-web-image" ]]
+verify_webdev_nginx_startup test-pi-web-image
+[[ "$NGINX_STARTUP_CHECK_IMAGE" == "test-pi-web-image" ]]
 
-echo "Pi Web runtime contract and Nginx include checks passed"
+echo "Pi Web runtime contract and Nginx startup checks passed"
