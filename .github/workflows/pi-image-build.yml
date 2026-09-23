@@ -1,0 +1,47 @@
+name: Pi image build
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/pi-image-build.yml"
+      - "ext/docker/pi/**"
+      - "sdk/typescript/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".npmrc"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pi-image-build.yml"
+      - "ext/docker/pi/**"
+      - "sdk/typescript/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".npmrc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+      - name: Check build failure handling
+        run: node --test ext/docker/pi/build_image.test.mjs
+      - name: Check runtime image contracts
+        run: bash ext/docker/pi/runtime-image-contract.test.sh
+      - name: Build SDK stage from a fresh checkout
+        run: |
+          test ! -e sdk/typescript/dist
+          test ! -e node_modules
+          docker build --target sdk-build -f ext/docker/pi/Dockerfile .
