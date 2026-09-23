@@ -56,21 +56,43 @@ if [[ ! -d "$CLI_ROOT" ]]; then
   exit 1
 fi
 
-# Determine the target triple expected by the CLI launcher.
-ARCH=$(uname -m)
-case "$ARCH" in
-  aarch64)
+# Check host tools and Docker before downloading release artifacts. The SDK
+# compiler and its dependencies are installed inside the Docker build stage.
+missing_tools=()
+for tool in docker curl node npm tar mktemp sha256sum awk find head; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    missing_tools+=("$tool")
+  fi
+done
+if [[ ${#missing_tools[@]} -gt 0 ]]; then
+  echo "Missing build tools: ${missing_tools[*]}. Install them and retry (pnpm is provided inside Docker)." >&2
+  exit 1
+fi
+if ! node --version >/dev/null || ! npm --version >/dev/null; then
+  echo "Node.js and npm must be runnable to package the Codex release artifacts." >&2
+  exit 1
+fi
+if ! DOCKER_PLATFORM=$(docker info --format '{{.OSType}}/{{.Architecture}}'); then
+  echo "Cannot access Docker. Start the daemon and check access for the current user and Docker context." >&2
+  exit 1
+fi
+
+# Match release binaries to the Docker daemon, including remote Docker contexts.
+case "$DOCKER_PLATFORM" in
+  linux/aarch64|linux/arm64)
+    BUILD_PLATFORM="linux/arm64"
     TARGET_TRIPLE="aarch64-unknown-linux-musl"
     NPM_PLATFORM="linux-arm64"
     PLATFORM_PACKAGE_NAME="@openai/codex-linux-arm64"
     ;;
-  x86_64)
+  linux/x86_64|linux/amd64)
+    BUILD_PLATFORM="linux/amd64"
     TARGET_TRIPLE="x86_64-unknown-linux-musl"
     NPM_PLATFORM="linux-x64"
     PLATFORM_PACKAGE_NAME="@openai/codex-linux-x64"
     ;;
   *)
-    echo "Unsupported architecture: $ARCH" >&2
+    echo "Unsupported Docker platform: $DOCKER_PLATFORM. Use a 64-bit Linux Docker daemon (arm64 or amd64)." >&2
     exit 1
     ;;
 esac
@@ -83,6 +105,17 @@ fi
 
 echo "Using Codex release tag: $CODEX_RELEASE_TAG (default: $DEFAULT_CODEX_RELEASE_TAG)"
 
+BUILD_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/codex-pi-build.XXXXXXXX")
+BUILD_IMAGE_TAG="codex-pi-build:${BUILD_TMPDIR##*/}"
+function cleanup_build() {
+  # Only remove this build's temporary tag; never remove an existing runtime.
+  docker image rm "$BUILD_IMAGE_TAG" >/dev/null 2>&1 || true
+  rm -rf "$BUILD_TMPDIR"
+}
+trap cleanup_build EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 pushd "$CLI_ROOT" > /dev/null
 
 function download_release_asset() {
@@ -91,10 +124,10 @@ function download_release_asset() {
   local download_url="https://github.com/openai/codex/releases/download/${CODEX_RELEASE_TAG}/${asset_name}"
 
   mkdir -p "$(dirname "$output_path")"
-  if ! curl -fLsS "$download_url" -o "$output_path"; then
+  if ! curl --retry 3 --retry-delay 2 --connect-timeout 30 -fLsS "$download_url" -o "$output_path"; then
     rm -f "$output_path"
     echo "Failed to download $asset_name from $download_url" >&2
-    echo "If this release does not publish $asset_name, set CODEX_RELEASE_TAG to a compatible tag." >&2
+    echo "Check network access and free disk space. If the release lacks this asset, choose a compatible CODEX_RELEASE_TAG." >&2
     exit 1
   fi
 }
@@ -104,7 +137,7 @@ function build_platform_alias_package() {
   local output_path=$2
   local package_name=$3
   local tmpdir
-  tmpdir=$(mktemp -d)
+  tmpdir=$(mktemp -d "$BUILD_TMPDIR/platform.XXXXXXXX")
 
   tar -xzf "$platform_tarball" -C "$tmpdir"
 
@@ -149,51 +182,10 @@ download_release_asset "codex-npm-${NPM_PLATFORM}-${CODEX_VERSION}.tgz" dist/cod
 build_platform_alias_package dist/codex-platform-source.tgz dist/codex-platform.tgz "$PLATFORM_PACKAGE_NAME"
 rm -f dist/codex-platform-source.tgz
 
-function cleanup_existing_image() {
-  if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-    return
-  fi
-
-  local containers
-  mapfile -t containers < <(docker ps -a --filter "ancestor=$IMAGE_TAG" -q)
-  if [[ ${#containers[@]} -gt 0 ]]; then
-    echo "Stopping and removing containers using image $IMAGE_TAG"
-    for container_id in "${containers[@]}"; do
-      docker stop "$container_id" >/dev/null 2>&1 || true
-      for _ in $(seq 1 10); do
-        if docker rm -f "$container_id" >/dev/null 2>&1; then
-          break
-        fi
-        if ! docker container inspect "$container_id" >/dev/null 2>&1; then
-          break
-        fi
-        sleep 1
-      done
-      if docker container inspect "$container_id" >/dev/null 2>&1; then
-        echo "Failed to remove container $container_id while cleaning image $IMAGE_TAG" >&2
-        exit 1
-      fi
-    done
-  fi
-
-  echo "Removing existing image $IMAGE_TAG"
-  for _ in $(seq 1 10); do
-    if docker rmi "$IMAGE_TAG" >/dev/null 2>&1; then
-      return
-    fi
-    if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-      return
-    fi
-    sleep 1
-  done
-
-  echo "Failed to remove image $IMAGE_TAG after retries" >&2
-  exit 1
-}
-
-cleanup_existing_image
-
+# Validate a temporary image before moving the requested tag. Running containers
+# retain their existing image even after the new build is promoted.
 docker build \
+  --platform "$BUILD_PLATFORM" \
   --build-arg PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
   --build-arg PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
   --build-arg PLAYWRIGHT_BROWSER_SOURCE="$PLAYWRIGHT_BROWSER_SOURCE" \
@@ -204,24 +196,25 @@ docker build \
   --build-arg GITHUB_MCP_URL="$GITHUB_MCP_URL" \
   --build-arg OPENAI_DOCS_MCP_URL="$OPENAI_DOCS_MCP_URL" \
   --build-arg PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="$PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC" \
-  -t "$IMAGE_TAG" \
+  -t "$BUILD_IMAGE_TAG" \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$REPO_ROOT"
 
-if ! codex_runtime_image_has_current_contract "$IMAGE_TAG"; then
-  echo "Built image $IMAGE_TAG does not satisfy Codex runtime image contract v$CODEX_RUNTIME_IMAGE_CONTRACT_VERSION" >&2
+if ! codex_runtime_image_has_current_contract "$BUILD_IMAGE_TAG"; then
+  echo "Built image $BUILD_IMAGE_TAG does not satisfy Codex runtime image contract v$CODEX_RUNTIME_IMAGE_CONTRACT_VERSION" >&2
   exit 1
 fi
 
 docker run --rm \
+  --workdir /home/node \
   -e PLAYWRIGHT_MCP_PACKAGE="$PLAYWRIGHT_MCP_PACKAGE" \
   -e PLAYWRIGHT_MCP_VERSION="$PLAYWRIGHT_MCP_VERSION" \
   -e PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="$PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC" \
   -e PLAYWRIGHT_MCP_EXECUTABLE_PATH="$PLAYWRIGHT_MCP_EXECUTABLE_PATH" \
   -e CHROME_MCP_PACKAGE="$CHROME_MCP_PACKAGE" \
   -e GITHUB_MCP_URL="$GITHUB_MCP_URL" \
-  -e IMAGE_TAG="$IMAGE_TAG" \
-  "$IMAGE_TAG" bash -c '
+  -e IMAGE_TAG="$BUILD_IMAGE_TAG" \
+  "$BUILD_IMAGE_TAG" bash -c '
 set -euo pipefail
 
 config_file=/home/node/.codex/config.toml
@@ -245,6 +238,15 @@ done
 
 if ! codex --version >/dev/null; then
   echo "Codex CLI launcher failed in image $IMAGE_TAG" >&2
+  exit 1
+fi
+
+if ! node --input-type=module <<"NODE"
+import { Codex } from "@openai/codex-sdk";
+new Codex();
+NODE
+then
+  echo "Codex SDK failed to import or locate the CLI binaries in image $IMAGE_TAG" >&2
   exit 1
 fi
 
@@ -408,7 +410,10 @@ then
   exit 1
 fi
 
-echo "Verified Codex CLI, MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
+echo "Verified Codex CLI, SDK, MCP server config, packages, and ${playwright_browser_source} Chromium launch smoke test in image $IMAGE_TAG"
 '
+
+docker image tag "$BUILD_IMAGE_TAG" "$IMAGE_TAG"
+echo "Built and verified $IMAGE_TAG. Existing containers have been left running."
 
 popd > /dev/null

@@ -1,3 +1,18 @@
+FROM node:24-bookworm AS sdk-build
+
+# Build generated SDK files from the checkout, independently of host tooling or
+# stale/absent sdk/typescript/dist output. Keep compiler dependencies out of the runtime.
+WORKDIR /build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY sdk/typescript/package.json ./sdk/typescript/package.json
+RUN corepack enable && \
+  pnpm --filter @openai/codex-sdk install --frozen-lockfile --prod=false --ignore-scripts
+COPY sdk/typescript/tsconfig.json sdk/typescript/tsup.config.ts ./sdk/typescript/
+COPY sdk/typescript/src ./sdk/typescript/src
+RUN pnpm --filter @openai/codex-sdk run build && \
+  test -s sdk/typescript/dist/index.js && \
+  test -s sdk/typescript/dist/index.d.ts
+
 FROM node:24-bookworm
 
 LABEL com.surestinfo.codex.runtime-contract="3"
@@ -196,9 +211,9 @@ RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /hom
   mkdir -p /home/node/.codex && \
   mkdir -p /home/node/node_modules/@openai/codex-sdk
 
-# Stage the Codex TypeScript SDK output alongside the proxies so sdk-proxy can import it.
-COPY --chown=node:node sdk/typescript/package.json /home/node/node_modules/@openai/codex-sdk/package.json
-COPY --chown=node:node sdk/typescript/dist /home/node/node_modules/@openai/codex-sdk/dist
+# Install the SDK built from source alongside the proxies so sdk-proxy can import it.
+COPY --from=sdk-build --chown=node:node /build/sdk/typescript/package.json /home/node/node_modules/@openai/codex-sdk/package.json
+COPY --from=sdk-build --chown=node:node /build/sdk/typescript/dist /home/node/node_modules/@openai/codex-sdk/dist
 
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.
