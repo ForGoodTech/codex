@@ -122,6 +122,18 @@ The helper script builds the npm package, stages native binaries, and produces
 the Docker image. The Codex release binary is downloaded from an upstream
 GitHub release tag, `rust-v0.155.1` by default, or an explicitly provided tag.
 
+The host needs Bash, Docker, curl, Node.js/npm, tar, and standard Linux command-line
+tools. Docker must be accessible to the current user and run Linux on ARM64 or
+AMD64. The script selects release binaries for the Docker daemon's architecture,
+including when using a remote Docker context. Downloads need network access and
+enough space for release archives, dependencies, and Docker layers; transient
+release-download failures are retried.
+
+A fresh checkout is sufficient: you do not need host pnpm, `node_modules`, or
+`sdk/typescript/dist`. A Docker builder stage installs the repository-pinned pnpm
+and locked SDK dependencies, then compiles the SDK from source. Only the compiled
+SDK and its package manifest are copied into the runtime image.
+
 ```shell
 cd ext/docker/pi
 
@@ -154,7 +166,14 @@ What the script does:
    expected by the Codex launcher, for example `@openai/codex-linux-arm64`.
 5. Feeds the Codex meta package and local platform package into the Docker
    build so the launcher can resolve its native optional dependency.
-6. Runs `docker build` with the generated artifact to produce the final image.
+6. Builds the SDK from source and the runtime image under a temporary image tag.
+7. Checks the runtime contract, CLI, SDK import/binary discovery, and Chromium
+   launch before updating the requested image tag. A failed build or check leaves
+   the previous image tag and existing containers intact. Temporary build files
+   and the temporary tag are cleaned up on exit.
+
+Building never stops or removes existing containers. Recreate them when you are
+ready to use the newly verified image.
 
 ## Playwright Browser Selection
 
