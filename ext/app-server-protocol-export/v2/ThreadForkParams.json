@@ -104,6 +104,13 @@
         "null"
       ]
     },
+    "beforeTurnId": {
+      "description": "Optional turn id to fork before, excluding that turn and all later turns. Cannot be combined with `last_turn_id`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "config": {
       "additionalProperties": true,
       "type": [
@@ -117,6 +124,10 @@
         "null"
       ]
     },
+    "deferGoalContinuation": {
+      "description": "When true, carry the source thread's current goal into the fork without starting its initial automatic continuation. The next explicit turn owns the goal lifecycle, and normal automatic continuation resumes after it.",
+      "type": "boolean"
+    },
     "developerInstructions": {
       "type": [
         "string",
@@ -124,6 +135,10 @@
       ]
     },
     "ephemeral": {
+      "type": "boolean"
+    },
+    "excludeTurns": {
+      "description": "When true, return only thread metadata and live fork state without populating `thread.turns`. This is useful when the client plans to call `thread/turns/list` immediately after forking. Full-history hydration is deprecated for paginated threads; use this with `thread/turns/list` and `thread/items/list` instead.",
       "type": "boolean"
     },
     "lastTurnId": {
@@ -143,6 +158,31 @@
     "modelProvider": {
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "path": {
+      "default": null,
+      "description": "[UNSTABLE] Specify the rollout path to fork from. If specified, the thread_id param will be ignored.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "permissions": {
+      "description": "Named profile id for the forked thread. Cannot be combined with `sandbox`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "runtimeWorkspaceRoots": {
+      "description": "Replace the thread's runtime workspace roots. Paths must be absolute.",
+      "items": {
+        "$ref": "#/definitions/AbsolutePathBuf"
+      },
+      "type": [
+        "array",
         "null"
       ]
     },

@@ -220,6 +220,7 @@
       ]
     },
     "Personality": {
+      "description": "Deprecated: `friendly` and `pragmatic` no longer select a style.",
       "enum": [
         "none",
         "friendly",
@@ -281,6 +282,16 @@
         },
         "environmentId": {
           "type": "string"
+        },
+        "runtimeWorkspaceRoots": {
+          "description": "Environment-native runtime workspace roots. Omitted defaults to `cwd`.",
+          "items": {
+            "$ref": "#/definitions/LegacyAppPathString"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -291,6 +302,10 @@
     }
   },
   "properties": {
+    "allowProviderModelFallback": {
+      "description": "Allow a provider with an authoritative static model catalog to replace an unavailable requested model with its default.",
+      "type": "boolean"
+    },
     "approvalPolicy": {
       "anyOf": [
         {
@@ -331,15 +346,64 @@
         "null"
       ]
     },
+    "daybreakEnabled": {
+      "description": "Initial Daybreak choice for this persistent thread. Omitted or null leaves it unset. This does not select a turn's `cyberAccessProgram` or grant access. Not supported for ephemeral threads.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "developerInstructions": {
       "type": [
         "string",
         "null"
       ]
     },
+    "dynamicTools": {
+      "default": null,
+      "items": {
+        "$ref": "#/definitions/DynamicToolSpec"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "environments": {
+      "description": "Optional sticky environments for this thread.\n\nOmitted selects the default environment when environment access is enabled. Empty disables environment access for turns that do not provide a turn override. Non-empty selects the first environment as the current turn environment.",
+      "items": {
+        "$ref": "#/definitions/TurnEnvironmentParams"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
     "ephemeral": {
       "type": [
         "boolean",
+        "null"
+      ]
+    },
+    "experimentalRawEvents": {
+      "description": "If true, opt into emitting raw Responses API items on the event stream. This is for internal use only (e.g. Codex Cloud).",
+      "type": "boolean"
+    },
+    "historyMode": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ThreadHistoryMode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Persisted thread history contract to use for this new thread."
+    },
+    "mockExperimentalField": {
+      "description": "Test-only experimental field used to validate experimental gating and schema filtering behavior in a stable way.",
+      "type": [
+        "string",
         "null"
       ]
     },
@@ -355,6 +419,24 @@
         "null"
       ]
     },
+    "multiAgentMode": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MultiAgentMode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "@deprecated Ignored. Use Ultra reasoning effort for proactive multi-agent behavior."
+    },
+    "permissions": {
+      "description": "Named profile id for this thread. Cannot be combined with `sandbox`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "personality": {
       "anyOf": [
         {
@@ -363,6 +445,24 @@
         {
           "type": "null"
         }
+      ],
+      "description": "@deprecated `friendly` and `pragmatic` no longer select a style."
+    },
+    "projectId": {
+      "description": "Optional project identity for this new thread. Durable threads persist the assignment; ephemeral threads expose it only in live responses.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "runtimeWorkspaceRoots": {
+      "description": "Replace the thread's runtime workspace roots. Paths must be absolute.",
+      "items": {
+        "$ref": "#/definitions/AbsolutePathBuf"
+      },
+      "type": [
+        "array",
+        "null"
       ]
     },
     "sandbox": {
@@ -373,6 +473,16 @@
         {
           "type": "null"
         }
+      ]
+    },
+    "selectedCapabilityRoots": {
+      "description": "Capability roots selected for this thread by the hosting platform.",
+      "items": {
+        "$ref": "#/definitions/SelectedCapabilityRoot"
+      },
+      "type": [
+        "array",
+        "null"
       ]
     },
     "serviceName": {
