@@ -25,7 +25,8 @@
       "enum": [
         "created_at",
         "updated_at",
-        "recency_at"
+        "recency_at",
+        "section_position"
       ],
       "type": "string"
     },
@@ -46,6 +47,13 @@
     }
   },
   "properties": {
+    "ancestorThreadId": {
+      "description": "Optional ancestor thread filter. Returns spawned descendants at any depth, excluding the ancestor itself. Mutually exclusive with `parentThreadId`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "archived": {
       "description": "Optional archived filter; when set to true, only archived threads are returned. If false or null, only non-archived threads are returned.",
       "type": [
@@ -90,8 +98,39 @@
         "null"
       ]
     },
+    "originators": {
+      "description": "Optional originator allowlist, matching any supplied value exactly. Supported by hosted backends only; the local app-server rejects a nonempty list. Omitted or empty lists leave originators unrestricted.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "parentThreadId": {
+      "description": "Optional direct parent thread filter. Mutually exclusive with `ancestorThreadId`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "projectId": {
+      "description": "Omit to include every project, set to null for unassigned threads, or provide a project ID to return only threads in that project.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "searchTerm": {
       "description": "Optional substring filter for the extracted thread title.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sectionId": {
+      "description": "Omit to include every section, set to `null` for unsectioned threads, or provide a section ID to return only threads in that section.",
       "type": [
         "string",
         "null"
