@@ -4,8 +4,6 @@ use super::PtyCodex;
 use super::write_test_config;
 use anyhow::Result;
 use anyhow::ensure;
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -22,9 +20,9 @@ fn external_editors_keep_the_screen_and_return_the_draft() -> Result<()> {
         let home = tempfile::tempdir()?;
         write_test_config(home.path(), &repo_root)?;
         let editor = home.path().join("editor.sh");
-        fs::write(
+        codex_utils_cargo_bin::write_executable(
             &editor,
-            format!(
+            &format!(
                 "#!/bin/sh\n{editor_output}\n: > \"$0.ready\"\nIFS= read -r ignored\n\
                  {exit_screen}\nprintf 'edited draft' > \"$1\"\n",
                 exit_screen = if editor_output.contains("1049h") {
@@ -34,11 +32,12 @@ fn external_editors_keep_the_screen_and_return_the_draft() -> Result<()> {
                 },
             ),
         )?;
-        fs::set_permissions(&editor, fs::Permissions::from_mode(0o755))?;
+        // Give each editor its own app server and wait for the thread before sending Ctrl+G.
         let args = if fullscreen {
-            vec!["-c", "sandbox_mode=\"read-only\""]
+            vec!["--no-daemon", "-c", "sandbox_mode=\"read-only\""]
         } else {
             vec![
+                "--no-daemon",
                 "-c",
                 "sandbox_mode=\"read-only\"",
                 "-c",
@@ -61,7 +60,8 @@ fn external_editors_keep_the_screen_and_return_the_draft() -> Result<()> {
         }
         ensure!(
             editor.with_extension("sh.ready").exists(),
-            "editor did not start"
+            "editor did not start (fullscreen={fullscreen}, output={editor_output:?}); screen:\n{}",
+            terminal.screen_contents()
         );
 
         let mut visible = None;

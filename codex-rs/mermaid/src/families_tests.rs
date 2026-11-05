@@ -1,7 +1,7 @@
 //! End-to-end grammar, topology, and rendered output checks for each supported family.
 
-use super::RenderError;
-use super::render;
+use crate::RenderError;
+use crate::render;
 use pretty_assertions::assert_eq;
 use unicode_width::UnicodeWidthStr;
 
@@ -138,12 +138,12 @@ fn unicode_labels_and_later_declarations() {
         let mut body = vec!["S --> T"];
         body.extend(&descriptions);
         body.push("T --> S");
-        let graph = super::state::parse(&body).unwrap();
-        let mut expected = super::state::parse(&["S --> T", "T --> S"]).unwrap();
-        expected.nodes[0] = super::Node {
+        let graph = crate::state::parse(&body).unwrap();
+        let mut expected = crate::state::parse(&["S --> T", "T --> S"]).unwrap();
+        expected.nodes[0] = crate::Node {
             id: "S".to_owned(),
             label: "Ready".to_owned(),
-            shape: super::Shape::Rectangle,
+            shape: crate::Shape::Rectangle,
             declared: true,
             members: if descriptions.len() == 1 {
                 Vec::new()
@@ -156,7 +156,7 @@ fn unicode_labels_and_later_declarations() {
 }
 
 #[test]
-fn class_relationship_endpoints() {
+fn graph_relationship_endpoints() {
     for (operator, source_tip, target_tip, dashed) in [
         ("<|--", '◁', '─', false),
         ("*--", '◆', '─', false),
@@ -192,6 +192,33 @@ fn class_relationship_endpoints() {
         assert!(ports[1].contains("(many)"));
         assert_eq!(output.contains('┆'), dashed);
     }
+    for (operator, source_tip, target_tip, dashed) in [
+        ("---", '─', '─', false),
+        ("-.->", '─', '◄', true),
+        ("-.-", '─', '─', true),
+        ("<-->", '◄', '◄', false),
+        ("<-.->", '◄', '◄', true),
+    ] {
+        let output = render(
+            &format!("flowchart; A{operator}|uses|B"),
+            /*max_width*/ 100,
+        )
+        .unwrap();
+        let ports = output
+            .lines()
+            .filter(|line| line.contains('├'))
+            .collect::<Vec<_>>();
+        assert!(
+            ports[0].contains(&format!("├{source_tip}")),
+            "{operator}: {output}"
+        );
+        assert!(
+            ports[1].contains(&format!("├{target_tip}")),
+            "{operator}: {output}"
+        );
+        assert!(ports[0].contains("uses"));
+        assert_eq!(output.contains('┆'), dashed);
+    }
     for source in [
         "classDiagram\nclass A; A --> B : {ok}",
         "classDiagram\nclass A; class B {\n+id\n}",
@@ -202,14 +229,14 @@ fn class_relationship_endpoints() {
         );
     }
     let source = "classDiagram\nclass A {\nstring a;b\nObject[] elementData\n}\nA : +get()";
-    let statements = super::syntax::statements(source).unwrap();
+    let statements = crate::syntax::statements(source).unwrap();
     assert_eq!(
-        super::relations::parse(statements[0], &statements[1..]).unwrap(),
-        super::Graph {
-            nodes: vec![super::Node {
+        crate::relations::parse(statements[0], &statements[1..]).unwrap(),
+        crate::Graph {
+            nodes: vec![crate::Node {
                 id: "A".into(),
                 label: "A".into(),
-                shape: super::Shape::Rectangle,
+                shape: crate::Shape::Rectangle,
                 declared: false,
                 members: vec![
                     "string a;b".into(),
@@ -217,7 +244,7 @@ fn class_relationship_endpoints() {
                     "+get()".into()
                 ],
             }],
-            ..super::Graph::default()
+            ..crate::Graph::default()
         }
     );
     for (line, target, target_tip, target_label, dashed) in [
@@ -226,11 +253,11 @@ fn class_relationship_endpoints() {
         ("A --o B", "B", '◇', "", false),
         (r#"A ..o"many" B"#, "B", '◇', "(many)", true),
     ] {
-        let graph = super::relations::parse("classDiagram", &[line]).unwrap();
-        let mut expected = super::Graph::default();
+        let graph = crate::relations::parse("classDiagram", &[line]).unwrap();
+        let mut expected = crate::Graph::default();
         let from = expected.node("A").unwrap();
         let to = expected.node(target).unwrap();
-        expected.edges.push(super::Edge {
+        expected.edges.push(crate::Edge {
             from,
             to,
             label: String::new(),

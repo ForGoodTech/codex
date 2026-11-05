@@ -7,6 +7,7 @@ use codex_app_server_protocol::ClientInfo;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::GatewayOAuthCancelResponse;
 use codex_app_server_protocol::GatewayOAuthChangedNotification;
+use codex_app_server_protocol::GatewayOAuthLoginResponse;
 use codex_app_server_protocol::GatewayOAuthReadResponse;
 use codex_app_server_protocol::GatewayOAuthStatus;
 use codex_app_server_protocol::InitializeCapabilities;
@@ -133,6 +134,96 @@ async fn model_list_requests_restart_after_gateway_provider_changes() -> Result<
             data: None,
         });
     }
+    Ok(())
+}
+
+/// Account changes reload the catalog before validating a retained OAuth gateway.
+#[tokio::test]
+async fn model_list_leaves_oauth_gateway_after_account_change() -> Result<()> {
+    let oauth = MockServer::start().await;
+    let home = TempDir::new()?;
+    std::fs::write(home.path().join("config.toml"), gateway_config(&oauth))?;
+    let mut server = gateway_server(home.path()).await?;
+    std::fs::write(home.path().join("config.toml"), "")?;
+    std::fs::write(
+        home.path().join("requirements.toml"),
+        "model_provider = 'openai'",
+    )?;
+    let id = server
+        .send_login_account_api_key_request("sk-catalog-test")
+        .await?;
+    let _: codex_app_server_protocol::LoginAccountResponse = server.read_response(id).await?;
+    server
+        .read_stream_until_notification_message("account/updated")
+        .await?;
+    let models: codex_app_server_protocol::ModelListResponse = server
+        .request(|request_id| ClientRequest::ModelList {
+            request_id,
+            params: codex_app_server_protocol::ModelListParams::default(),
+        })
+        .await?;
+    assert!(!models.data.is_empty());
+    assert!(
+        oauth
+            .received_requests()
+            .await
+            .expect("gateway requests")
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_credentials_reuse_gateway_login_after_restart() -> Result<()> {
+    let home = TempDir::new()?;
+    let oauth = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .and(body_string_contains("grant_type=authorization_code"))
+        .respond_with(ResponseTemplate::new(/*s*/ 200).set_body_json(serde_json::json!({
+            "access_token": "gateway-access", "refresh_token": "gateway-refresh", "expires_in": 3600,
+        })))
+        .expect(/*r*/ 1)
+        .mount(&oauth)
+        .await;
+    // Exercise the managed provider definition used by headless installations.
+    std::fs::write(
+        home.path().join("requirements.toml"),
+        format!("{}\ncredentials_store = 'file'\n", gateway_config(&oauth)),
+    )?;
+    let mut server = gateway_server(home.path()).await?;
+    let login = server
+        .send_raw_request("account/gatewayOAuth/login", /*params*/ None)
+        .await?;
+    let url = authorization_url(&mut server).await?;
+    let query = url
+        .query_pairs()
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut callback = url::Url::parse(query.get("redirect_uri").context("callback URI")?)?;
+    callback
+        .query_pairs_mut()
+        .append_pair("code", "accepted")
+        .append_pair("state", query.get("state").context("OAuth state")?);
+    codex_login::default_client::create_client_without_request_logging()
+        .get(callback.as_str())
+        .send()
+        .await?
+        .error_for_status()?;
+    let _: GatewayOAuthLoginResponse = server.read_response(login).await?;
+    server.shutdown_gracefully().await?;
+
+    let path = home.path().join("secrets/gateway_oauth.json");
+    assert!(path.is_file());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(path)?.permissions().mode() & 0o777, 0o600);
+    }
+    let mut restarted = gateway_server(home.path()).await?;
+    assert_eq!(
+        read_gateway(&mut restarted).await?.status,
+        Some(GatewayOAuthStatus::Succeeded)
+    );
     Ok(())
 }
 

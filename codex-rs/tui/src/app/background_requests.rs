@@ -24,8 +24,10 @@ use codex_app_server_protocol::MarketplaceRemoveParams;
 use codex_app_server_protocol::MarketplaceRemoveResponse;
 use codex_app_server_protocol::MarketplaceUpgradeParams;
 use codex_app_server_protocol::MarketplaceUpgradeResponse;
+use codex_app_server_protocol::McpServerOauthLoginParams;
 use codex_app_server_protocol::RequestId;
 
+use crate::hooks_rpc::HooksListTarget;
 use crate::hooks_rpc::fetch_hooks_list;
 use crate::hooks_rpc::write_hook_trust;
 use crate::hooks_rpc::write_hook_trusts;
@@ -39,6 +41,33 @@ const WORKSPACE_HEADLINE_FETCH_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(/*millis*/ 2000);
 
 impl App {
+    pub(super) fn start_mcp_login(
+        &self,
+        app_server: &AppServerSession,
+        request_id: String,
+        name: String,
+        thread_id: ThreadId,
+    ) {
+        let request_handle = app_server.request_handle();
+        let app_event_tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            let result = request_handle
+                .request_typed(ClientRequest::McpServerOauthLogin {
+                    request_id: RequestId::String(request_id.clone()),
+                    params: McpServerOauthLoginParams {
+                        name,
+                        thread_id: Some(thread_id.to_string()),
+                        client_registration: None,
+                        scopes: None,
+                        timeout_secs: None,
+                    },
+                })
+                .await
+                .map_err(|error| error.to_string());
+            app_event_tx.send(AppEvent::McpLoginStarted { request_id, result });
+        });
+    }
+
     pub(super) fn fetch_mcp_inventory(
         &mut self,
         app_server: &AppServerSession,
@@ -229,9 +258,17 @@ impl App {
         let app_event_tx = self.app_event_tx.clone();
         let cwd = self.config.cwd.to_path_buf();
         tokio::spawn(async move {
-            let result = fetch_skills_list(request_handle, cwd.clone())
-                .await
-                .map_err(|err| format!("{err:#}"));
+            let request_id = RequestId::String(format!("startup-skills-list-{}", Uuid::new_v4()));
+            let result = fetch_skills_list(
+                request_handle,
+                request_id,
+                SkillsListParams {
+                    cwds: vec![cwd.clone()],
+                    force_reload: true,
+                },
+            )
+            .await
+            .map_err(|err| format!("{err:#}"));
             app_event_tx.send(AppEvent::SkillsListLoaded { cwd, result });
         });
     }
@@ -296,14 +333,18 @@ impl App {
         });
     }
 
-    pub(super) fn fetch_hooks_list(&mut self, app_server: &AppServerSession, cwd: PathBuf) {
+    pub(super) fn fetch_hooks_list(
+        &mut self,
+        app_server: &AppServerSession,
+        target: HooksListTarget,
+    ) {
         let request_handle = app_server.request_handle();
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {
-            let result = fetch_hooks_list(request_handle, cwd.clone())
+            let result = fetch_hooks_list(request_handle, &target)
                 .await
                 .map_err(|err| err.to_string());
-            app_event_tx.send(AppEvent::HooksLoaded { cwd, result });
+            app_event_tx.send(AppEvent::HooksLoaded { target, result });
         });
     }
 
@@ -575,7 +616,7 @@ impl App {
                     });
                 }
                 Err(err) => {
-                    tracing::warn!(error = %err, "plugin/list failed while refreshing plugin mention candidates");
+                    tracing::warn!(error = %err, "plugin/installed failed while refreshing plugin mention candidates");
                 }
             }
         });
@@ -652,6 +693,7 @@ impl App {
 
         let should_send = {
             let mut guard = store.lock().await;
+            guard.replay_may_have_output |= !guard.active;
             guard.push_buffered_event(ThreadBufferedEvent::FeedbackSubmission(event.clone()));
             guard.active
         };
@@ -885,19 +927,11 @@ pub(super) async fn send_add_credits_nudge_email(
 
 pub(super) async fn fetch_skills_list(
     request_handle: AppServerRequestHandle,
-    cwd: PathBuf,
+    request_id: RequestId,
+    params: SkillsListParams,
 ) -> Result<SkillsListResponse> {
-    let request_id = RequestId::String(format!("startup-skills-list-{}", Uuid::new_v4()));
-    // Use the cloneable request handle so startup can issue this RPC from a background task without
-    // extending a borrow of `AppServerSession` across the first frame render.
     request_handle
-        .request_typed(ClientRequest::SkillsList {
-            request_id,
-            params: SkillsListParams {
-                cwds: vec![cwd],
-                force_reload: true,
-            },
-        })
+        .request_typed(ClientRequest::SkillsList { request_id, params })
         .await
         .wrap_err("skills/list failed in TUI")
 }
@@ -1359,6 +1393,7 @@ mod tests {
         )
         .expect("write ChatGPT authentication");
         let app_server = crate::start_app_server_for_picker(
+            crate::backend_id::BackendId::new(),
             &app.config,
             &crate::AppServerTarget::Embedded,
             app.cli_kv_overrides.clone(),
@@ -1394,8 +1429,9 @@ mod tests {
                 serde_json::json!({
                     "threads": [{
                         "thread_id": thread_id.to_string(),
-                        "estimated_usage_credits_micros": 46_000_000,
-                        "estimated_usage_usd_micros": 1_820_000
+                        "estimated_usage_credits_micros": 0,
+                        "estimated_usage_usd_micros": 0,
+                        "native_usage_usd_micros": 750_000
                     }]
                 }),
             ))
@@ -1408,9 +1444,10 @@ mod tests {
                 .await
                 .expect("read thread usage through the authenticated app server"),
             ThreadUsageOutcome::Available(ThreadUsage {
+                native_usage_usd_micros: Some(750_000),
                 thread_id: thread_id.to_string(),
-                estimated_usage_credits_micros: 46_000_000,
-                estimated_usage_usd_micros: Some(1_820_000),
+                estimated_usage_credits_micros: 0,
+                estimated_usage_usd_micros: Some(0),
                 groups: Vec::new(),
             })
         );
@@ -1570,6 +1607,7 @@ mod tests {
         let statuses = vec![
             McpServerStatus {
                 server_capabilities: None,
+                tool_list_meta: None,
                 tools_error: None,
                 name: "docs".to_string(),
                 runtime_status: None,
@@ -1595,6 +1633,7 @@ mod tests {
             },
             McpServerStatus {
                 server_capabilities: None,
+                tool_list_meta: None,
                 tools_error: None,
                 name: "disabled".to_string(),
                 runtime_status: None,

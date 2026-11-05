@@ -95,7 +95,7 @@ async fn inactive_thread_user_verification_replays_queued_request_once() -> Resu
 
 #[tokio::test]
 async fn side_toggle_surfaces_pending_verification_from_an_inactive_thread() -> Result<()> {
-    Box::pin(async {
+    let check_return = async |hide: bool| -> Result<()> {
         let (mut app, _events, _ops) = make_test_app_with_channels().await;
         let mut app_server =
             crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
@@ -116,6 +116,8 @@ async fn side_toggle_surfaces_pending_verification_from_an_inactive_thread() -> 
             ),
         );
         let mut tui = crate::tui::test_support::make_test_tui()?;
+        enable_side_retention(&mut app)?;
+        tui.set_owned_screen(/*owned*/ true)?;
         app.select_agent_thread(&mut tui, &mut app_server, side_thread_id)
             .await?;
         assert_eq!(app.active_thread_id, Some(side_thread_id));
@@ -134,17 +136,26 @@ async fn side_toggle_surfaces_pending_verification_from_an_inactive_thread() -> 
         .await?;
         assert!(!app.chat_widget.has_active_view());
 
-        app.toggle_side_conversation(&mut tui, &mut app_server)
-            .await?;
+        if hide {
+            app.hide_focused_side_pane(&mut tui, &mut app_server)
+                .await?;
+        } else {
+            app.toggle_side_conversation(&mut tui, &mut app_server)
+                .await?;
+        }
         assert_eq!(app.active_thread_id, Some(primary_thread_id));
-        insta::assert_snapshot!(
-            "side_toggle_surfaces_pending_user_verification",
-            render_bottom_popup(&app.chat_widget, /*width*/ 80)
+        assert!(
+            app.chat_widget.has_active_view(),
+            "missing verification prompt after return (hide={hide})"
+        );
+        assert!(
+            render_bottom_popup(&app.chat_widget, /*width*/ 80).contains("Approve deployment?")
         );
         app_server.shutdown().await?;
         Ok(())
-    })
-    .await
+    };
+    Box::pin(check_return(/*hide*/ false)).await?;
+    Box::pin(check_return(/*hide*/ true)).await
 }
 
 #[tokio::test]
@@ -165,7 +176,7 @@ async fn discarding_side_cancels_verification_and_ignores_late_proof() -> Result
     let attempt = app
         .pending_app_server_requests
         .user_verification
-        .begin("deployments", request.id())
+        .begin(&side_thread_id.to_string(), "deployments", request.id())
         .expect("pending side-thread verification");
 
     app.discard_side_thread_in_background(&mut app_server, side_thread_id)
@@ -239,19 +250,22 @@ async fn inactive_thread_user_verification_preserves_foreground_stream() -> Resu
         /*replay_kind*/ None,
     );
     app.chat_widget.handle_server_notification(
-        ServerNotification::ItemCompleted(codex_app_server_protocol::ItemCompletedNotification {
-            thread_id: foreground_thread_id.to_string(),
-            turn_id: "turn-foreground".to_string(),
-            completed_at_ms: 0,
-            item: ThreadItem::AgentMessage {
-                id: "message-foreground".to_string(),
-                text: "The foreground answer continues.".to_string(),
-                phase: None,
-                memory_citation: None,
-                delivery: None,
-                questions: None,
-            },
-        }),
+        ServerNotification::ItemCompleted(
+            codex_app_server_protocol::ItemCompletedNotification::new(
+                foreground_thread_id.to_string(),
+                "turn-foreground".to_string(),
+                ThreadItemPayload::AgentMessage {
+                    id: "message-foreground".to_string(),
+                    text: "The foreground answer continues.".to_string(),
+                    phase: None,
+                    memory_citation: None,
+                    delivery: None,
+                    questions: None,
+                },
+                /*started_at_ms*/ None,
+                /*completed_at_ms*/ 0,
+            ),
+        ),
         /*replay_kind*/ None,
     );
 
@@ -268,6 +282,7 @@ async fn inactive_thread_user_verification_preserves_foreground_stream() -> Resu
             AppEvent::InsertHistoryCell(cell) => app.insert_history_cell(&mut tui, cell),
             AppEvent::ConsolidateAgentMessage {
                 source,
+                copy_source,
                 cwd,
                 inline_visualization_context,
                 scrollback_reflow,
@@ -276,9 +291,12 @@ async fn inactive_thread_user_verification_preserves_foreground_stream() -> Resu
                 completed_messages.push(source.clone());
                 app.handle_consolidate_agent_message(
                     &mut tui,
-                    source,
-                    cwd,
-                    inline_visualization_context,
+                    history_cell::AgentMarkdownCell::new_with_inline_visualizations(
+                        source,
+                        &cwd,
+                        inline_visualization_context,
+                    )
+                    .with_copy_source(copy_source),
                     scrollback_reflow,
                     deferred_history_cell,
                 )?;

@@ -1,7 +1,7 @@
 //! Onboarding screen orchestration and top-level keyboard routing.
 //!
 //! The onboarding flow is a small state machine over visible steps
-//! (welcome/auth/trust). This module decides which step receives key/paste
+//! (welcome/auth/trust/GovCloud). This module decides which step receives key/paste
 //! events and enforces flow-level safety rules that cut across individual step
 //! widgets. Folder-entry consent reuses this same event loop for startup and in-app navigation.
 //!
@@ -45,12 +45,14 @@ use crate::legacy_core::config::Config;
 use crate::onboarding::auth::AuthModeWidget;
 use crate::onboarding::auth::SignInOption;
 use crate::onboarding::auth::SignInState;
+use crate::onboarding::bedrock::BedrockState;
 use crate::onboarding::keys;
 use crate::onboarding::trust_directory::TrustDirectorySelection;
 use crate::onboarding::trust_directory::TrustDirectoryWidget;
 use crate::onboarding::welcome::WelcomeWidget;
+use crate::startup_draft::StartupCancelled;
 use crate::tui::FrameRequester;
-use crate::tui::OverlayInput;
+use crate::tui::MouseCapture;
 use crate::tui::Tui;
 use crate::tui::TuiEvent;
 use color_eyre::eyre::Result;
@@ -61,6 +63,7 @@ use uuid::Uuid;
 
 #[path = "directory_trust.rs"]
 mod directory_trust;
+pub(crate) use directory_trust::DirectoryTrustOptions;
 pub(crate) use directory_trust::check_directory_trust;
 
 #[allow(clippy::large_enum_variant)]
@@ -68,6 +71,10 @@ enum Step {
     Welcome(WelcomeWidget),
     Auth(AuthModeWidget),
     TrustDirectory(TrustDirectoryWidget),
+    GovCloudGuidance {
+        state: BedrockState,
+        acknowledged: bool,
+    },
 }
 
 pub(crate) trait KeyboardHandler {
@@ -99,6 +106,7 @@ pub(crate) struct OnboardingScreenArgs {
     pub remote_project_trust: Option<RemoteProjectTrust>,
     pub show_login_screen: bool,
     pub bedrock_setup_enabled: bool,
+    pub gcp_setup_enabled: bool,
     pub login_status: LoginStatus,
     pub app_server_target: crate::AppServerTarget,
     pub app_server_request_handle: Option<AppServerRequestHandle>,
@@ -126,6 +134,7 @@ impl OnboardingScreen {
             remote_project_trust,
             show_login_screen,
             bedrock_setup_enabled,
+            gcp_setup_enabled,
             login_status,
             app_server_target,
             app_server_request_handle,
@@ -164,12 +173,13 @@ impl OnboardingScreen {
                 if auth_config.is_login_method_allowed(ForcedLoginMethod::Chatgpt) {
                     SignInOption::ChatGpt
                 } else {
-                    SignInOption::ApiKey
+                    SignInOption::OtherMethods
                 };
             if let Some(app_server_request_handle) = app_server_request_handle {
                 steps.push(Step::Auth(AuthModeWidget {
                     request_frame: tui.frame_requester(),
                     highlighted_mode,
+                    activation_key_guard: None,
                     error: Arc::new(RwLock::new(None)),
                     sign_in_state: Arc::new(RwLock::new(SignInState::PickMode)),
                     login_status,
@@ -177,6 +187,7 @@ impl OnboardingScreen {
                     app_server_request_handle,
                     auth_config,
                     bedrock_setup_enabled,
+                    gcp_setup_enabled,
                     animations_enabled: local_settings.tui.animations
                         && local_settings.tui.effects.shimmer,
                     animations_suppressed: std::cell::Cell::new(false),
@@ -257,7 +268,7 @@ impl OnboardingScreen {
         // material so terminal selection is not interrupted by redraws.
         self.current_steps().into_iter().any(|step| match step {
             Step::Auth(widget) => widget.should_suppress_animations(),
-            Step::Welcome(_) | Step::TrustDirectory(_) => false,
+            Step::Welcome(_) | Step::TrustDirectory(_) | Step::GovCloudGuidance { .. } => false,
         })
     }
 
@@ -298,7 +309,7 @@ impl OnboardingScreen {
     fn auth_widget_mut(&mut self) -> Option<&mut AuthModeWidget> {
         self.steps.iter_mut().find_map(|step| match step {
             Step::Auth(widget) => Some(widget),
-            Step::Welcome(_) | Step::TrustDirectory(_) => None,
+            Step::Welcome(_) | Step::TrustDirectory(_) | Step::GovCloudGuidance { .. } => None,
         })
     }
 
@@ -339,10 +350,13 @@ impl KeyboardHandler for OnboardingScreen {
     /// Route key events to onboarding steps while preserving text-entry safety.
     ///
     /// OpenAI API-key entry suppresses printable quit bindings after typing
-    /// starts, while Bedrock fields suppress them from the first character.
+    /// starts, while cloud provider fields suppress them from the first character.
     /// Control/alt quit chords still work as emergency exits.
     fn handle_key_event(&mut self, key_event: KeyEvent) {
-        if !matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+        if key_event.kind == KeyEventKind::Release {
+            if let Some(widget) = self.auth_widget_mut() {
+                widget.handle_key_event(key_event);
+            }
             return;
         }
         let text_entry_context = self.text_entry_context();
@@ -355,7 +369,12 @@ impl KeyboardHandler for OnboardingScreen {
                 // If the user cancels the auth menu, exit the app rather than
                 // leave the user at a prompt in an unauthed state.
                 self.should_exit = true;
-            } else if self.is_trust_step_active() {
+            } else if self.is_trust_step_active()
+                || self
+                    .steps
+                    .iter()
+                    .any(|step| matches!(step, Step::GovCloudGuidance { .. }))
+            {
                 self.should_exit = true;
             }
             self.is_done = true;
@@ -423,7 +442,7 @@ impl WidgetRef for &OnboardingScreen {
             match step {
                 Step::Welcome(widget) => widget.set_presentation(logo_presentation),
                 Step::Auth(widget) => widget.set_animations_suppressed(suppress_animations),
-                Step::TrustDirectory(_) => {}
+                Step::TrustDirectory(_) | Step::GovCloudGuidance { .. } => {}
             }
         }
 
@@ -497,12 +516,18 @@ impl KeyboardHandler for Step {
             Step::Welcome(widget) => widget.handle_key_event(key_event),
             Step::Auth(widget) => widget.handle_key_event(key_event),
             Step::TrustDirectory(widget) => widget.handle_key_event(key_event),
+            Step::GovCloudGuidance {
+                state,
+                acknowledged,
+            } => {
+                *acknowledged = state.handle_guidance_key_event(&key_event);
+            }
         }
     }
 
     fn handle_paste(&mut self, pasted: String) {
         match self {
-            Step::Welcome(_) => {}
+            Step::Welcome(_) | Step::GovCloudGuidance { .. } => {}
             Step::Auth(widget) => widget.handle_paste(pasted),
             Step::TrustDirectory(widget) => widget.handle_paste(pasted),
         }
@@ -515,6 +540,13 @@ impl StepStateProvider for Step {
             Step::Welcome(w) => w.get_step_state(),
             Step::Auth(w) => w.get_step_state(),
             Step::TrustDirectory(w) => w.get_step_state(),
+            Step::GovCloudGuidance { acknowledged, .. } => {
+                if *acknowledged {
+                    StepState::Complete
+                } else {
+                    StepState::InProgress
+                }
+            }
         }
     }
 }
@@ -531,8 +563,30 @@ impl WidgetRef for Step {
             Step::TrustDirectory(widget) => {
                 widget.render_ref(area, buf);
             }
+            Step::GovCloudGuidance { state, .. } => state.render(area, buf, /*error*/ None),
         }
     }
+}
+
+pub(crate) async fn run_gov_cloud_guidance(tui: &mut Tui) -> Result<()> {
+    let screen = OnboardingScreen {
+        request_frame: tui.frame_requester(),
+        steps: vec![Step::GovCloudGuidance {
+            state: BedrockState::guidance(),
+            acknowledged: false,
+        }],
+        remote_trust_key: None,
+        is_done: false,
+        should_exit: false,
+    };
+    let result = run_onboarding_screen(
+        screen, /*app_server_request_handle*/ None, /*app_server*/ None, tui,
+    )
+    .await?;
+    if result.should_exit {
+        return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, StartupCancelled).into());
+    }
+    Ok(())
 }
 
 pub(crate) async fn run_onboarding_app(
@@ -552,8 +606,8 @@ async fn run_onboarding_screen(
     tui: &mut Tui,
 ) -> Result<OnboardingResult> {
     // Let the terminal select and copy login URLs and device codes, even in fullscreen mode.
-    let previous_input = tui.overlay_input;
-    let result = match tui.set_overlay_input(OverlayInput::Onboarding) {
+    let previous_mouse_capture = tui.mouse_capture;
+    let result = match tui.set_mouse_capture(MouseCapture::Disabled) {
         Ok(()) => {
             run_onboarding_screen_inner(
                 onboarding_screen,
@@ -565,7 +619,7 @@ async fn run_onboarding_screen(
         }
         Err(error) => Err(error.into()),
     };
-    let restore = tui.set_overlay_input(previous_input);
+    let restore = tui.set_mouse_capture(previous_mouse_capture);
     result.and_then(|result| restore.map(|()| result).map_err(Into::into))
 }
 
@@ -700,12 +754,14 @@ async fn run_onboarding_screen_inner(
                                 let _ = tui.terminal.clear();
                                 did_full_clear_after_success = true;
                             }
-                            let _ = tui.draw(u16::MAX, |frame| {
+                            tui.draw(u16::MAX, |frame| {
                                 frame.render_widget_ref(&onboarding_screen, frame.area());
-                            });
+                            })?;
                         }
                         TuiEvent::Mouse(_) => {}
                     }
+                } else {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, StartupCancelled).into());
                 }
             }
             event = async {
@@ -715,7 +771,7 @@ async fn run_onboarding_screen_inner(
                 }
             }, if app_server.is_some() => {
                 if let Some(event) = event {
-                    match event {
+                    match event.event {
                         AppServerEvent::ServerNotification(notification) => {
                             onboarding_screen.handle_app_server_notification(*notification);
                         }

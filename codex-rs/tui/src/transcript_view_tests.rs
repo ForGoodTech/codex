@@ -1,6 +1,7 @@
 //! Viewport behavior and cache lifetime across scrolling, selection, and redraws.
 
 use super::*;
+use crate::history_cell::new_user_prompt;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
@@ -38,6 +39,15 @@ pub(super) fn cell(text: impl Into<String>) -> Arc<dyn HistoryCell> {
     })
 }
 
+fn prompt(text: impl Into<String>) -> Arc<dyn HistoryCell> {
+    Arc::new(new_user_prompt(
+        text.into(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    ))
+}
+
 pub(super) fn render(
     view: &mut TranscriptView,
     cells: &[Arc<dyn HistoryCell>],
@@ -61,6 +71,186 @@ pub(super) fn text(buffer: &Buffer) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[test]
+fn consecutive_user_prompts_share_one_background_block() {
+    use crate::history_cell::AgentMessageCell;
+    use crate::history_cell::new_spoken_user_prompt;
+    use codex_protocol::user_input::TextElement;
+
+    let cells: Vec<Arc<dyn HistoryCell>> = vec![
+        prompt("First steering message"),
+        prompt("Second steering message"),
+        Arc::new(AgentMessageCell::new(
+            vec!["Assistant response".into()],
+            /*is_first_line*/ true,
+        )),
+        Arc::new(new_spoken_user_prompt(String::new())),
+        Arc::new(new_user_prompt(
+            "   ".into(),
+            vec![TextElement::new((0..3).into(), Some("   ".into()))],
+            Vec::new(),
+            Vec::new(),
+        )),
+        prompt("Later user message"),
+    ];
+    crate::terminal_palette::with_test_default_colors(
+        crate::terminal_probe::DefaultColors {
+            fg: (235, 235, 235),
+            bg: (18, 20, 30),
+        },
+        || {
+            let mut view = TranscriptView::default();
+            let buffer = render(&mut view, &cells, /*width*/ 32, /*height*/ 12);
+            insta::assert_snapshot!(
+                "consecutive_user_prompts_share_one_background_block",
+                format!("{buffer:?}")
+            );
+        },
+    );
+}
+
+#[test]
+fn prompt_adjacency_uses_cached_retained_presentations() {
+    let renders = Arc::new(AtomicUsize::new(0));
+    let cells: Vec<Arc<dyn HistoryCell>> = vec![
+        Arc::new(TestCell {
+            text: "response".into(),
+            renders: Arc::clone(&renders),
+        }),
+        prompt("steering"),
+    ];
+    let mut view = TranscriptView::default();
+
+    view.current_layout(&cells, /*index*/ 1);
+    view.current_layout(&cells, /*index*/ 1);
+
+    assert_eq!(renders.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn joined_prompt_preserves_source_offsets_across_rewrap() {
+    let cells = vec![prompt("older"), prompt("one\n\ntwo")];
+    let mut view = TranscriptView::default();
+    let unjoined = [Arc::clone(&cells[1])];
+    let source = view
+        .current_layout(&unjoined, /*index*/ 0)
+        .unwrap()
+        .text()
+        .to_owned();
+    let joined = view.current_layout(&cells, /*index*/ 1).unwrap();
+
+    assert_eq!(
+        (joined.text(), joined.rewrap(/*width*/ 8).text()),
+        (source.as_str(), source.as_str())
+    );
+}
+
+#[test]
+fn detailed_only_reasoning_separates_user_prompts() {
+    use crate::history_cell::ReasoningSummaryCell;
+    use std::path::Path;
+
+    let cells: Vec<Arc<dyn HistoryCell>> = vec![
+        prompt("first"),
+        Arc::new(ReasoningSummaryCell::new(
+            "Reasoning".into(),
+            "visible detail".into(),
+            Path::new("."),
+            /*transcript_only*/ true,
+        )),
+        prompt("second"),
+    ];
+    let mut detailed = TranscriptView {
+        detailed: true,
+        ..TranscriptView::default()
+    };
+    assert!(
+        detailed
+            .current_layout(&cells, /*index*/ 2)
+            .unwrap()
+            .separated
+    );
+
+    let mut compact = TranscriptView::default();
+    assert!(
+        !compact
+            .entry_layout(&cells, /*index*/ 2, /*full_content*/ true)
+            .unwrap()
+            .separated
+    );
+}
+
+#[test]
+fn page_keys_follow_pager_scroll_bindings() {
+    let cells = [cell(
+        (1..=30)
+            .map(|row| format!("row {row}\n"))
+            .collect::<String>(),
+    )];
+    let mut frames = Vec::new();
+    for (label, pager, rows) in [
+        ("default", serde_json::json!({}), 7),
+        (
+            "half page",
+            serde_json::json!({
+                "page_up": [], "page_down": [],
+                "half_page_up": "page-up", "half_page_down": "page-down"
+            }),
+            4,
+        ),
+        (
+            "single row",
+            serde_json::json!({
+                "page_up": [], "page_down": [],
+                "scroll_up": "page-up", "scroll_down": "page-down"
+            }),
+            1,
+        ),
+        (
+            "unbound",
+            serde_json::json!({"page_up": [], "page_down": []}),
+            0,
+        ),
+    ] {
+        let config = serde_json::from_value(serde_json::json!({"pager": pager})).unwrap();
+        let keymap = crate::keymap::RuntimeKeymap::from_config(&config).unwrap();
+        let mut view = TranscriptView::default();
+        view.set_keymap_bindings(&keymap);
+        let pre_scroll = render(&mut view, &cells, /*width*/ 20, /*height*/ 8);
+        assert_eq!(
+            view.handle_key(KeyCode::PageUp.into(), &cells).is_some(),
+            rows != 0
+        );
+        let scrolled = render(&mut view, &cells, /*width*/ 20, /*height*/ 8);
+        let mut expected = TranscriptView::default();
+        render(&mut expected, &cells, /*width*/ 20, /*height*/ 8);
+        expected.scroll(&cells, -rows);
+        assert_eq!(
+            scrolled,
+            render(&mut expected, &cells, /*width*/ 20, /*height*/ 8)
+        );
+        frames.push(format!("{label}\n{}", text(&scrolled)));
+        assert_eq!(
+            view.handle_key(KeyCode::PageDown.into(), &cells).is_some(),
+            rows != 0
+        );
+        assert_eq!(
+            render(&mut view, &cells, /*width*/ 20, /*height*/ 8),
+            pre_scroll
+        );
+        for key in [
+            KeyCode::Char('j').into(),
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        ] {
+            assert!(view.handle_key(key, &cells).is_none());
+        }
+    }
+    insta::assert_snapshot!(
+        "page_keys_follow_pager_scroll_bindings",
+        frames.join("\n\n")
+    );
 }
 
 #[test]
@@ -111,7 +301,7 @@ fn terminal_output_disclosure_follows_live_history_and_keymap() {
         &mut view, &cells, /*width*/ 72, /*height*/ 6,
     ));
     assert_eq!(live, committed);
-    let hint = " (ctrl+t to expand)";
+    let hint = " (⌃t to expand)";
     assert!(live.contains(&format!("+ 5 lines{hint}")));
     // Check where the hint is visible, so the copy/search exclusion cannot pass vacuously.
     assert!(
@@ -124,7 +314,7 @@ fn terminal_output_disclosure_follows_live_history_and_keymap() {
     // Warm layouts must follow config changes, including chords and disabling the action.
     for (configured, expected) in [
         (serde_json::json!("f12"), " (f12 to expand)"),
-        (serde_json::json!("ctrl-x t"), " (ctrl+x t to expand)"),
+        (serde_json::json!("ctrl-x t"), " (⌃x t to expand)"),
         (serde_json::json!([]), ""),
     ] {
         let config = serde_json::from_value(serde_json::json!({
@@ -577,10 +767,9 @@ fn selecting_within_an_edge_row_does_not_start_selection_autoscroll() {
             );
             assert_eq!(view.selected_text(&cells).as_deref(), Some("row"));
         }
-        insta::assert_snapshot!(
-            format!("horizontal_selection_at_edge_{edge}"),
-            text(&selected)
-        );
+        if edge == 0 {
+            insta::assert_snapshot!("horizontal_selection_at_edge_0", text(&selected));
+        }
         let drag = MouseEvent {
             kind: MouseEventKind::Drag(MouseButton::Left),
             column: 3,
@@ -831,7 +1020,10 @@ fn mutable_history_formats_once_per_frame_and_refreshes_the_next_frame() {
         )),
         matched
     );
-    view.handle_key(KeyCode::Enter.into(), &cells);
+    view.handle_key(
+        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+        &cells,
+    );
     assert!(!view.advance_search(&cells));
     assert!(
         text(&render(
@@ -1091,4 +1283,82 @@ fn history_prefetch_counts_rows_in_preceding_entries() {
         view.jump_to_entry(&cells, /*index*/ 0);
         assert!(view.near_start(&cells));
     }
+}
+
+#[test]
+fn user_prompt_has_a_background_without_a_terminal_palette() {
+    use crate::history_cell::new_user_prompt;
+    use codex_protocol::user_input::TextElement;
+    use std::path::PathBuf;
+
+    let message = "First steering message";
+    let cells: Vec<Arc<dyn HistoryCell>> = vec![Arc::new(new_user_prompt(
+        message.into(),
+        vec![TextElement::new((0..5).into(), Some("First".into()))],
+        vec![PathBuf::from("screenshot.png")],
+        Vec::new(),
+    ))];
+    crate::terminal_palette::with_test_default_colors(
+        /*colors*/ None::<crate::terminal_probe::DefaultColors>,
+        || {
+            let mut view = TranscriptView::default();
+            let buffer = render(&mut view, &cells, /*width*/ 32, /*height*/ 8);
+            insta::assert_snapshot!(
+                "user_prompt_has_a_background_without_a_terminal_palette",
+                format!("{buffer:?}")
+            );
+        },
+    );
+}
+
+#[test]
+fn spoken_prompt_selection_keeps_its_fallback_contrast() {
+    use crate::history_cell::new_spoken_user_prompt;
+    use crate::terminal_palette::rgb_color;
+    use ratatui::style::Color;
+    use ratatui::style::Modifier;
+
+    crate::terminal_palette::with_test_default_colors(
+        /*colors*/ None::<crate::terminal_probe::DefaultColors>,
+        || {
+            let cells: Vec<Arc<dyn HistoryCell>> =
+                vec![Arc::new(new_spoken_user_prompt("one\nnext".into()))];
+            for detailed in [false, true] {
+                let mut view = TranscriptView {
+                    detailed,
+                    ..TranscriptView::default()
+                };
+                let before = render(&mut view, &cells, /*width*/ 20, /*height*/ 5);
+                let rendered = text(&before);
+                let first = rendered
+                    .lines()
+                    .position(|row| row.contains("› one"))
+                    .unwrap() as u16;
+                let second = rendered
+                    .lines()
+                    .position(|row| row.contains("next"))
+                    .unwrap() as u16;
+                view.begin_selection(&cells, /*column*/ 2, first, /*clicks*/ 1);
+                view.extend_selection(/*column*/ 2, second);
+                let selected = render(&mut view, &cells, /*width*/ 20, /*height*/ 5);
+                let newline = &selected[(5, first)];
+                assert_eq!(
+                    (
+                        view.selected_text(&cells).as_deref(),
+                        selected[(0, first)].fg,
+                        newline.fg,
+                        newline.bg,
+                        newline.modifier.contains(Modifier::REVERSED),
+                    ),
+                    (
+                        Some("one\n"),
+                        Color::Red,
+                        rgb_color((238, 238, 238)),
+                        rgb_color((68, 68, 68)),
+                        true
+                    )
+                );
+            }
+        },
+    );
 }

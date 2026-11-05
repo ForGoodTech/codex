@@ -75,19 +75,28 @@ pub fn telemetry_api_error_message(error: &ApiError) -> String {
         ApiError::Transport(transport) => telemetry_transport_error_message(transport),
         ApiError::Api { status, .. } => format!("api error {}", status.as_u16()),
         ApiError::Stream(err) => err.to_string(),
+        ApiError::ContentFilter => {
+            "Incomplete response returned, reason: content_filter".to_string()
+        }
+        ApiError::ResponseIncomplete(_) => "incomplete response".to_string(),
         ApiError::ContextWindowExceeded => "context window exceeded".to_string(),
         ApiError::QuotaExceeded => "quota exceeded".to_string(),
         ApiError::UsageNotIncluded => "usage not included".to_string(),
+        ApiError::SessionBudgetExceeded => "session budget exceeded".to_string(),
         ApiError::Retryable { .. } => "retryable error".to_string(),
         ApiError::RateLimitExceeded { .. } => "rate limit exceeded".to_string(),
         ApiError::RateLimit(_) => "rate limit".to_string(),
-        ApiError::InvalidRequest { .. } | ApiError::InvalidPrompt { .. } => {
-            "invalid request".to_string()
-        }
+        ApiError::ModelNotFound { .. } => "model not found".to_string(),
+        ApiError::InvalidRequest { .. }
+        | ApiError::InvalidAudioInput { .. }
+        | ApiError::InvalidPrompt { .. } => "invalid request".to_string(),
         ApiError::CyberPolicy { .. } => "cyber policy".to_string(),
         ApiError::BioPolicy { .. } => "bio policy".to_string(),
         ApiError::MisalignmentPolicyViolation { .. } => "misalignment policy violation".to_string(),
         ApiError::ServerOverloaded { .. } => "server overloaded".to_string(),
+        ApiError::PolicyCapacityUnavailable { .. } => {
+            "policy-restricted capacity unavailable".to_string()
+        }
         ApiError::FlexUnavailable => "flex capacity unavailable".to_string(),
     }
 }

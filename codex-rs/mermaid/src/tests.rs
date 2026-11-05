@@ -24,8 +24,9 @@ fn stadium_declarations_and_references() {
 fn stadiums_with_other_shapes_in_every_direction() {
     let mut cases = Vec::new();
     for direction in ["TD", "BT", "LR", "RL"] {
-        let source =
-            format!("flowchart {direction}; A([请求]) --> B[Work] --> C{{Done?}}; C --> A");
+        let source = format!(
+            "flowchart {direction}; A([\"请求<br>Ready\"]) -- go --> B[Work<br/>next] & C{{\"Done?<br />Retry?\"}}; B -. no .-> C; C <--> A; B --- A; C -.- B; A <-.-> B"
+        );
         let output = render(&source, /*max_width*/ 100).unwrap();
         let width = output.lines().map(UnicodeWidthStr::width).max().unwrap();
         assert_eq!(render(&source, width), Ok(output.clone()));
@@ -36,7 +37,7 @@ fn stadiums_with_other_shapes_in_every_direction() {
 }
 
 #[test]
-fn quoted_flowchart_labels_match_unquoted_labels() {
+fn equivalent_flowchart_forms_preserve_graph() {
     let quoted = r#"A["Review & confirm;"] -->|"Yes & continue"| B{"Ready?"}
 B --> C(["Checkout"])
 A[Review & confirm;]"#;
@@ -44,6 +45,48 @@ A[Review & confirm;]"#;
     assert_eq!(
         super::parse::parse("flowchart TD", &quoted.lines().collect::<Vec<_>>()).unwrap(),
         super::parse::parse("flowchart TD", &unquoted.lines().collect::<Vec<_>>()).unwrap(),
+    );
+    for (infix, pipe) in [
+        ("-- Yes -->", "-->|Yes|"),
+        ("-- \"Yes & continue\" -->", "-->|\"Yes & continue\"|"),
+        ("-. retry .->", "-.->|retry|"),
+    ] {
+        assert_eq!(
+            super::parse::parse("flowchart", &[&format!("A {infix} B --> C")]).unwrap(),
+            super::parse::parse("graph TB", &[&format!("A {pipe} B --> C")]).unwrap(),
+        );
+    }
+    assert_eq!(
+        super::parse::parse("graph", &["A[Input & config] & B -- send --> C & D -.-> E"]).unwrap(),
+        super::parse::parse(
+            "flowchart TD",
+            &[
+                "A[Input & config]",
+                "B",
+                "C",
+                "D",
+                "E",
+                "A -->|send| C",
+                "A -->|send| D",
+                "B -->|send| C",
+                "B -->|send| D",
+                "C -.-> E",
+                "D -.-> E",
+            ]
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        super::parse::parse("flowchart", &["A--- oB", "A-.- xB"])
+            .unwrap()
+            .nodes,
+        super::parse::parse("flowchart", &["A", "oB", "xB"])
+            .unwrap()
+            .nodes,
+    );
+    assert_eq!(
+        super::parse::parse("flowchart", &["A --> B & B"]).unwrap(),
+        super::parse::parse("flowchart TD", &["A --> B", "A --> B"]).unwrap(),
     );
     assert_eq!(
         render(&format!("graph TD; {quoted}"), /*max_width*/ 180).unwrap(),
@@ -139,11 +182,14 @@ fn quoted_flowchart_labels_reject_malformed_and_unsafe_text() {
         "\"\"",
         "\"<b>HTML</b>\"",
         "\"before <b\"",
+        "\"one<br/><b>two</b>\"",
+        "\"one<br class='x'>two\"",
         "\"\u{1b}\"",
     ] {
         for source in [
             format!("flowchart TD; A[{label}]"),
             format!("flowchart TD; A -->|{label}| B"),
+            format!("flowchart TD; A -- {label} --> B"),
         ] {
             assert_eq!(
                 render(&source, /*max_width*/ 100),
@@ -176,8 +222,20 @@ fn rejects_partial_or_unsupported_input() {
         r#"flowchart TD; P --> Q; A -->|"`Caption`"| B"#,
         "flowchart TD; subgraph X; A; end",
         "flowchart TD; A --> B; garbage syntax",
-        "flowchart TD; A -.-> B",
-        "flowchart TD; A & B --> C",
+        "flowchart TD; A --> B &",
+        "flowchart TD; A && B",
+        "flowchart TD; A -- Yes B",
+        "flowchart TD; A -. retry --> B",
+        "flowchart TD; A ==> B",
+        "flowchart TD; A -- hello --- B --> C",
+        "flowchart TD; A -. hello .- B -.-> C",
+        "flowchart TD; A -- hello ----> B",
+        "flowchart TD; A -. hello ..-> B",
+        "flowchart TD; A -- hello o--> B",
+        "flowchart TD; A --oB --> C",
+        "flowchart TD; A -. hello -.-> B",
+        "flowchart TD; A---oB",
+        "flowchart TD; A-.-xB",
         "flowchart TD; A[one]; A[two]",
         "flowchart TD; A[<b>HTML</b>]",
         "flowchart TD; A[&#27;]",
@@ -204,6 +262,9 @@ fn rejects_partial_or_unsupported_input() {
         "flowchart TD; A -->|unclosed B",
         "flowchart TD; A[لا]",
         "flowchart TD; A -->|yes┐| B",
+        "flowchart TD; A -->|one<br/>two| B",
+        "flowchart TD; A -- one<br>two --> B",
+        "flowchart TD; A[<br/><br />]",
     ] {
         assert_eq!(
             render(source, /*max_width*/ 100),
@@ -215,11 +276,17 @@ fn rejects_partial_or_unsupported_input() {
 
 #[test]
 fn source_graph_and_width_limits() {
+    let grouped = "A & B & C & D --> E & F & G & H & I & J";
+    assert!(render(&format!("graph; {grouped}"), /*max_width*/ 200).is_ok());
     for source in [
         " ".repeat(16 * 1024 + 1),
         format!("graph TD; A[{}]", "x".repeat(41)),
+        format!("graph; A -- {} --> B", "x".repeat(41)),
+        format!("graph; A --> E; {grouped}"),
+        format!("graph; {} --> B", ["A"; 25].join(" & ")),
         format!("graph TD; A[\"{}\"]", "[]".repeat(21)),
         format!("graph TD; A([{}])", "x".repeat(41)),
+        format!("graph TD; A[\"ok<br />{}\"]", "界".repeat(21)),
         format!(
             "graph TD; {}",
             (0..17).map(|n| format!("N{n};")).collect::<String>()
@@ -228,13 +295,15 @@ fn source_graph_and_width_limits() {
     ] {
         assert_eq!(render(&source, /*max_width*/ 200), Err(RenderError::Limit));
     }
-    let output = render("graph TD; A --> B", /*max_width*/ 100).unwrap();
-    let width = output.lines().map(UnicodeWidthStr::width).max().unwrap();
-    assert_eq!(render("graph TD; A --> B", width), Ok(output));
-    assert_eq!(
-        render("graph TD; A --> B", width - 1),
-        Err(RenderError::TooWide)
+    let source = format!(
+        "graph LR; A[\"{}<br/>{}\"] --> B[Done]",
+        "界".repeat(20),
+        "x".repeat(40)
     );
+    let output = render(&source, /*max_width*/ 100).unwrap();
+    let width = output.lines().map(UnicodeWidthStr::width).max().unwrap();
+    assert_eq!(render(&source, width), Ok(output));
+    assert_eq!(render(&source, width - 1), Err(RenderError::TooWide));
     assert_eq!(
         render("graph TD; A", /*max_width*/ 0),
         Err(RenderError::TooWide)
@@ -379,3 +448,6 @@ fn semantic_spans_distinguish_labels_from_matching_endpoint_glyphs() {
         assert_eq!(ports, vec![Role::Node, Role::Node]);
     }
 }
+
+#[path = "families_tests.rs"]
+mod families_tests;

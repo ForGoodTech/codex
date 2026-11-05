@@ -286,6 +286,7 @@ impl Session {
         ));
     }
 
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn consume_startup_prewarm_for_regular_turn(
         &self,
         cancellation_token: &CancellationToken,
@@ -347,7 +348,7 @@ async fn schedule_startup_prewarm_inner(
     ) {
         crate::session::get_service_tier(
             session.services.agent_control.service_tier(),
-            session.features().enabled(Feature::FastMode),
+            &session.features(),
             &preconnect_model_info,
         )
     } else {
@@ -403,7 +404,11 @@ async fn schedule_startup_prewarm_inner(
             let mut history = session
                 .clone_history()
                 .await
-                .for_prompt(&step_context.settings.model_info.input_modalities);
+                .for_prompt(
+                    &step_context.settings.model_info.input_modalities,
+                    session.services.image_store.as_ref(),
+                )
+                .await;
             session
                 .services
                 .executed_tool_calls
@@ -418,6 +423,9 @@ async fn schedule_startup_prewarm_inner(
             text: base_instructions,
             provenance: None,
         },
+        session
+            .current_window_uses_incremental_tools(&step_context)
+            .await,
     );
     startup_turn_context.session_telemetry.record_startup_phase(
         "startup_prewarm_build_prompt",

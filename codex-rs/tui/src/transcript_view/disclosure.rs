@@ -8,6 +8,7 @@ use crate::bottom_pane::TranscriptFooter;
 use crate::key_hint::KeyBindingListExt;
 use crate::keymap::ListAction;
 use crate::keymap::RuntimeKeymap;
+use codex_protocol::ThreadId;
 use crossterm::event::KeyEvent;
 use ratatui::style::Modifier;
 use ratatui::style::Style;
@@ -17,6 +18,7 @@ use super::*;
 pub(super) struct Disclosure {
     pub(super) expanded: HashSet<String>,
     pub(super) focused: Option<Vec<String>>,
+    pub(super) resume_after_approval: Option<(ThreadId, String)>,
     pub(super) live_ids: Vec<String>,
     pub(super) keymap: RuntimeKeymap,
 }
@@ -26,6 +28,7 @@ impl Default for Disclosure {
         Self {
             expanded: HashSet::new(),
             focused: None,
+            resume_after_approval: None,
             live_ids: Vec::new(),
             keymap: RuntimeKeymap::defaults(),
         }
@@ -39,6 +42,14 @@ impl Disclosure {
 }
 
 impl TranscriptView {
+    pub(crate) fn sync_patch_approval(&mut self, current: Option<(ThreadId, &str)>) {
+        if let Some((thread_id, id)) = &self.disclosure.resume_after_approval
+            && current != Some((*thread_id, id.as_str()))
+        {
+            self.jump_to_latest();
+        }
+    }
+
     pub(crate) fn is_activity_focused(&self) -> bool {
         self.disclosure.focused.is_some() && !self.detailed && self.mode == HistoryRenderMode::Rich
     }
@@ -167,7 +178,7 @@ impl TranscriptView {
         key: KeyEvent,
         cells: &[Arc<dyn HistoryCell>],
     ) -> Option<ViewAction> {
-        if self.detailed || self.mode != HistoryRenderMode::Rich || self.search.is_active() {
+        if self.detailed || self.mode != HistoryRenderMode::Rich || self.is_search_editing() {
             return None;
         }
         if self.disclosure.keymap.app.focus_activity.is_pressed(key) {
@@ -209,7 +220,9 @@ impl TranscriptView {
             ListAction::Accept => self.toggle_activity(cells, focused),
             ListAction::MoveLeft | ListAction::MoveRight => {
                 let ids = self.activity_ids(cells, focused);
-                if self.disclosure.is_expanded(&ids) != (action == ListAction::MoveRight) {
+                let expanded = self.disclosure.is_expanded(&ids)
+                    || self.is_search_expanded(self.entry_key(cells, focused));
+                if expanded != (action == ListAction::MoveRight) {
                     self.toggle_activity(cells, focused);
                 }
             }
@@ -315,6 +328,8 @@ impl TranscriptView {
         if ids.is_empty() {
             return;
         }
+        let key = self.entry_key(cells, index);
+        let matched = self.is_search_expanded(key);
         let previous_top = self.visible.first().map(|visible| {
             let offset = visible.layout.position_at(visible.row, /*column*/ 0);
             (
@@ -325,7 +340,13 @@ impl TranscriptView {
             )
         });
         self.end_selection(cells);
-        self.release_live_reading();
+        if self.search.has_active_query() && !matched {
+            if let Some(snapshot) = &mut self.held_reading {
+                snapshot.pinned.remove(&key);
+            }
+        } else {
+            self.release_live_reading();
+        }
         // Source offsets only survive an unchanged cell. Regrouped/retired live entries resolve
         // through their member IDs and anchor at their header, never a stale positional index.
         let anchor = previous_top
@@ -346,7 +367,7 @@ impl TranscriptView {
                 offset: 0,
                 row_bias: 0,
             });
-        if self.disclosure.is_expanded(&ids) {
+        if matched || self.disclosure.is_expanded(&ids) {
             self.disclosure.expanded.retain(|id| !ids.contains(id));
         } else {
             self.disclosure.expanded.extend(ids.iter().cloned());
@@ -356,7 +377,9 @@ impl TranscriptView {
         self.cache.clear();
         self.live_key = None;
         self.live_separated = None;
-        self.restart_search();
+        if matched {
+            self.invalidate_held_search();
+        }
     }
 
     pub(super) fn disclosure_footer(&self, width: u16) -> Option<TranscriptFooter> {

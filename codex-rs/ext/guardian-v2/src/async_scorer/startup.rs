@@ -5,19 +5,78 @@ use std::sync::Arc;
 
 use codex_core::ThreadManager;
 use codex_core::config::Config;
+use codex_core::cyber_access_program::ApiKeyCyberAccessPrograms;
 use codex_extension_api::ThreadOriginator;
 use codex_extension_api::ThreadStartInput;
 use codex_features::Feature;
 use codex_login::AgentIdentityAuthPolicy;
 use codex_login::AuthManager;
-use codex_model_provider::create_model_provider;
+use codex_login::CodexAuth;
 
+use super::decisions::DecisionsError;
+use super::decisions::DecisionsSampler;
+use super::decisions::URL;
 use super::sampler::LunaSamplerConfig;
 use super::sampler::MODEL;
 
+// Decisions setup failures are telemetry only; they never affect the baseline sampler.
+pub(super) fn decisions_sampler(
+    input: &ThreadStartInput<'_, Config>,
+    auth_manager: &AuthManager,
+) -> Option<DecisionsSampler> {
+    use codex_http_client::ClientRouteClass;
+    let result = decisions_api_key(
+        &input.config.model_provider_id,
+        input.config.model_provider.base_url.as_deref(),
+        auth_manager,
+    )
+    .and_then(|key| {
+        let client = input
+            .config
+            .http_client_factory()
+            .build_client_without_request_logging(URL, ClientRouteClass::Api)
+            .map_err(|_| DecisionsError::ClientSetup)?;
+        DecisionsSampler::new(client, key, URL.to_owned())
+    });
+    match result {
+        Ok(sampler) => Some(sampler),
+        Err(error) => {
+            if let Some(metrics) = input.extension_metrics.as_deref() {
+                metrics.counter(
+                    "codex.guardian_v2.decisions_comparison.setup_failure",
+                    /*inc*/ 1,
+                    &[("reason", super::metrics::decisions_failure_reason(error))],
+                );
+            }
+            None
+        }
+    }
+}
+
+pub(super) fn decisions_api_key(
+    provider_id: &str,
+    base_url: Option<&str>,
+    auth_manager: &AuthManager,
+) -> Result<String, DecisionsError> {
+    match std::env::var("CODEX_GUARDIAN_DECISIONS_API_KEY") {
+        Ok(key) => Ok(key),
+        Err(std::env::VarError::NotPresent) if provider_id == "openai" && base_url.is_none() => {
+            auth_manager
+                .auth_cached()
+                .as_ref()
+                .and_then(CodexAuth::api_key)
+                .map(str::to_owned)
+                .or_else(codex_login::read_openai_api_key_from_env)
+                .ok_or(DecisionsError::Credentials)
+        }
+        Err(std::env::VarError::NotPresent | std::env::VarError::NotUnicode(_)) => {
+            Err(DecisionsError::Credentials)
+        }
+    }
+}
+
 pub(super) async fn sampler_config(
     input: &ThreadStartInput<'_, Config>,
-    auth_manager: Arc<AuthManager>,
     manager: Option<Arc<ThreadManager>>,
 ) -> LunaSamplerConfig {
     let luna_model = if let Some(thread_manager) = manager {
@@ -40,14 +99,20 @@ pub(super) async fn sampler_config(
                     model, /*configured_window*/ None,
                 )
             });
-    let luna_compaction_hash = luna_model.and_then(|model| model.comp_hash);
+    let luna_compaction_hash = luna_model.and_then(|model| model.comp_hash.clone());
+    #[expect(clippy::expect_used, reason = "Required thread startup invariant")]
+    let auth = input
+        .thread_store
+        .get::<codex_model_provider::ProviderAuthContext>()
+        .expect("Core installs provider auth before starting Guardian");
     LunaSamplerConfig {
+        api_key_cyber_access_programs: ApiKeyCyberAccessPrograms::from_config(input.config),
         workspace_routing: input
             .thread_store
             .get_or_init(|| input.config.workspace_routing_context())
             .as_ref()
             .clone(),
-        provider: create_model_provider(input.config.model_provider.clone(), Some(auth_manager)),
+        provider: auth.model_provider(input.config.model_provider.clone()),
         http_client_factory: input.config.http_client_factory(),
         agent_identity_policy: if input.config.features.enabled(Feature::UseAgentIdentity) {
             AgentIdentityAuthPolicy::ChatGptAuth

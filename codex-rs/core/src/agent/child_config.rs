@@ -9,9 +9,11 @@ use crate::config::Config;
 use crate::session::session::Session;
 use crate::session::step_context::StepContext;
 use crate::session::turn_context::TurnContext;
+use codex_features::Feature;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use codex_protocol::models::BaseInstructions;
+use codex_protocol::openai_models::ModelOrigin;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::openai_models::ReasoningEffortPreset;
@@ -131,9 +133,22 @@ pub(crate) fn build_agent_resume_config(turn: &TurnContext) -> Result<Config, St
 fn build_agent_shared_config(turn: &TurnContext) -> Result<Config, String> {
     let base_config = turn.config.clone();
     let mut config = (*base_config).clone();
+    if config
+        .features
+        .enabled(Feature::SubagentDefaultContextLimits)
+    {
+        config.model_context_window = None;
+        config.model_auto_compact_token_limit = None;
+    }
     // Preserve activation for history forks without freezing the parent's model-owned prompts.
     // Fresh child startup restores configured preferences from the retained snapshot.
     config.token_budget = turn.configured_token_budget.clone();
+    if let Some(thread_namespaces) = &turn.overridden_direct_only_tool_namespaces {
+        config
+            .code_mode
+            .direct_only_tool_namespaces
+            .clone_from(thread_namespaces);
+    }
     config.model = Some(turn.model_info().slug.clone());
     config.model_provider = turn.provider.info().clone();
     config.model_reasoning_effort = turn
@@ -234,7 +249,7 @@ async fn apply_requested_spawn_agent_model_overrides(
             )?;
             config.model_reasoning_effort = Some(reasoning_effort);
         } else {
-            config.model_reasoning_effort = selected_model_info.default_reasoning_level;
+            config.model_reasoning_effort = selected_model_info.default_reasoning_level.clone();
         }
 
         return Ok(());
@@ -304,7 +319,7 @@ async fn apply_spawn_agent_role(
         .models_manager
         .get_model_info(&model, &config.to_models_manager_config())
         .await;
-    if model_info.used_fallback_model_metadata {
+    if model_info.origin == ModelOrigin::Synthetic {
         return Ok(());
     }
 

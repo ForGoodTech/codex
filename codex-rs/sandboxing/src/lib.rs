@@ -5,6 +5,7 @@ pub mod landlock;
 mod linux_pid_namespace;
 mod manager;
 pub mod policy_transforms;
+mod sandbox_integrity;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 mod spawn;
@@ -14,6 +15,10 @@ mod windows;
 #[cfg(windows)]
 mod windows_mxc;
 
+#[cfg(target_os = "linux")]
+pub use bwrap::find_executable_in_search_paths;
+#[cfg(target_os = "linux")]
+pub use bwrap::find_pre_sandbox_executable_in_path;
 #[cfg(target_os = "linux")]
 pub use bwrap::find_system_bwrap_in_path;
 #[cfg(target_os = "linux")]
@@ -36,6 +41,9 @@ pub use manager::SandboxablePreference;
 pub use manager::compatibility_sandbox_policy_for_permission_profile;
 pub use manager::get_platform_sandbox;
 pub use manager::with_managed_mitm_ca_readable_root;
+pub use sandbox_integrity::FileContentsChecker;
+pub use sandbox_integrity::IntegrityFinding;
+pub use sandbox_integrity::IntegrityFindingDetails;
 pub use spawn::SpawnRequest;
 pub use spawn::WindowsSandboxSpawnRequest;
 pub use spawn::spawn_process;
@@ -59,6 +67,7 @@ use codex_protocol::error::CodexErr;
 #[cfg(not(target_os = "linux"))]
 pub fn system_bwrap_warning(
     _permission_profile: &codex_protocol::models::PermissionProfile,
+    _sandbox_policy_cwd: &std::path::Path,
 ) -> Option<String> {
     None
 }
@@ -66,7 +75,8 @@ pub fn system_bwrap_warning(
 impl From<SandboxTransformError> for CodexErr {
     fn from(err: SandboxTransformError) -> Self {
         match err {
-            error @ SandboxTransformError::InvalidCommandCwd { .. }
+            error @ SandboxTransformError::InvalidPolicy(_)
+            | error @ SandboxTransformError::InvalidCommandCwd { .. }
             | error @ SandboxTransformError::InvalidSandboxPolicyCwd { .. } => {
                 CodexErr::InvalidRequest(error.to_string())
             }

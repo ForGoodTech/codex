@@ -3,9 +3,30 @@
 //! checks the previous model when it applies the final selection.
 
 use super::*;
+use crate::history_cell::ForkedThreadHistoryCell;
 use crate::style::accent_color;
 
 impl ChatWidget {
+    pub(crate) fn accept_startup_approval_policy(
+        &mut self,
+        app_policy: &mut Constrained<codex_protocol::protocol::AskForApproval>,
+        server_policy: AskForApproval,
+    ) -> codex_config::ConstraintResult<()> {
+        let server_policy = server_policy.to_core();
+        if app_policy.can_set(&server_policy).is_err() {
+            let local = app_policy.clone();
+            *app_policy = Constrained::new(server_policy, move |candidate| {
+                if *candidate == server_policy {
+                    Ok(())
+                } else {
+                    local.can_set(candidate)
+                }
+            })?;
+            self.config.permissions.approval_policy = app_policy.clone();
+        }
+        Ok(())
+    }
+
     /// Offer the flourish only for a successful primary thread/start without initial work.
     pub(crate) fn mark_fresh_task_for_sparkle(
         &mut self,
@@ -57,6 +78,7 @@ impl ChatWidget {
                 session.windows_sandbox_host
             };
         self.invalidate_permission_discovery();
+        self.permission_discovery = None;
         self.permission_profiles_menu_opened = false;
         self.transcript.reset_copy_history();
         let history_metadata = session.message_history.unwrap_or_default();
@@ -71,6 +93,9 @@ impl ChatWidget {
         let connector_scope_changed = previous_thread_id != Some(session.thread_id)
             || self.config.cwd.as_path() != session.cwd.as_path();
         self.thread_id = Some(session.thread_id);
+        self.daybreak_enabled = self.config.features.enabled(Feature::CliDaybreak)
+            && session.daybreak_enabled
+            && !matches!(display, SessionConfiguredDisplay::SideConversation);
         #[cfg(target_os = "windows")]
         if self.windows_sandbox_local_server
             && matches!(self.codex_op_target, CodexOpTarget::AppEvent)
@@ -82,13 +107,17 @@ impl ChatWidget {
             });
         }
         self.realtime_conversation_available_for_thread =
-            self.config.features.enabled(Feature::RealtimeConversation)
-                && codex_realtime_webrtc::RealtimeWebrtcSession::is_supported();
+            codex_realtime_webrtc::RealtimeWebrtcSession::is_supported();
         self.bottom_pane
             .set_voice_command_enabled(self.realtime_conversation_available_for_thread);
         self.bottom_pane
             .set_queue_submissions(/*queue_submissions*/ false);
         if previous_thread_id != self.thread_id {
+            if (previous_thread_id.is_some() || self.config.cwd != session.cwd)
+                && self.status_account_display == Some(StatusAccountDisplay::ApiKey)
+            {
+                self.refresh_account_scoped_models();
+            }
             self.backend_banner_notice_model = None;
             self.automatic_model_switch_state =
                 backend_banners::AutomaticModelSwitchState::default();
@@ -96,6 +125,7 @@ impl ChatWidget {
             self.clear_thread_usage_state();
         }
         self.turn_lifecycle.reset_thread();
+        self.safety_recourse = None;
         self.clear_safety_buffering();
         self.thread_name = session.thread_name.clone();
         self.current_goal_status_indicator = None;
@@ -106,6 +136,12 @@ impl ChatWidget {
         self.current_cwd = Some(session.cwd.to_path_buf());
         self.config.cwd = session.cwd.clone();
         self.config.model_provider_id = session.model_provider_id.clone();
+        if previous_thread_id.is_none()
+            && let Some(event) = crate::app::provider::refresh_list_if_present(self)
+        {
+            self.app_event_tx.send(AppEvent::Provider(event));
+        }
+        self.set_daybreak_enabled(self.daybreak_enabled);
         if connector_scope_changed {
             self.invalidate_connector_scope();
         }
@@ -114,6 +150,7 @@ impl ChatWidget {
         self.config
             .permissions
             .set_workspace_roots(runtime_workspace_roots);
+        self.config.service_tier = session.service_tier.clone();
         self.effective_service_tier = session.service_tier.clone();
         if let Err(err) = self
             .config
@@ -147,7 +184,6 @@ impl ChatWidget {
             }
         }
         self.config.approvals_reviewer = session.approvals_reviewer;
-        self.config.personality = session.personality;
         self.status_line_project_root_name_cache = None;
         let forked_from_id = session.forked_from_id;
         let default_model = session.model.clone();
@@ -201,9 +237,7 @@ impl ChatWidget {
         let model_for_header = self.current_model().to_string();
         if display == SessionConfiguredDisplay::Normal {
             let startup_tooltip_override = self.startup_tooltip_override.take();
-            let show_fast_status = self
-                .should_show_fast_status(&model_for_header, self.effective_service_tier.as_deref());
-            let mut session_info_cell = history_cell::new_session_info(
+            let session_info_cell = history_cell::new_session_info(
                 &self.config,
                 &self.local_settings,
                 &model_for_header,
@@ -212,11 +246,6 @@ impl ChatWidget {
                 self.show_welcome_banner,
                 startup_tooltip_override,
                 self.plan_type,
-                show_fast_status,
-            );
-            history_cell::set_session_greeting(
-                &mut session_info_cell,
-                &self.empty_state_animation.borrow().greeting,
             );
             self.apply_session_info_cell(session_info_cell);
         } else if self
@@ -227,6 +256,10 @@ impl ChatWidget {
         {
             self.transcript.active_cell = None;
             self.bump_active_cell_revision();
+        }
+        // Emit notices after replacing or removing the placeholder header.
+        if self.daybreak_enabled && previous_thread_id != self.thread_id {
+            self.add_info_message("Daybreak is on for new turns.".into(), /*hint*/ None);
         }
         self.transcript.saw_copy_source_this_turn = false;
         self.refresh_skills_for_current_cwd(/*force_reload*/ true);
@@ -304,7 +337,7 @@ impl ChatWidget {
             .into()
         };
         self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-            PlainHistoryCell::new(vec![line]),
+            ForkedThreadHistoryCell(PlainHistoryCell::new(vec![line])),
         )));
     }
 
@@ -315,6 +348,7 @@ impl ChatWidget {
         retained_turns: &[Turn],
     ) {
         self.current_rollout_path = rollout_path;
+        self.clear_background_terminals();
         self.input_queue.clear();
         self.reset_realtime_conversation();
         // Finish any output not yet drained from the old runtime without live completion actions.
@@ -328,8 +362,8 @@ impl ChatWidget {
         self.transcript.reset_turn_flags();
         for turn in retained_turns {
             let mut replaying_delegation = false;
-            for item in &turn.items {
-                if matches!(item, ThreadItem::UserMessage { content, .. }
+            for item in turn.item_payloads() {
+                if matches!(item, ThreadItemPayload::UserMessage { content, .. }
                     if realtime::realtime_delegation_input(content).is_some())
                 {
                     replaying_delegation = true;
@@ -338,11 +372,11 @@ impl ChatWidget {
                     continue;
                 }
                 let (markdown, source) = match item {
-                    ThreadItem::AgentMessage { text, .. } => (
+                    ThreadItemPayload::AgentMessage { text, .. } => (
                         parse_assistant_markdown(text, self.config.cwd.as_path()).visible_markdown,
                         text,
                     ),
-                    ThreadItem::Plan { text, .. } => (text.clone(), text),
+                    ThreadItemPayload::Plan { text, .. } => (text.clone(), text),
                     _ => continue,
                 };
                 if !markdown.trim().is_empty() {

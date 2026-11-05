@@ -1,5 +1,5 @@
 use codex_core::TurnInputRequest;
-use core_test_support::test_codex::local_selections;
+use core_test_support::test_codex::local_requests;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -214,7 +214,7 @@ async fn renews_cache_ttl_on_matching_models_etag() -> Result<()> {
                 text_elements: Vec::new(),
             }])
             .with_thread_settings(ThreadSettingsOverrides {
-                environments: Some(local_selections(test.config.cwd.clone())),
+                environments: Some(local_requests(test.config.cwd.clone())),
                 approval_policy: Some(codex_protocol::protocol::AskForApproval::Never),
                 sandbox_policy: Some(sandbox_policy),
                 permission_profile,
@@ -643,10 +643,12 @@ fn test_remote_model(slug: &str, priority: i32) -> ModelInfo {
         available_access_programs: None,
         upgrade: None,
         model_messages: Some(ModelMessages {
+            apps: None,
+            plugins: None,
+            content_filter_guidance: None,
             persistent_instructions: None,
             tools: None,
             instructions_template: Some("base instructions".to_string()),
-            instructions_variables: None,
             approvals: None,
             collaboration_modes: None,
             auto_review: None,
@@ -666,6 +668,7 @@ fn test_remote_model(slug: &str, priority: i32) -> ModelInfo {
         availability_nux: None,
         apply_patch_tool_type: None,
         web_search_tool_type: Default::default(),
+        web_search_provider: None,
         truncation_policy: TruncationPolicyConfig::bytes(/*limit*/ 10_000),
         supports_image_detail_original: false,
         context_window: Some(272_000),
@@ -675,7 +678,6 @@ fn test_remote_model(slug: &str, priority: i32) -> ModelInfo {
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
         input_modalities: default_input_modalities(),
-        used_fallback_model_metadata: false,
         supports_search_tool: false,
         supports_experimental_context: false,
         use_responses_lite: false,

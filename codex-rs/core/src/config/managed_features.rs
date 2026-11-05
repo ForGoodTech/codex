@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use codex_config::ConfigLayerSource;
+use codex_config::ConfigLayerStack;
 use codex_config::Constrained;
 use codex_config::ConstrainedWithSource;
 use codex_config::ConstraintError;
@@ -15,6 +17,31 @@ use codex_features::FeatureOverrides;
 use codex_features::Features;
 use codex_features::canonical_feature_for_key;
 use codex_features::feature_for_key;
+
+/// A project's explicit opt-in replaces only a strictly lower-priority V1 opt-out.
+pub(super) fn project_overrides_legacy_subagent_opt_out(layers: &ConfigLayerStack) -> bool {
+    let mut project_enabled = false;
+    for layer in layers.layers_high_to_low() {
+        if let Some(features) = layer.config.get("features").and_then(toml::Value::as_table)
+            && features.iter().any(|(key, enabled)| {
+                enabled.as_bool() == Some(false) && feature_for_key(key) == Some(Feature::Collab)
+            })
+        {
+            return project_enabled;
+        }
+        if matches!(layer.name, ConfigLayerSource::Project { .. })
+            && layer
+                .config
+                .get("agents")
+                .and_then(|agents| agents.get("enabled"))
+                .and_then(toml::Value::as_bool)
+                == Some(true)
+        {
+            project_enabled = true;
+        }
+    }
+    false
+}
 
 /// Wrapper around [`Features`] which enforces constraints defined in
 /// `FeatureRequirementsToml` and provides normalization to ensure constraints
@@ -118,6 +145,29 @@ impl ManagedFeatures {
         self.set(next)
     }
 
+    /// Refresh ordinary MCP feature values and pins without changing session-static features.
+    pub(crate) fn refresh_mcp_features(&mut self, next: &Self) -> ConstraintResult<()> {
+        let mut refreshed = self.clone();
+        let mut values = self.get().clone();
+        for feature in [
+            Feature::EnableMcpApps,
+            Feature::McpConnectionSharing,
+            Feature::SecretAuthStorage,
+            Feature::McpOAuthRefreshCoordination,
+        ] {
+            values.set_enabled(feature, next.enabled(feature));
+            if let Some(enabled) = next.pinned_features.get(&feature) {
+                refreshed.pinned_features.insert(feature, *enabled);
+            } else {
+                refreshed.pinned_features.remove(&feature);
+            }
+        }
+        refreshed.value.source = next.value.source.clone().or(refreshed.value.source);
+        refreshed.set(values)?;
+        *self = refreshed;
+        Ok(())
+    }
+
     pub fn enable(&mut self, feature: Feature) -> ConstraintResult<()> {
         self.set_enabled(feature, /*enabled*/ true)
     }
@@ -219,6 +269,24 @@ fn parse_feature_requirements(
     let mut pinned_features = BTreeMap::new();
     for (key, enabled) in feature_requirements.entries {
         if key == Feature::Personality.key() {
+            continue;
+        }
+        if key == Feature::Worktrees.key() || key == Feature::RealtimeConversation.key() {
+            push_feature_requirement_warning(
+                &mut startup_warnings,
+                format!(
+                    "Ignoring removed `features` requirement `{key}` from {source}; availability no longer depends on this feature flag."
+                ),
+            );
+            continue;
+        }
+        if matches!(key.as_str(), "shell_zsh_fork" | "unified_exec_zsh_fork") {
+            push_feature_requirement_warning(
+                &mut startup_warnings,
+                format!(
+                    "Ignoring removed `features` requirement `{key}` from {source}; the patched zsh backend has been removed."
+                ),
+            );
             continue;
         }
         if key == Feature::GuardianThreadContext.key() {

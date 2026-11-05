@@ -5,8 +5,9 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_proc_mac
 load("//bazel/rules/testing:foreign_platform_binary.bzl", "foreign_platform_binary")
 load("//bazel/rules/testing/wine:wine_runtime.bzl", "WINE_TEST_TARGET_COMPATIBLE_WITH", "wine_test_runtime")
 
-# Match Cargo's Windows linker behavior so Bazel-built binaries and tests use
-# the same stack reserve on both Windows ABIs and resolve UCRT imports on MSVC.
+# Reserve 8 MiB of stack on Windows and statically link the CRT on MSVC.
+# V8's x64 allocator shim defines malloc/free; importing them from dynamic UCRT
+# as well replaces the import thunks during linking.
 WINDOWS_GNULLVM_RUSTC_LINK_FLAGS = [
     "-C",
     "link-arg=-Wl,--stack,8388608",  # 8 MiB
@@ -18,9 +19,7 @@ WINDOWS_RUSTC_LINK_FLAGS = select({
         "-C",
         "link-arg=/STACK:8388608",  # 8 MiB
         "-C",
-        "link-arg=/NODEFAULTLIB:libucrt.lib",
-        "-C",
-        "link-arg=ucrt.lib",
+        "target-feature=+crt-static",
     ],
     "//conditions:default": [],
 })
@@ -76,6 +75,9 @@ def _workspace_root_test_impl(ctx):
         runfiles = runfiles.merge(ctx.runfiles(files = [runfile]))
         runfiles = runfiles.merge(runfile_dep[DefaultInfo].default_runfiles)
 
+    if ctx.file.windows_runtime:
+        runfiles = runfiles.merge(ctx.runfiles(files = [ctx.file.windows_runtime]))
+
     location_targets = {}
     for target in (
         ctx.attr.data +
@@ -116,6 +118,12 @@ def _windows_runfile_env_exports(ctx):
         lines.append('call :resolve_runfile "{}"'.format(_runfile_logical_path(runfile)))
         lines.append("if errorlevel 1 exit /b 1")
         lines.append('set "{}=!resolve_runfile_result!"'.format(env_var))
+    if ctx.file.windows_runtime:
+        lines.extend([
+            'call :resolve_runfile "{}"'.format(_runfile_logical_path(ctx.file.windows_runtime)),
+            "if errorlevel 1 exit /b 1",
+            'set "PATH=!resolve_runfile_result!\\bin;!PATH!"',
+        ])
     return "\n".join(lines)
 
 def _runfile_env_file(target):
@@ -164,6 +172,7 @@ workspace_root_test = rule(
             mandatory = True,
         ),
         "test_threads": attr.int(),
+        "windows_runtime": attr.label(allow_single_file = True),
         "workspace_root_marker": attr.label(
             allow_single_file = True,
             mandatory = True,
@@ -188,12 +197,14 @@ def codex_rust_crate(
         crate_name,
         crate_features = [],
         crate_srcs = None,
+        unit_test_srcs = [],
         crate_edition = None,
         proc_macro = False,
         build_script_enabled = True,
         build_script_data = [],
         compile_data = [],
         binary_compile_data_extra = {},
+        test_only_binaries = [],
         lib_data_extra = [],
         rustc_flags_extra = [],
         binary_rustc_flags_extra = {},
@@ -205,6 +216,7 @@ def codex_rust_crate(
         integration_test_args = [],
         unit_test_args = [],
         binary_test_target_compatible_with = [],
+        binary_unit_test_windows_runtime = None,
         integration_test_timeout = None,
         test_data_extra = [],
         test_shard_counts = {},
@@ -232,6 +244,8 @@ def codex_rust_crate(
             optional functionality to a separate crate.
         crate_srcs: Optional explicit library srcs; [] disables the library target.
             Defaults to `src/**/*.rs` excluding binary entrypoints.
+        unit_test_srcs: Rust modules loaded only under cfg(test). Excluded from
+            library and binary sources, but available when compiling unit tests.
         crate_edition: Rust edition override, if not default.
             You probably don't want this, it's only here for a single caller.
         proc_macro: Whether this crate builds a proc-macro library.
@@ -239,6 +253,7 @@ def codex_rust_crate(
         compile_data: Non-Rust compile-time data for the library target.
         binary_compile_data_extra: Mapping from binary names to extra non-Rust
             compile-time data for those binary targets.
+        test_only_binaries: Binary names used only as test fixtures.
         lib_data_extra: Extra runtime data for the library target.
         binary_rustc_flags_extra: Mapping from binary names to extra rustc
             flags for those binary targets.
@@ -249,10 +264,12 @@ def codex_rust_crate(
         rustc_env_files: Generated compiler environment files for the library target.
         deps_extra: Extra normal deps beyond @crates resolution.
             Typically only needed when features add additional deps.
-        integration_compile_data_extra: Extra compile_data for integration tests.
+        integration_compile_data_extra: Additional compile-time inputs for integration
+            tests, including resources embedded with include_str! or include_bytes!.
         integration_test_args: Optional args for integration test binaries.
         unit_test_args: Optional args for the unit test binary.
         binary_test_target_compatible_with: Platform constraints for binary unit tests.
+        binary_unit_test_windows_runtime: Runtime directory containing bin/ DLLs for Windows binary unit tests.
         integration_test_timeout: Optional Bazel timeout for integration test
             targets generated from `tests/*.rs`.
         test_data_extra: Extra runtime data for tests.
@@ -299,8 +316,10 @@ def codex_rust_crate(
         visibility = ["//visibility:public"],
     )
 
+    package_data = DEP_DATA.get(native.package_name())
     rustc_env = {
         "BAZEL_PACKAGE": native.package_name(),
+        "CARGO_PKG_NAME": package_data["package_name"],
     } | rustc_env
 
     manifest_relpath = native.package_name()
@@ -308,20 +327,22 @@ def codex_rust_crate(
         manifest_relpath = manifest_relpath[len("codex-rs/"):]
     manifest_path = manifest_relpath + "/Cargo.toml"
 
-    binaries = DEP_DATA.get(native.package_name())["binaries"]
+    crate_version = package_data["version"]
+    binaries = package_data["binaries"]
 
     lib_srcs = crate_srcs if crate_srcs != None else native.glob(["src/**/*.rs"], exclude = binaries.values(), allow_empty = True)
+    lib_srcs = [src for src in lib_srcs if src not in unit_test_srcs]
 
     maybe_deps = []
 
     if build_script_enabled and native.glob(["build.rs"], allow_empty = True):
         cargo_build_script(
             name = name + "-build-script",
+            pkg_name = package_data["package_name"],
             srcs = ["build.rs"],
             deps = all_crate_deps(build = True),
             data = build_script_data,
-            # Some build script deps sniff version-related env vars...
-            version = "0.0.0",
+            version = crate_version,
         )
 
         maybe_deps += [name + "-build-script"]
@@ -340,6 +361,7 @@ def codex_rust_crate(
             rustc_flags = rustc_flags_extra,
             rustc_env = rustc_env,
             rustc_env_files = rustc_env_files,
+            version = crate_version,
             visibility = ["//visibility:public"],
         )
 
@@ -354,6 +376,7 @@ def codex_rust_crate(
             name = unit_test_binary,
             crate = name,
             crate_features = crate_features,
+            compile_data = unit_test_srcs,
             deps = all_crate_deps(normal = True, normal_dev = True) + maybe_deps + deps_extra,
             # Unit tests also compile to standalone Windows executables, so
             # keep their stack reserve aligned with binaries and integration
@@ -369,6 +392,7 @@ def codex_rust_crate(
             rustc_env = rustc_env,
             data = test_data_extra + [binary for binary in extra_binaries if binary not in test_data_extra],
             tags = test_tags + ["manual"],
+            version = crate_version,
         )
 
         unit_test_kwargs = {}
@@ -409,10 +433,17 @@ def codex_rust_crate(
             crate_root = main,
             deps = all_crate_deps() + maybe_deps + deps_extra,
             edition = crate_edition,
-            # Keep per-binary Cargo link behavior scoped to the matching
-            # generated rust_binary instead of leaking it to sibling binaries.
-            compile_data = binary_compile_data_extra.get(binary, []),
+            # Scope each binary's compile data and linker flags to its generated
+            # rust_binary so they do not affect sibling binaries.
+            compile_data = binary_compile_data_extra.get(binary, []) + select({
+                "@platforms//os:macos": ["//bazel/tools:dsymutil"],
+                "//conditions:default": [],
+            }),
             rustc_flags = rustc_flags_extra + binary_rustc_flags_extra.get(binary, []) + WINDOWS_RUSTC_LINK_FLAGS,
+            rustc_env = select({
+                "@platforms//os:macos": rustc_env | {"PATH": "$${pwd}/bazel/tools:/bin:/usr/bin:/usr/local/bin"},
+                "//conditions:default": rustc_env,
+            }),
             # Keep stamp = 0: rules_rust otherwise makes stable-status.txt and
             # volatile-status.txt compiler inputs, even though we only consume
             # STABLE_GIT_COMMIT. BUILD_USER and BUILD_HOST vary across developers
@@ -421,8 +452,10 @@ def codex_rust_crate(
             # Isolate status inputs in build-commit-env's cheap action so its
             # output, and hence this compiler input, changes only with the commit.
             rustc_env_files = ["//bazel/build-info:build-commit-env"] if binary in binaries_with_build_commit else [],
-            srcs = native.glob(["src/**/*.rs"]),
+            srcs = native.glob(["src/**/*.rs"], exclude = [main] + unit_test_srcs, allow_empty = True) + [main],
+            testonly = binary in test_only_binaries,
             stamp = 0,
+            version = crate_version,
             visibility = ["//visibility:public"],
         )
 
@@ -436,6 +469,7 @@ def codex_rust_crate(
             name = binary_unit_test_binary,
             crate = ":" + binary,
             crate_features = crate_features,
+            compile_data = unit_test_srcs,
             deps = all_crate_deps(normal_dev = True),
             rustc_flags = rustc_flags_extra + WINDOWS_RUSTC_LINK_FLAGS + [
                 "--remap-path-prefix=../codex-rs=",
@@ -444,6 +478,7 @@ def codex_rust_crate(
             rustc_env = rustc_env,
             data = test_data_extra,
             tags = test_tags + ["manual"],
+            version = crate_version,
         )
 
         binary_unit_test_kwargs = {}
@@ -458,6 +493,7 @@ def codex_rust_crate(
         workspace_root_test(
             name = binary_unit_test_name,
             env = test_env,
+            windows_runtime = binary_unit_test_windows_runtime,
             test_bin = ":" + binary_unit_test_binary,
             workspace_root_marker = "//codex-rs/utils/cargo-bin:repo_root.marker",
             target_compatible_with = binary_test_target_compatible_with,
@@ -475,6 +511,10 @@ def codex_rust_crate(
     integration_test_cargo_env = cargo_env
     integration_test_cargo_env_runfiles = cargo_env_runfiles
     integration_test_files = native.glob(["tests/**"], allow_empty = True)
+
+    # Fixtures and snapshots are runtime data. Only Rust modules and explicitly
+    # embedded resources should invalidate integration-test compilation.
+    integration_compile_files = native.glob(["tests/**/*.rs"], allow_empty = True)
     integration_test_data_extra = [
         data
         for data in test_data_extra
@@ -563,7 +603,7 @@ def codex_rust_crate(
                 crate_root = test,
                 srcs = [test],
                 data = integration_test_files + integration_test_binaries + integration_test_data_extra,
-                compile_data = integration_test_files + integration_compile_data_extra,
+                compile_data = integration_compile_files + integration_compile_data_extra,
                 deps = all_crate_deps(normal = True, normal_dev = True) + maybe_deps + deps_extra,
                 # Bazel has emitted both `codex-rs/<crate>/...` and
                 # `../codex-rs/<crate>/...` paths for `file!()`. Strip either
@@ -575,6 +615,7 @@ def codex_rust_crate(
                 rustc_env = rustc_env,
                 target_compatible_with = WINDOWS_GNULLVM_INCOMPATIBLE,
                 tags = test_tags + ["manual"],
+                version = crate_version,
             )
 
             workspace_root_test(
@@ -603,7 +644,7 @@ def codex_rust_crate(
                 crate_root = test,
                 srcs = [test],
                 data = integration_test_files + integration_test_binaries + integration_test_data_extra,
-                compile_data = integration_test_files + integration_compile_data_extra,
+                compile_data = integration_compile_files + integration_compile_data_extra,
                 deps = all_crate_deps(normal = True, normal_dev = True) + maybe_deps + deps_extra,
                 # Bazel has emitted both `codex-rs/<crate>/...` and
                 # `../codex-rs/<crate>/...` paths for `file!()`. Strip either
@@ -616,6 +657,7 @@ def codex_rust_crate(
                 env = integration_test_cargo_env,
                 target_compatible_with = WINDOWS_GNULLVM_INCOMPATIBLE,
                 tags = test_tags,
+                version = crate_version,
                 **test_kwargs
             )
 
@@ -678,7 +720,7 @@ def codex_rust_crate(
             crate_root = test,
             srcs = [test],
             data = integration_test_files + integration_test_binaries + integration_test_data_extra,
-            compile_data = integration_test_files + integration_compile_data_extra,
+            compile_data = integration_compile_files + integration_compile_data_extra,
             deps = all_crate_deps(normal = True, normal_dev = True) + maybe_deps + deps_extra,
             rustc_flags = rustc_flags_extra + WINDOWS_RUSTC_LINK_FLAGS + [
                 "--remap-path-prefix=../codex-rs=",
@@ -688,6 +730,7 @@ def codex_rust_crate(
             env = integration_test_cargo_env,
             target_compatible_with = WINDOWS_GNULLVM_ONLY,
             tags = test_tags + ["manual"],
+            version = crate_version,
         )
 
         workspace_root_test(

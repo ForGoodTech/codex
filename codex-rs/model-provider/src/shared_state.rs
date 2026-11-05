@@ -40,11 +40,13 @@ impl ModelProviderSharedState {
     ) -> std::io::Result<Arc<GatewayAuthManager>> {
         let oauth = GatewayAuthConfig {
             authorization_url: config.authorization_url.clone(),
+            device_authorization_url: None,
             token_url: config.token_url.clone(),
             client_id: config.client_id.clone(),
             resource: config.resource.clone(),
             scopes: config.scopes.clone(),
             redirect_port: config.redirect_port,
+            credentials_store: config.credentials_store,
         };
         let mut managers = self
             .gateway_managers
@@ -119,9 +121,9 @@ impl ModelProviderSharedState {
     }
 }
 
+#[path = "shared_state_test_support.rs"]
+pub(crate) mod test_support;
+
 #[cfg(test)]
 #[path = "shared_state_tests.rs"]
 mod tests;
-
-#[path = "shared_state_test_support.rs"]
-pub(crate) mod test_support;

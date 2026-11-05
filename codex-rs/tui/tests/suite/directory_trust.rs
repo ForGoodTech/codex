@@ -4,6 +4,7 @@ use super::focus_palette::PtyCodex;
 use super::focus_palette::write_test_config;
 use anyhow::Result;
 use codex_app_server_protocol::JSONRPCMessage;
+use codex_app_server_protocol::RequestId;
 use futures::SinkExt;
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
@@ -19,7 +20,10 @@ use tokio_tungstenite::tungstenite::Message;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn connected_trust_cancellation_and_acceptance_control_task_creation() -> Result<()> {
     for trust_level in [None, Some("untrusted")] {
-        let repo_root = codex_utils_cargo_bin::repo_root()?;
+        let workspace = tempfile::tempdir()?;
+        let repo_root = workspace.path().canonicalize()?;
+        std::fs::create_dir(repo_root.join(".git"))?;
+        std::fs::write(repo_root.join(".git/HEAD"), "ref: refs/heads/main\n")?;
         let codex_home = tempfile::tempdir_in("/tmp")?;
         // The server's trust decision must win over the client's trusted-folder setting.
         write_test_config(codex_home.path(), &repo_root)?;
@@ -64,6 +68,8 @@ async fn connected_trust_cancellation_and_acceptance_control_task_creation() -> 
                     launch_thread["cwd"] = json!(cwd);
                     launch_thread["preview"] = json!("Launch-folder task");
                     launch_thread["updatedAt"] = json!(1);
+                    let mut pending_hooks = None;
+                    let mut saw_model_list = false;
                     while let Some(Ok(Message::Text(text))) = socket.next().await {
                         let JSONRPCMessage::Request(request) = serde_json::from_str(&text)? else {
                             continue;
@@ -71,7 +77,7 @@ async fn connected_trust_cancellation_and_acceptance_control_task_creation() -> 
                         methods.lock().unwrap().push(request.method.clone());
                         let result = match request.method.as_str() {
                             "initialize" => json!({"userAgent": "trust-pty"}),
-                            "experimentalFeature/list" => json!({"data": (["code_mode_host", "auth_elicitation"].map(|name| json!({
+                            "experimentalFeature/list" => json!({"data": (["api_key_model_discovery", "code_mode_host", "auth_elicitation"].map(|name| json!({
                                 "name": name, "stage": "stable", "displayName": null,
                                 "description": null, "announcement": null,
                                 "enabled": true, "defaultEnabled": true,
@@ -80,11 +86,7 @@ async fn connected_trust_cancellation_and_acceptance_control_task_creation() -> 
                                 json!({"account": {"type": "apiKey"}, "requiresOpenaiAuth": false})
                             }
                             "config/read" => {
-                                if request
-                                    .params
-                                    .as_ref()
-                                    .is_some_and(|params| params["includeLayers"] == true)
-                                {
+                                if matches!(&request.id, RequestId::String(id) if id.starts_with("tui-project-trust-read-")) {
                                     trust_reads.fetch_add(1, Ordering::SeqCst);
                                 }
                                 json!({"config": {"model": "gpt-5.6-terra", "projects": {
@@ -134,13 +136,21 @@ async fn connected_trust_cancellation_and_acceptance_control_task_creation() -> 
                                 continue;
                             }
                         };
-                        socket
-                            .send(Message::Text(
-                                json!({"id": request.id, "result": result})
-                                    .to_string()
-                                    .into(),
-                            ))
-                            .await?;
+                        let response = Message::Text(
+                            json!({"id": request.id, "result": result}).to_string().into(),
+                        );
+                        // Startup must request the catalog even while hooks/list is outstanding.
+                        if request.method == "hooks/list" && !saw_model_list {
+                            pending_hooks = Some(response);
+                            continue;
+                        }
+                        socket.send(response).await?;
+                        if request.method == "model/list" {
+                            saw_model_list = true;
+                            if let Some(hooks) = pending_hooks.take() {
+                                socket.send(hooks).await?;
+                            }
+                        }
                     }
                     Ok(())
                 });
@@ -212,6 +222,13 @@ async fn connected_trust_cancellation_and_acceptance_control_task_creation() -> 
         drop(terminal);
         server.abort();
         let methods = methods.lock().unwrap();
+        assert_eq!(
+            methods
+                .iter()
+                .filter(|method| *method == "model/list")
+                .count(),
+            1
+        );
         let mutations: Vec<_> = methods
             .iter()
             .map(String::as_str)

@@ -1,8 +1,10 @@
 //! Keeps WebSocket establishment off the classification path.
-//! One background worker fills the pool. Opening timeouts pause replenishment;
+//! One background worker fills the pool with bounded concurrent opens before it empties.
+//! Opening timeouts pause replenishment without discarding healthy in-flight opens;
 //! requests with no healthy idle socket use HTTP under the same concurrency limit.
 //! Each lease resolves workspace routing before reusing a socket or starting HTTP.
 //! Constrained HTTP clients reject redirects, including after a cache policy change.
+//! TLS roots are loaded once per sampler, like the pooled HTTP transport configuration.
 
 use super::super::metrics::sampler_failure_reason;
 use super::INITIAL_WEBSOCKET_CONNECTIONS;
@@ -23,6 +25,9 @@ use codex_api::SharedAuthProvider;
 use codex_api::TransportError;
 use codex_api::build_session_headers;
 use codex_http_client::ClientRouteClass;
+use codex_http_client::HttpClientFactory;
+use codex_http_client::NetworkPolicy;
+use codex_login::AuthChangeState;
 use codex_login::CodexAuth;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
@@ -31,22 +36,26 @@ use codex_login::default_client::default_headers;
 use codex_model_provider::ACCOUNT_ROUTING_HEADER;
 use codex_model_provider::AgentIdentitySessionFallback;
 use codex_model_provider::ProviderAuthScope;
-use codex_model_provider::ResolvedResponsesProvider;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_protocol::ThreadId;
+use codex_websocket_client::WebSocketConnector;
 use http::HeaderMap;
 use http::HeaderValue;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::OnceCell;
+use tokio::sync::OwnedMutexGuard;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 const CONNECT_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 const MAX_WEBSOCKET_AGE: Duration = Duration::from_secs(55 * 60);
+const MAX_CONCURRENT_OPENS: usize = 4;
+const REFILL_LOW_WATERMARK: usize = INITIAL_WEBSOCKET_CONNECTIONS / 2;
 const RESPONSES_WEBSOCKETS_BETA: &str = "responses_websockets=2026-02-06";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,10 +73,12 @@ pub(super) struct ConnectionPool {
     replenishing: Arc<tokio::sync::Mutex<()>>,
     retry_after: Mutex<Option<Instant>>,
     http_transport: Mutex<Option<Arc<HttpTransport>>>,
+    websocket_connector: OnceCell<WebSocketConnector>,
 }
 
 struct HttpTransport {
     url: String,
+    network_policy: NetworkPolicy,
     redirect_policy: ClientRedirectPolicy,
     transport: OnceCell<ReqwestTransport>,
 }
@@ -76,19 +87,23 @@ pub(super) struct PooledConnection {
     connection: ResponsesWebsocketConnection,
     request_kind: RequestMode,
     // The bridge routes by thread ID, so each socket needs its own identity.
-    thread_id: String,
+    pub(super) thread_id: String,
     pub(super) expires_at: Instant,
-    auth_changes: Option<tokio::sync::watch::Receiver<u64>>,
+    auth_changes: Option<tokio::sync::watch::Receiver<AuthChangeState>>,
     key: ResponsesConnectionKey,
+    runtime_id: Option<String>,
     _permit: OwnedSemaphorePermit,
 }
 
 struct ClientSetup {
     provider: Provider,
+    http_client_factory: HttpClientFactory,
+    runtime_id: Option<String>,
+    request_kind: RequestMode,
     auth: SharedAuthProvider,
     redirect_policy: ClientRedirectPolicy,
     key: ResponsesConnectionKey,
-    auth_changes: Option<tokio::sync::watch::Receiver<u64>>,
+    auth_changes: Option<tokio::sync::watch::Receiver<AuthChangeState>>,
 }
 
 enum Connection {
@@ -114,6 +129,7 @@ impl ConnectionPool {
             replenishing: Arc::new(tokio::sync::Mutex::new(())),
             retry_after: Mutex::new(None),
             http_transport: Mutex::new(None),
+            websocket_connector: OnceCell::new(),
         })
     }
 
@@ -127,42 +143,64 @@ impl ConnectionPool {
     /// Never waits for another opener or sleeps through the cooldown.
     pub(super) fn replenish(self: &Arc<Self>) -> Option<JoinHandle<()>> {
         let guard = Arc::clone(&self.replenishing).try_lock_owned().ok()?;
-        if self
+        self.start_refill(guard)
+    }
+
+    pub(super) async fn prewarm(self: &Arc<Self>) {
+        // Explicit prewarming waits for any existing refill before checking readiness.
+        let guard = Arc::clone(&self.replenishing).lock_owned().await;
+        if let Some(refill) = self.start_refill(guard) {
+            let _ = refill.await;
+        }
+    }
+
+    fn start_refill(self: &Arc<Self>, guard: OwnedMutexGuard<()>) -> Option<JoinHandle<()>> {
+        let mut retry_after = self
             .retry_after
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_some_and(|deadline| Instant::now() < deadline)
-        {
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if retry_after.is_some_and(|deadline| Instant::now() < deadline) {
             return None;
         }
+        *retry_after = None;
+        drop(retry_after);
         let pool = Arc::clone(self);
         Some(tokio::spawn(async move {
             let _guard = guard;
+            let mut opening = JoinSet::new();
+            let mut failed = false;
             loop {
-                if pool
+                let idle = pool
                     .idle_connections
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .len()
-                    >= INITIAL_WEBSOCKET_CONNECTIONS
+                    .len();
+                while !failed
+                    && idle + opening.len() < INITIAL_WEBSOCKET_CONNECTIONS
+                    && opening.len() < MAX_CONCURRENT_OPENS
                 {
-                    break;
+                    let Ok(permit) = Arc::clone(&pool.sockets).try_acquire_owned() else {
+                        break;
+                    };
+                    let pool = Arc::clone(&pool);
+                    opening.spawn(async move { pool.open_connection(permit).await });
                 }
-                let Ok(permit) = Arc::clone(&pool.sockets).try_acquire_owned() else {
+                let Some(result) = opening.join_next().await else {
                     break;
                 };
-                match pool.open_connection(permit).await {
-                    Ok(connection) => {
-                        *pool
-                            .retry_after
+                match result {
+                    Ok(Ok(connection)) => {
+                        let mut idle = pool
+                            .idle_connections
                             .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-                        pool.idle_connections
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .push(connection);
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        // Returned leases may have refilled the pool while we opened.
+                        if idle.len() < INITIAL_WEBSOCKET_CONNECTIONS {
+                            idle.push(connection);
+                        }
                     }
-                    Err(error) => {
+                    Ok(Err(error)) => {
+                        failed = true;
                         if matches!(error, LunaSamplerError::ConnectionTimeout) {
                             *pool
                                 .retry_after
@@ -170,25 +208,31 @@ impl ConnectionPool {
                                 .unwrap_or_else(std::sync::PoisonError::into_inner) =
                                 Some(Instant::now() + CONNECT_COOLDOWN);
                         }
-                        break;
                     }
+                    Err(_) => failed = true,
                 }
             }
         }))
     }
 
     pub(super) async fn lease(self: &Arc<Self>) -> Result<ConnectionLease, LunaSamplerError> {
+        let started = Instant::now();
         let permit = Arc::clone(&self.classifications)
             .acquire_owned()
             .await
             .map_err(|error| LunaSamplerError::Api(ApiError::Stream(error.to_string())))?;
+        let admitted = Instant::now();
         let ClientSetup {
             mut provider,
             auth,
+            http_client_factory,
+            runtime_id,
+            request_kind,
             redirect_policy,
             key,
             auth_changes,
         } = self.client_setup().await?;
+        let setup_finished = Instant::now();
         let connection = loop {
             let idle = self
                 .idle_connections
@@ -198,6 +242,7 @@ impl ConnectionPool {
             match idle {
                 Some(connection)
                     if connection.key == key
+                        && connection.runtime_id == runtime_id
                         && connection
                             .auth_changes
                             .as_ref()
@@ -213,6 +258,15 @@ impl ConnectionPool {
         };
         let (connection, thread_id, request_kind) = match connection {
             Some(connection) => {
+                if self
+                    .idle_connections
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .len()
+                    <= REFILL_LOW_WATERMARK
+                {
+                    self.replenish();
+                }
                 let thread_id = connection.thread_id.clone();
                 let request_kind = connection.request_kind;
                 (Connection::Websocket(connection), thread_id, request_kind)
@@ -221,7 +275,6 @@ impl ConnectionPool {
                 self.replenish();
                 // Sampling owns the retry budget across both transports.
                 provider.retry.max_attempts = 0;
-                let request_kind = self.responses_request_kind().await;
                 let url = provider.url_for_path("/responses");
                 let redirect_policy = if provider.headers.contains_key(ACCOUNT_ROUTING_HEADER) {
                     ClientRedirectPolicy::Reject
@@ -236,11 +289,13 @@ impl ConnectionPool {
                     if let Some(transport) = cached.as_ref()
                         && transport.url == url
                         && transport.redirect_policy == redirect_policy
+                        && transport.network_policy == *http_client_factory.network_policy()
                     {
                         Arc::clone(transport)
                     } else {
                         let transport = Arc::new(HttpTransport {
                             url: url.clone(),
+                            network_policy: http_client_factory.network_policy().clone(),
                             redirect_policy,
                             transport: OnceCell::new(),
                         });
@@ -252,7 +307,7 @@ impl ConnectionPool {
                     .transport
                     .get_or_try_init(|| async {
                         let client = create_client_for_route_async(
-                            self.config.http_client_factory.clone(),
+                            http_client_factory.clone(),
                             url,
                             ClientRouteClass::Api,
                             redirect_policy,
@@ -283,6 +338,23 @@ impl ConnectionPool {
                 "authentication changed while leasing".into(),
             )));
         }
+        if let Some(metrics) = self.config.metrics.as_deref() {
+            let transport = match &connection {
+                Connection::Websocket(_) => "websocket",
+                Connection::Http(_) => "http",
+            };
+            for (stage, duration) in [
+                ("admission", admitted.duration_since(started)),
+                ("setup", setup_finished.duration_since(admitted)),
+                ("total", started.elapsed()),
+            ] {
+                metrics.histogram(
+                    "codex.guardian_v2.connection.lease.duration_ms",
+                    i64::try_from(duration.as_millis()).unwrap_or(i64::MAX),
+                    &[("stage", stage), ("transport", transport)],
+                );
+            }
+        }
         Ok(ConnectionLease {
             thread_id,
             request_kind,
@@ -293,45 +365,41 @@ impl ConnectionPool {
     }
 
     async fn client_setup(&self) -> Result<ClientSetup, LunaSamplerError> {
+        let setup = codex_model_provider::resolve_request(
+            self.config.provider.as_ref(),
+            Some(ProviderAuthScope {
+                agent_identity_policy: self.config.agent_identity_policy,
+                session_source: self.config.session_source.clone(),
+                agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
+            }),
+            Some(&self.config.workspace_routing),
+            self.config.http_client_factory.clone(),
+        )
+        .await
+        .map_err(LunaSamplerError::Provider)?;
         let mut auth_changes = self
             .config
             .provider
             .auth_manager()
-            .map(|manager| manager.auth_change_receiver());
-        let revision = auth_changes.as_mut().map(|auth| *auth.borrow_and_update());
-        let ResolvedResponsesProvider {
-            provider,
-            redirect_policy,
-        } = self
-            .config
-            .provider
-            .responses_api_provider(&self.config.workspace_routing)
-            .await
-            .map_err(LunaSamplerError::Provider)?;
-        let auth = self
-            .config
-            .provider
-            .api_auth_for_scope(ProviderAuthScope {
-                agent_identity_policy: self.config.agent_identity_policy,
-                session_source: self.config.session_source.clone(),
-                agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
-            })
-            .await
-            .map_err(LunaSamplerError::Provider)?
-            .auth;
+            .map(|manager| manager.auth_change_state_receiver());
         if auth_changes
-            .as_ref()
-            .is_some_and(|auth| auth.has_changed().unwrap_or(true))
+            .as_mut()
+            .map(|auth| auth.borrow_and_update().generation)
+            != setup.auth_revision
         {
             return Err(LunaSamplerError::Api(ApiError::Stream(
                 "authentication changed while resolving routing".into(),
             )));
         }
-        let key = ResponsesConnectionKey::new(&provider, revision);
+        let key = ResponsesConnectionKey::new(&setup.api_provider, setup.auth_revision);
+        let request_kind = self.responses_request_kind(setup.auth.as_ref());
         Ok(ClientSetup {
-            provider,
-            auth,
-            redirect_policy,
+            provider: setup.api_provider,
+            auth: setup.api_auth,
+            redirect_policy: setup.redirect_policy,
+            http_client_factory: setup.http_client_factory,
+            runtime_id: setup.runtime_id,
+            request_kind,
             key,
             auth_changes,
         })
@@ -370,16 +438,10 @@ impl ConnectionPool {
         }
         Ok(headers)
     }
-    async fn responses_request_kind(&self) -> RequestMode {
+    fn responses_request_kind(&self, auth: Option<&CodexAuth>) -> RequestMode {
         let provider = self.config.provider.info();
-        if self
-            .config
-            .provider
-            .auth()
-            .await
-            .as_ref()
-            .is_some_and(CodexAuth::uses_codex_backend)
-            && provider.supports_codex_backend_routes()
+        if auth.is_some_and(CodexAuth::uses_codex_backend)
+            && provider.is_openai()
             && provider.requires_openai_auth
             && provider.env_key.is_none()
             && provider.experimental_bearer_token.is_none()
@@ -399,12 +461,14 @@ impl ConnectionPool {
         let ClientSetup {
             provider,
             auth,
+            http_client_factory,
+            runtime_id,
+            request_kind,
             redirect_policy: _,
             key,
             auth_changes,
         } = self.client_setup().await?;
         let thread_id = ThreadId::new().to_string();
-        let request_kind = self.responses_request_kind().await;
         let mut headers = self.headers(&thread_id, request_kind)?;
         headers.insert(
             "openai-beta",
@@ -413,13 +477,39 @@ impl ConnectionPool {
 
         let provider_info = self.config.provider.info();
         let client = ResponsesWebsocketClient::new(provider, auth);
-        let connect = client.connect(
-            &self.config.http_client_factory,
-            headers,
-            default_headers(),
-            /*turn_state*/ None,
-            /*telemetry*/ None,
-        );
+        let connect = async {
+            let connector = self
+                .websocket_connector
+                .get_or_try_init(|| async {
+                    let factory = self.config.http_client_factory.clone();
+                    tokio::task::spawn_blocking(move || WebSocketConnector::new(&factory))
+                        .await
+                        .map_err(|error| {
+                            ApiError::Stream(format!("websocket TLS setup task failed: {error}"))
+                        })?
+                        .map_err(|error| {
+                            ApiError::Stream(format!("failed to configure websocket TLS: {error}"))
+                        })
+                })
+                .await?;
+            let connector = connector
+                .with_account_binding(http_client_factory.network_policy())
+                .ok_or_else(|| {
+                    ApiError::Transport(TransportError::Build(
+                        "websocket credentials and transport have different account policies"
+                            .into(),
+                    ))
+                })?;
+            client
+                .connect_with_connector(
+                    &connector,
+                    headers,
+                    default_headers(),
+                    /*turn_state*/ None,
+                    /*telemetry*/ None,
+                )
+                .await
+        };
         let started_at = Instant::now();
         let result = tokio::time::timeout(provider_info.websocket_connect_timeout(), connect)
             .await
@@ -454,6 +544,7 @@ impl ConnectionPool {
             expires_at: Instant::now() + MAX_WEBSOCKET_AGE,
             auth_changes,
             key,
+            runtime_id,
             _permit: permit,
         })
     }
@@ -498,8 +589,10 @@ impl ConnectionLease {
         }
     }
 
-    pub(super) fn reuse(self) {
-        if let Connection::Websocket(connection) = self.connection {
+    pub(super) async fn reuse(self) {
+        if let Connection::Websocket(connection) = self.connection
+            && !connection.connection.is_closed().await
+        {
             self.pool
                 .idle_connections
                 .lock()
@@ -512,3 +605,7 @@ impl ConnectionLease {
 #[cfg(test)]
 #[path = "connection_pool_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "connection_pool_cancellation_tests.rs"]
+mod cancellation_tests;

@@ -7,7 +7,9 @@ use super::*;
 fn attachment_debug_output_redacts_bytes() {
     let request = UploadRequest {
         thread_id: "thread-1".to_string(),
+        ephemeral: false,
         file_name: Some("image.png".to_string()),
+        tags: HashMap::new(),
         data: b"secret".to_vec(),
     };
     let result = UploadResult::Inline {
@@ -17,7 +19,7 @@ fn attachment_debug_output_redacts_bytes() {
     assert_eq!(
         (format!("{request:?}"), format!("{result:?}")),
         (
-            r#"UploadRequest { thread_id: "thread-1", file_name: Some("image.png"), data: "<redacted>" }"#.to_string(),
+            r#"UploadRequest { thread_id: "thread-1", ephemeral: false, file_name: Some("image.png"), tags: {}, data: "<redacted>" }"#.to_string(),
             r#"Inline { bytes: "<redacted>" }"#.to_string(),
         )
     );
@@ -49,7 +51,9 @@ async fn inline_store_preserves_image_bytes() {
         let attachment = InlineAttachmentStore
             .upload(UploadRequest {
                 thread_id: "thread-1".to_string(),
+                ephemeral: false,
                 file_name: Some(file_name.to_string()),
+                tags: HashMap::new(),
                 data: data.to_vec(),
             })
             .await
@@ -62,12 +66,15 @@ async fn inline_store_preserves_image_bytes() {
     }
 }
 
-/// The inline store reports file references as missing because it never uploads them.
+/// The inline store preserves opaque file references even though it cannot resolve them.
 #[tokio::test]
 async fn inline_store_cannot_resolve_file_references() {
+    assert!(InlineAttachmentStore.is_resolvable("file_123").await);
+
     let error = InlineAttachmentStore
         .resolve(ResolveRequest {
             file_id: "file_123",
+            tags: HashMap::new(),
             download_url_ttl: None,
         })
         .await
