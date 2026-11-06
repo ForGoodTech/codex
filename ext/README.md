@@ -54,23 +54,33 @@ To export from the **current source checkout**, run the following Bash snippet
 from the **Codex repository root**. It builds the CLI from the current checkout
 and includes experimental methods and fields. Both exports go into a fresh
 directory before replacing the snapshot, so obsolete files are removed and an
-export failure leaves the existing snapshot intact:
+export failure leaves the existing snapshot intact.
+
+The build must run inside `codex-rs` so rustup selects
+`codex-rs/rust-toolchain.toml` and Cargo loads `codex-rs/.cargo/config.toml`.
+Passing `--manifest-path codex-rs/Cargo.toml` from the repository root does not
+select that toolchain. The current pin is Rust 1.95.0, which
+[stabilized `if let` guards](https://blog.rust-lang.org/2026/04/16/Rust-1.95.0/);
+an older compiler reports `error[E0658]: if let guards are experimental`.
 
 ```bash
 (
   set -euo pipefail
-  protocol_export_dir=$(mktemp -d ext/.app-server-protocol-export.XXXXXXXX)
+  protocol_export_dir=$(mktemp -d "$PWD/ext/.app-server-protocol-export.XXXXXXXX")
   trap 'rm -rf -- "$protocol_export_dir"' EXIT
 
-  cargo run --manifest-path codex-rs/Cargo.toml \
-    -p codex-cli --bin codex -- \
-    app-server generate-ts --experimental \
-    --out "$protocol_export_dir"
+  (
+    cd codex-rs
+    rustup show active-toolchain
 
-  cargo run --manifest-path codex-rs/Cargo.toml \
-    -p codex-cli --bin codex -- \
-    app-server generate-json-schema --experimental \
-    --out "$protocol_export_dir"
+    cargo run -p codex-cli --bin codex -- \
+      app-server generate-ts --experimental \
+      --out "$protocol_export_dir"
+
+    cargo run -p codex-cli --bin codex -- \
+      app-server generate-json-schema --experimental \
+      --out "$protocol_export_dir"
+  )
 
   rm -rf -- ext/app-server-protocol-export
   mv -- "$protocol_export_dir" ext/app-server-protocol-export
@@ -79,11 +89,16 @@ export failure leaves the existing snapshot intact:
 )
 ```
 
+If `rustup show active-toolchain` reports an older compiler inside `codex-rs`,
+check for a `RUSTUP_TOOLCHAIN` environment variable or a directory override;
+[these take precedence over the toolchain file](https://rust-lang.github.io/rustup/overrides.html).
+
 For a **reference matching a particular release**, use that release's `codex`
 executable and verify its version with `codex --version`. To match an image's
 protocol, use the version selected by its `CODEX_RELEASE_TAG`. Inside the snippet
-above, replace the two Cargo commands with these commands, keeping the same
-staging and replacement steps:
+above, replace the entire inner subshell (the `cd codex-rs`, toolchain check, and
+Cargo commands) with these commands, keeping the same staging and replacement
+steps:
 
 ```shell
 codex app-server generate-ts --experimental --out "$protocol_export_dir"
