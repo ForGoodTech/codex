@@ -7,10 +7,6 @@ import type { ThreadSourceKind } from "./ThreadSourceKind";
 
 export type ThreadListParams = {
 /**
- * Show local history visible to the current ChatGPT account. Defaults to false.
- */
-currentAccountOnly?: boolean,
-/**
  * Opaque pagination cursor returned by a previous call.
  */
 cursor?: string | null,

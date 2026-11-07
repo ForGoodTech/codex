@@ -28,6 +28,26 @@ Fork-specific changes are confined to `ext/`; files outside it follow upstream.
 working with the Codex app-server protocol. The runtime images do not consume
 this directory.
 
+The checked-in reference matches `rust-v0.167.0`, the Docker release pin.
+`app-server-protocol-export.version.json` records the release, upstream bundle
+path, hashes, export mode, and file counts. Keep it with the generated reference.
+
+### Refreshing the release reference
+
+With Node 24 or newer, run from the Codex repository root:
+
+```bash
+node ext/scripts/refresh-protocol-reference.mjs rust-v0.167.0
+node ext/scripts/refresh-protocol-reference.mjs rust-v0.167.0 --check
+```
+
+This unpacks that release's upstream precomputed experimental export bundle,
+the same data used by the CLI export commands. It stages both sets of exports
+before replacing the reference, removes obsolete files, and records provenance.
+Refreshing the same release verifies its recorded SHA-256 before replacement.
+When updating Docker's release pin, explicitly refresh this reference to that
+same tag and review the protocol changes in the gateway and frontend.
+
 ### Building and releasing images
 
 **You do not need to export the protocol or check your locally installed Codex
@@ -52,9 +72,8 @@ commands to export the TypeScript bindings and JSON Schemas, respectively.
 
 To export from the **current source checkout**, run the following Bash snippet
 from the **Codex repository root**. It builds the CLI from the current checkout
-and includes experimental methods and fields. Both exports go into a fresh
-directory before replacing the snapshot, so obsolete files are removed and an
-export failure leaves the existing snapshot intact.
+and includes experimental methods and fields. Both exports go into a temporary
+directory for comparison with the release reference; they do not replace it.
 
 The build must run inside `codex-rs` so rustup selects
 `codex-rs/rust-toolchain.toml` and Cargo loads `codex-rs/.cargo/config.toml`.
@@ -82,10 +101,7 @@ an older compiler reports `error[E0658]: if let guards are experimental`.
       --out "$protocol_export_dir"
   )
 
-  rm -rf -- ext/app-server-protocol-export
-  mv -- "$protocol_export_dir" ext/app-server-protocol-export
-  git diff --stat -- ext/app-server-protocol-export
-  git status --short -- ext/app-server-protocol-export
+  diff -qr -- ext/app-server-protocol-export "$protocol_export_dir" || true
 )
 ```
 

@@ -255,13 +255,6 @@
     "BedrockDiscoverParams": {
       "type": "object"
     },
-    "BedrockProviderId": {
-      "enum": [
-        "amazon-bedrock",
-        "amazon-bedrock-runtime"
-      ],
-      "type": "string"
-    },
     "BedrockSetupParams": {
       "oneOf": [
         {
@@ -1889,12 +1882,6 @@
       ],
       "type": "object"
     },
-    "GcpProviderId": {
-      "enum": [
-        "gcp"
-      ],
-      "type": "string"
-    },
     "GcpSetupParams": {
       "properties": {
         "credentialFile": {
@@ -2409,14 +2396,6 @@
     },
     "McpResourceReadParams": {
       "properties": {
-        "_meta": {
-          "additionalProperties": true,
-          "description": "Additional MCP request metadata. Account and turn routing keys are reserved.",
-          "type": [
-            "object",
-            "null"
-          ]
-        },
         "connectorId": {
           "type": [
             "string",
@@ -2763,21 +2742,6 @@
       "type": "object"
     },
     "ModelProviderCapabilitiesReadParams": {
-      "type": "object"
-    },
-    "ModelProviderConfigWriteParams": {
-      "additionalProperties": false,
-      "properties": {
-        "settings": {
-          "$ref": "#/definitions/ProviderSettingsPatch"
-        }
-      },
-      "required": [
-        "settings"
-      ],
-      "type": "object"
-    },
-    "ModelProviderListParams": {
       "type": "object"
     },
     "MultiAgentMode": {
@@ -3586,124 +3550,6 @@
         "projectId"
       ],
       "type": "object"
-    },
-    "ProviderSettingsPatch": {
-      "description": "Omitted patch fields preserve their values. Explicit null clears a nullable field.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "baseUrl": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "envKey": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "name": {
-              "type": "string"
-            },
-            "providerId": {
-              "description": "Omit or pass null to allocate a new custom provider ID.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "enum": [
-                "customGateway"
-              ],
-              "title": "CustomGatewayProviderSettingsPatchType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "type"
-          ],
-          "title": "CustomGatewayProviderSettingsPatch",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "AWS configuration fields for built-in Bedrock providers.",
-          "properties": {
-            "profile": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "providerId": {
-              "$ref": "#/definitions/BedrockProviderId"
-            },
-            "region": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "enum": [
-                "bedrock"
-              ],
-              "title": "BedrockProviderSettingsPatchType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "providerId",
-            "type"
-          ],
-          "title": "BedrockProviderSettingsPatch",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "GCP configuration fields. Credential-file paths refer to the app-server host.",
-          "properties": {
-            "credentialFile": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "location": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "projectId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "providerId": {
-              "$ref": "#/definitions/GcpProviderId"
-            },
-            "type": {
-              "enum": [
-                "gcp"
-              ],
-              "title": "GcpProviderSettingsPatchType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "providerId",
-            "type"
-          ],
-          "title": "GcpProviderSettingsPatch",
-          "type": "object"
-        }
-      ]
     },
     "RealtimeConversationVersion": {
       "enum": [
@@ -5989,10 +5835,6 @@
             "null"
           ]
         },
-        "currentAccountOnly": {
-          "description": "Show local history visible to the current ChatGPT account. Defaults to false.",
-          "type": "boolean"
-        },
         "cursor": {
           "description": "Opaque pagination cursor returned by a previous call.",
           "type": [
@@ -7124,10 +6966,6 @@
             "boolean",
             "null"
           ]
-        },
-        "currentAccountOnly": {
-          "description": "Show local history visible to the current ChatGPT account. Defaults to false.",
-          "type": "boolean"
         },
         "cursor": {
           "description": "Opaque pagination cursor returned by a previous call.",
@@ -11460,54 +11298,6 @@
         "method"
       ],
       "title": "Account/gatewayOAuth/cancelRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
-            "modelProvider/list"
-          ],
-          "title": "ModelProvider/listRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/ModelProviderListParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "ModelProvider/listRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
-            "modelProvider/config/write"
-          ],
-          "title": "ModelProvider/config/writeRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/ModelProviderConfigWriteParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "ModelProvider/config/writeRequest",
       "type": "object"
     },
     {

@@ -1,0 +1,10 @@
+{
+  "release": "rust-v0.167.0",
+  "upstreamRepository": "https://github.com/openai/codex",
+  "sourcePath": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst",
+  "gitBlobSha": "f8ce6fba369028e63579e0c1cf2ca610670169e6",
+  "sha256": "72216e6360b4aadb896c46fe3608f43c2f1f1e46ff894da0f82539703faa5667",
+  "experimental": true,
+  "typescriptFiles": 926,
+  "jsonSchemaFiles": 470
+}
