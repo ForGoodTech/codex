@@ -51,6 +51,10 @@
         "null"
       ]
     },
+    "includeAttachedThreads": {
+      "description": "Include persistent threads attached to a parent in search results.",
+      "type": "boolean"
+    },
     "limit": {
       "description": "Optional page size; defaults to a reasonable server-side value.",
       "format": "uint32",
@@ -61,7 +65,7 @@
       ]
     },
     "searchTerm": {
-      "description": "Required substring/full-text query for thread search.",
+      "description": "Required substring/full-text query. `thread/search/stream` limits this to 65,536 UTF-8 bytes after trimming surrounding whitespace.",
       "type": "string"
     },
     "sortDirection": {

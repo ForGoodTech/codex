@@ -493,17 +493,6 @@
       ],
       "type": "object"
     },
-    "CurrentTimeReadParams": {
-      "properties": {
-        "threadId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "threadId"
-      ],
-      "type": "object"
-    },
     "DynamicToolCallParams": {
       "properties": {
         "arguments": true,
@@ -1553,6 +1542,13 @@
         }
       ],
       "properties": {
+        "environmentId": {
+          "description": "Registration scope, not necessarily the server's execution environment.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "serverName": {
           "type": "string"
         },
@@ -2110,31 +2106,6 @@
         "params"
       ],
       "title": "Attestation/generateRequest",
-      "type": "object"
-    },
-    {
-      "description": "Read the current time from an external clock owned by the client.",
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
-            "currentTime/read"
-          ],
-          "title": "CurrentTime/readRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/CurrentTimeReadParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "CurrentTime/readRequest",
       "type": "object"
     },
     {

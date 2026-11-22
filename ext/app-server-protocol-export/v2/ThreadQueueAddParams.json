@@ -289,6 +289,16 @@
       },
       "type": "array"
     },
+    "responsesapiClientMetadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "ResponsesAPI metadata captured from the client submitting this input.",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "threadId": {
       "type": "string"
     }

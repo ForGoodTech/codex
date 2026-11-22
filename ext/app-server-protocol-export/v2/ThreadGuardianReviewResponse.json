@@ -63,7 +63,7 @@
           "type": "null"
         }
       ],
-      "description": "Null when exec policy skips approval."
+      "description": "Null when current policy or a remembered approval skips review."
     },
     "callId": {
       "type": "string"

@@ -289,6 +289,16 @@
     "queuedSubmissionId": {
       "type": "string"
     },
+    "responsesapiClientMetadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Non-empty metadata replaces the input's metadata; omission or an empty map preserves it.",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "threadId": {
       "type": "string"
     }
