@@ -1,0 +1,260 @@
+FROM node:24-bookworm AS sdk-build
+
+# Build generated SDK files from the checkout, independently of host tooling or
+# stale/absent sdk/typescript/dist output. Keep compiler dependencies out of the runtime.
+WORKDIR /build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY sdk/typescript/package.json ./sdk/typescript/package.json
+RUN corepack enable && \
+  pnpm --filter @openai/codex-sdk install --frozen-lockfile --prod=false --ignore-scripts
+COPY sdk/typescript/tsconfig.json sdk/typescript/tsup.config.ts ./sdk/typescript/
+COPY sdk/typescript/src ./sdk/typescript/src
+RUN pnpm --filter @openai/codex-sdk run build && \
+  test -s sdk/typescript/dist/index.js && \
+  test -s sdk/typescript/dist/index.d.ts
+
+FROM node:24-bookworm
+
+LABEL com.surestinfo.codex.runtime-contract="3"
+
+ARG TZ
+ENV TZ="$TZ"
+ARG PLAYWRIGHT_MCP_PACKAGE="@playwright/mcp"
+ARG PLAYWRIGHT_MCP_VERSION="latest"
+ARG CHROME_MCP_PACKAGE="chrome-devtools-mcp"
+ARG CHROME_MCP_VERSION="latest"
+ARG PLAYWRIGHT_BROWSER_SOURCE="system"
+ARG PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="300"
+ARG PLAYWRIGHT_MCP_EXECUTABLE_PATH="/opt/google/chrome/chrome"
+ARG GITHUB_MCP_URL="https://api.githubcopilot.com/mcp/"
+ARG OPENAI_DOCS_MCP_URL="https://developers.openai.com/mcp"
+ARG PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="30"
+ARG CHROME_MCP_STARTUP_TIMEOUT_SEC="30"
+ENV PLAYWRIGHT_MCP_PACKAGE="${PLAYWRIGHT_MCP_PACKAGE}"
+ENV PLAYWRIGHT_MCP_VERSION="${PLAYWRIGHT_MCP_VERSION}"
+ENV CHROME_MCP_PACKAGE="${CHROME_MCP_PACKAGE}"
+ENV CHROME_MCP_VERSION="${CHROME_MCP_VERSION}"
+ENV PLAYWRIGHT_BROWSER_SOURCE="${PLAYWRIGHT_BROWSER_SOURCE}"
+ENV PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC="${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}"
+ENV PLAYWRIGHT_MCP_EXECUTABLE_PATH="${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"
+ENV GITHUB_MCP_URL="${GITHUB_MCP_URL}"
+ENV OPENAI_DOCS_MCP_URL="${OPENAI_DOCS_MCP_URL}"
+ENV PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC="${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}"
+ENV CHROME_MCP_STARTUP_TIMEOUT_SEC="${CHROME_MCP_STARTUP_TIMEOUT_SEC}"
+ENV PLAYWRIGHT_BROWSERS_PATH="/home/node/.cache/ms-playwright"
+
+# Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  aggregate \
+  ca-certificates \
+  curl \
+  dbus-x11 \
+  fonts-liberation \
+  chromium \
+  dnsutils \
+  ffmpeg \
+  fzf \
+  git \
+  gnupg2 \
+  iproute2 \
+  ipset \
+  iptables \
+  iputils-ping \
+  jq \
+  less \
+  libasound2 \
+  libatk-bridge2.0-0 \
+  libatk1.0-0 \
+  libatspi2.0-0 \
+  libcap2-bin \
+  libcups2 \
+  libdbus-1-3 \
+  libdrm2 \
+  libgtk-3-0 \
+  libgbm1 \
+  libnspr4 \
+  libnss3 \
+  libssl3 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxfixes3 \
+  libxkbcommon0 \
+  libxrandr2 \
+  man-db \
+  procps \
+  pulseaudio \
+  pulseaudio-utils \
+  unzip \
+  ripgrep \
+  xvfb \
+  xauth \
+  zsh \
+  && if [ -x /usr/bin/chromium ]; then \
+       mkdir -p /opt/google/chrome; \
+       printf '%s\n' '#!/bin/sh' 'if [ -r /home/node/browser-audio-setup.sh ]; then' '  . /home/node/browser-audio-setup.sh' 'fi' 'if command -v xvfb-run >/dev/null 2>&1; then' '  exec xvfb-run -a --server-args="-screen 0 1280x720x24 -nolisten tcp" /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' 'fi' 'exec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@" --headless=new' > /opt/google/chrome/chrome; \
+       chmod 755 /opt/google/chrome/chrome; \
+     fi \
+  && { setcap -r /usr/bin/ping 2>/dev/null || true; } \
+  && rm -rf /var/lib/apt/lists/*
+
+# Ensure default node user has access to /usr/local/share
+RUN mkdir -p /usr/local/share/npm-global && \
+  chown -R node:node /usr/local/share
+
+ARG USERNAME=node
+
+# Set up non-root user
+USER node
+
+# Install global packages
+ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+ENV PATH=$PATH:/usr/local/share/npm-global/bin
+
+# Install codex
+COPY codex-cli/dist/codex.tgz codex.tgz
+COPY codex-cli/dist/codex-platform.tgz codex-platform.tgz
+RUN npm install -g --omit=optional codex.tgz codex-platform.tgz \
+  && GLOBAL_NODE_ROOT="/usr/local/share/npm-global/lib/node_modules" \
+  && INSTALL_ROOT="/usr/local/share/npm-global/lib/node_modules/@openai/codex" \
+  && case "$(node -p 'process.arch')" in \
+       arm64) PLATFORM_PACKAGE="@openai/codex-linux-arm64" ;; \
+       x64) PLATFORM_PACKAGE="@openai/codex-linux-x64" ;; \
+       *) echo "Unsupported Node architecture: $(node -p 'process.arch')" >&2; exit 1 ;; \
+     esac \
+  && mkdir -p /home/node/node_modules/@openai \
+  && ln -sfn "${INSTALL_ROOT}" /home/node/node_modules/@openai/codex \
+  && ln -sfn "${GLOBAL_NODE_ROOT}/${PLATFORM_PACKAGE}" "/home/node/node_modules/${PLATFORM_PACKAGE}" \
+  && find "${GLOBAL_NODE_ROOT}/@openai" -type f \( -path '*/bin/codex' -o -path '*/codex-path/rg' -o -path '*/codex-resources/bwrap' -o -path '*/codex-resources/zsh/bin/zsh' \) -exec chmod 755 {} + \
+  && printf '%s\n' '#!/bin/sh' 'exec /usr/local/share/npm-global/bin/codex app-server "$@"' > /usr/local/share/npm-global/bin/codex-app-server \
+  && printf '%s\n' '#!/bin/sh' 'exec /usr/local/share/npm-global/bin/codex linux-sandbox "$@"' > /usr/local/share/npm-global/bin/codex-linux-sandbox \
+  && chmod 755 /usr/local/share/npm-global/bin/codex-app-server /usr/local/share/npm-global/bin/codex-linux-sandbox \
+  && npm cache clean --force \
+  && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/node_modules/.cache \
+  && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/tests \
+  && rm -rf /usr/local/share/npm-global/lib/node_modules/codex-cli/docs
+
+RUN set -eux; \
+    case "${PLAYWRIGHT_BROWSER_SOURCE}" in \
+      auto|playwright|system) ;; \
+      *) echo "Unsupported PLAYWRIGHT_BROWSER_SOURCE=${PLAYWRIGHT_BROWSER_SOURCE}; expected auto, playwright, or system" >&2; exit 1 ;; \
+    esac; \
+    case "${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}" in \
+      ''|*[!0-9]*) echo "PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC must be a positive integer number of seconds" >&2; exit 1 ;; \
+      0) echo "PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC must be greater than zero" >&2; exit 1 ;; \
+    esac; \
+    for spec in \
+      "Playwright|${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}|${PLAYWRIGHT_MCP_PACKAGE}" \
+      "Chrome DevTools|${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}|${CHROME_MCP_PACKAGE}"; do \
+      label=${spec%%|*}; \
+      rest=${spec#*|}; \
+      package_spec=${rest%%|*}; \
+      package_name=${rest#*|}; \
+      echo "Installing ${label} MCP package (${package_spec})"; \
+      npm install -g "$package_spec"; \
+      if [ ! -d "$(npm root -g)/${package_name}" ]; then \
+        echo "Expected MCP package ${package_name} not found after install" >&2; \
+        exit 1; \
+      fi; \
+      echo "Installed ${label} MCP package (${package_spec})"; \
+    done; \
+    mkdir -p /home/node/.codex "${PLAYWRIGHT_BROWSERS_PATH}"; \
+    printf '%s\n' "${PLAYWRIGHT_BROWSER_SOURCE}" > /home/node/.codex/playwright-browser-source-requested; \
+    selected_browser_source="system"; \
+    if [ "${PLAYWRIGHT_BROWSER_SOURCE}" = "system" ]; then \
+      echo "Using system Chromium for Playwright MCP at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
+      test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
+    else \
+      rm -rf "${PLAYWRIGHT_BROWSERS_PATH}/__dirlock"; \
+      echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Trying Playwright-managed Chromium install with ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s timeout"; \
+      echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Running: timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell"; \
+      if timeout --kill-after=30s "${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s" npx -y "${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}" install-browser chromium chromium-headless-shell; then \
+        selected_browser_source="playwright"; \
+        printf '%s\n' "0" > /home/node/.codex/playwright-browser-install-status; \
+        echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Using Playwright-managed Chromium for Playwright MCP"; \
+      else \
+        install_status=$?; \
+        printf '%s\n' "${install_status}" > /home/node/.codex/playwright-browser-install-status; \
+        if [ "${PLAYWRIGHT_BROWSER_SOURCE}" = "playwright" ]; then \
+          echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] Playwright-managed Chromium install exited with status ${install_status} after at most ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s, and PLAYWRIGHT_BROWSER_SOURCE=playwright requires it." >&2; \
+          exit "${install_status}"; \
+        fi; \
+        rm -rf "${PLAYWRIGHT_BROWSERS_PATH}"; \
+        mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"; \
+        echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] WARNING: Playwright-managed Chromium install exited with status ${install_status} after at most ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s; falling back to system Chromium at ${PLAYWRIGHT_MCP_EXECUTABLE_PATH}." >&2; \
+        echo "After the image builds, check browser downloads with:" >&2; \
+        echo "  docker run --rm <image-tag> bash -c 'timeout --kill-after=30s ${PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_SEC}s npx -y ${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION} install-browser chromium chromium-headless-shell'" >&2; \
+        test -x "${PLAYWRIGHT_MCP_EXECUTABLE_PATH}"; \
+      fi; \
+    fi; \
+    printf '%s\n' "${selected_browser_source}" > /home/node/.codex/playwright-browser-source
+
+# Make the TCP proxy available inside the image and accessible from the default home directory.
+COPY --chown=node:node ext/docker/pi/app-server-proxy.js /home/node/app-server-proxy.js
+COPY --chown=node:node ext/docker/pi/app-server-proxy-perf.js /home/node/app-server-proxy-perf.js
+COPY --chown=node:node ext/docker/pi/cli-auth-broker.js /home/node/cli-auth-broker.js
+COPY --chown=node:node ext/docker/pi/app-surface-coordinator.js /home/node/app-surface-coordinator.js
+COPY --chown=node:node ext/docker/pi/app-surface-transport-log.js /home/node/app-surface-transport-log.js
+COPY --chown=node:node ext/docker/pi/app-surface-send.js /home/node/app-surface-send.js
+COPY --chown=node:node ext/docker/pi/browser-audio-setup.sh /home/node/browser-audio-setup.sh
+COPY --chown=node:node ext/docker/pi/browser-audio-rtp-stream.sh /home/node/browser-audio-rtp-stream.sh
+COPY --chown=node:node ext/docker/pi/sdk-proxy.js /home/node/sdk-proxy.js
+RUN chmod 755 /home/node/app-server-proxy.js /home/node/app-surface-send.js /home/node/browser-audio-setup.sh /home/node/browser-audio-rtp-stream.sh /home/node/sdk-proxy.js && \
+  ln -sf /home/node/app-server-proxy.js /usr/local/share/npm-global/bin/codex-app-server-proxy && \
+  ln -sf /home/node/app-surface-send.js /usr/local/share/npm-global/bin/codex-app-surface-send && \
+  ln -sf /home/node/browser-audio-setup.sh /home/node/runtime-audio-setup.sh && \
+  ln -sf /home/node/browser-audio-rtp-stream.sh /home/node/runtime-audio-rtp-stream.sh && \
+  ln -sf /home/node/browser-audio-setup.sh /usr/local/share/npm-global/bin/codex-browser-audio-setup && \
+  ln -sf /home/node/browser-audio-rtp-stream.sh /usr/local/share/npm-global/bin/codex-browser-audio-rtp-stream && \
+  ln -sf /home/node/runtime-audio-setup.sh /usr/local/share/npm-global/bin/codex-runtime-audio-setup && \
+  ln -sf /home/node/runtime-audio-rtp-stream.sh /usr/local/share/npm-global/bin/codex-runtime-audio-rtp-stream && \
+  ln -sf /home/node/sdk-proxy.js /usr/local/share/npm-global/bin/codex-sdk-proxy && \
+  mkdir -p /home/node/.codex && \
+  mkdir -p /home/node/node_modules/@openai/codex-sdk
+
+# Install the SDK built from source alongside the proxies so sdk-proxy can import it.
+COPY --from=sdk-build --chown=node:node /build/sdk/typescript/package.json /home/node/node_modules/@openai/codex-sdk/package.json
+COPY --from=sdk-build --chown=node:node /build/sdk/typescript/dist /home/node/node_modules/@openai/codex-sdk/dist
+
+# Inside the container we consider the environment already sufficiently locked
+# down, therefore instruct Codex CLI to allow running without sandboxing.
+ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
+
+# Copy and set up firewall script as root.
+USER root
+COPY codex-cli/scripts/init_firewall.sh /usr/local/bin/
+RUN chmod 500 /usr/local/bin/init_firewall.sh && \
+  ln -sf /home/node/app-surface-send.js /usr/local/bin/codex-app-surface-send
+
+# Drop back to non-root.
+USER node
+
+# Default workspace under the user's home directory so it can be bind-mounted easily.
+WORKDIR /home/node/workdir
+RUN mkdir -p /home/node/workdir /home/node/.codex && \
+  selected_browser_source=$(cat /home/node/.codex/playwright-browser-source) && \
+  case "$selected_browser_source" in \
+    playwright) playwright_args="args = [\"-y\", \"${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}\", \"--browser\", \"chromium\"]" ;; \
+    system) playwright_args="args = [\"-y\", \"${PLAYWRIGHT_MCP_PACKAGE}@${PLAYWRIGHT_MCP_VERSION}\", \"--browser\", \"chromium\", \"--executable-path\", \"${PLAYWRIGHT_MCP_EXECUTABLE_PATH}\"]" ;; \
+    *) echo "Unsupported Playwright browser source: $selected_browser_source" >&2; exit 1 ;; \
+  esac && \
+  cat <<EOF > /home/node/.codex/config.toml
+sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
+
+[mcp_servers.openai_docs]
+url = "${OPENAI_DOCS_MCP_URL}"
+
+[mcp_servers.playwright]
+command = "npx"
+${playwright_args}
+startup_timeout_sec = ${PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SEC}
+
+[mcp_servers.chrome_devtools]
+command = "npx"
+args = ["-y", "${CHROME_MCP_PACKAGE}@${CHROME_MCP_VERSION}"]
+startup_timeout_sec = ${CHROME_MCP_STARTUP_TIMEOUT_SEC}
+
+[mcp_servers.github]
+url = "${GITHUB_MCP_URL}"
+
+EOF

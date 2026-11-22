@@ -1,0 +1,19 @@
+{
+  "boot-source": {
+    "kernel_image_path": "__KERNEL_IMAGE_PATH__",
+    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off ip=dhcp root=/dev/vda rw"
+  },
+  "drives": [
+    {
+      "drive_id": "rootfs",
+      "path_on_host": "__ROOTFS_IMAGE_PATH__",
+      "is_root_device": true,
+      "is_read_only": false
+    }
+  ],
+  "machine-config": {
+    "vcpu_count": 2,
+    "mem_size_mib": 4096,
+    "smt": false
+  }
+}

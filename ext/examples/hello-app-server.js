@@ -1,0 +1,247 @@
+#!/usr/bin/env node
+/**
+ * Hello App Server (ext/examples/hello-app-server.js)
+ *
+ * What this shows
+ * ---------------
+ * - Connects to an already-running Codex app server over JSONL (JSON-RPC 2.0 without the jsonrpc header).
+ * - Performs the required initialize/initialized handshake.
+ * - Starts a new conversation thread and kicks off one turn with a simple text prompt.
+ * - Streams and prints server notifications until the turn completes, then exits.
+ *
+ * How to run (host app server proxy)
+ * ---------------------------------
+ * 1) In a separate terminal, start the app server proxy:
+ *      codex-app-server-proxy
+ * 2) From the repo root, run the client against the TCP proxy:
+ *      node ext/examples/hello-app-server.js
+ *
+ * How to run (server inside Docker container)
+ * -------------------------------------------
+ * - Start the proxy in a container attached to the shared Docker network:
+ *      docker network create codex-net
+ *      docker run -it --rm --name codex-proxy --network codex-net my-codex-docker-image /bin/bash
+ *      codex-app-server-proxy
+ * - From another container on codex-net (for example, the examples image), connect to
+ *   codex-proxy:9395 (the defaults below).
+ *
+ * Environment variables
+ * ---------------------
+ * - APP_SERVER_TCP_HOST (optional): TCP host for the proxy. Defaults to codex-proxy.
+ * - APP_SERVER_TCP_PORT (optional): TCP port for the proxy. Defaults to 9395.
+ *
+ * Notes
+ * -----
+ * - Start the proxy separately in the container; this client connects over the
+ *   forwarded TCP port and does not manage the server lifecycle.
+ * - JSON-RPC responses are matched to the requests issued below; notifications are logged as they arrive.
+ * - The example keeps the scope intentionally small so future examples can focus on other flows (auth, approvals, etc.).
+ */
+
+const fs = require('node:fs');
+const { once } = require('node:events');
+const readline = require('node:readline');
+const net = require('node:net');
+const { buildExternalAuthLoginParams, loadAuthInfo, resolveProxyToken } = require('./app-server-auth');
+
+const tcpHost = process.env.APP_SERVER_TCP_HOST ?? 'codex-proxy';
+const tcpPortEnv = process.env.APP_SERVER_TCP_PORT;
+const tcpPort = (() => {
+  if (!tcpPortEnv) {
+    return 9395;
+  }
+
+  const parsed = Number.parseInt(tcpPortEnv, 10);
+  return Number.isNaN(parsed) ? 9395 : parsed;
+})();
+
+let serverInput;
+let serverOutput;
+const socket = net.connect({ host: tcpHost, port: tcpPort });
+const authInfo = loadAuthInfo();
+const proxyToken = resolveProxyToken(authInfo);
+if (authInfo?.authPath) {
+  try {
+    const authJsonLength = fs.readFileSync(authInfo.authPath, 'utf8').length;
+    console.log(`TEMP: hello-app-server auth.json length=${authJsonLength}`);
+  } catch (error) {
+    console.log(`TEMP: hello-app-server failed to read auth.json for length: ${error.message}`);
+  }
+}
+socket.setKeepAlive(true);
+serverInput = socket;
+serverOutput = socket;
+
+socket.on('error', (error) => {
+  console.error('TCP connection error:', error);
+  process.exitCode = 1;
+});
+
+let nextId = 1;
+const pending = new Map();
+let watchedTurnId = null;
+
+const rl = readline.createInterface({ input: serverOutput });
+
+rl.on('line', (line) => {
+  if (!line.trim()) {
+    return;
+  }
+
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch (error) {
+    console.error('Received non-JSON line from app-server:', line);
+    return;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(message, 'id')) {
+    const resolver = pending.get(message.id);
+    if (resolver) {
+      pending.delete(message.id);
+      if (Object.prototype.hasOwnProperty.call(message, 'error')) {
+        resolver.reject(new Error(`JSON-RPC error for id ${message.id}: ${JSON.stringify(message.error)}`));
+      } else {
+        resolver.resolve(message.result);
+      }
+    } else {
+      console.warn('Unmatched response', message);
+    }
+    return;
+  }
+
+  if (message.method) {
+    logNotification(message.method, message.params ?? {});
+    if (
+      message.method === 'turn/completed' &&
+      watchedTurnId &&
+      message.params?.turn?.id === watchedTurnId
+    ) {
+      console.log('Turn completed; shutting down.');
+      shutdown();
+    }
+  }
+});
+
+function shutdown() {
+  rl.close();
+  serverInput.end();
+  if (socket) {
+    socket.end();
+  }
+}
+
+function logNotification(method, params) {
+  switch (method) {
+    case 'turn/started':
+      console.log(`Turn started: ${params.turn?.id ?? 'unknown'}`);
+      break;
+    case 'item/agentMessage/delta':
+      if (typeof params.delta === 'string') {
+        console.log(params.delta);
+        break;
+      }
+
+      if (params.delta !== undefined) {
+        console.log(JSON.stringify(params.delta));
+        break;
+      }
+
+      console.log('Notification', method, params);
+      break;
+    case 'item/completed':
+      if (params.item?.type === 'agentMessage' && typeof params.item.text === 'string') {
+        console.log(params.item.text);
+        break;
+      }
+      console.log('Notification', method, params);
+      break;
+    case 'turn/completed': {
+      const finalAgentMessage = params.turn?.items?.find(
+        (item) => item.type === 'AgentMessage' || item.type === 'agentMessage',
+      )?.text;
+      if (typeof finalAgentMessage === 'string' && finalAgentMessage.length) {
+        console.log(finalAgentMessage);
+      }
+      console.log(`Turn completed with status: ${params.turn?.status}`);
+      break;
+    }
+    default:
+      console.log('Notification', method, params);
+  }
+}
+
+function request(method, params = {}) {
+  const id = nextId++;
+  const payload = { method, params, id };
+  serverInput.write(`${JSON.stringify(payload)}\n`);
+
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+  });
+}
+
+function notify(method, params = {}) {
+  serverInput.write(`${JSON.stringify({ method, params })}\n`);
+}
+
+async function main() {
+  console.log('Connecting to codex app-server...');
+
+  await once(socket, 'connect');
+  console.log(`TEMP: hello-app-server sending proxy auth frame tokenLength=${proxyToken.length}`);
+  socket.write(`${JSON.stringify({ type: 'auth', token: proxyToken })}\n`);
+
+  const initializeResult = await request('initialize', {
+    clientInfo: {
+      name: 'ext-example',
+      title: 'Hello App Server example',
+      version: '0.0.1',
+    },
+    capabilities: {
+      experimentalApi: true,
+    },
+  });
+
+  console.log('Server user agent:', initializeResult?.userAgent);
+  notify('initialized');
+
+  const externalAuthParams = buildExternalAuthLoginParams(authInfo);
+  if (externalAuthParams) {
+    const authMaterialLength = [
+      externalAuthParams.accessToken,
+      externalAuthParams.chatgptAccountId,
+      externalAuthParams.chatgptPlanType ?? '',
+    ].join('|').length;
+    console.log(`TEMP: hello-app-server auth material length=${authMaterialLength}`);
+    const loginResult = await request('account/login/start', externalAuthParams);
+    console.log(`TEMP: hello-app-server sent chatgptAuthTokens auth material length=${authMaterialLength}`);
+    console.log('TEMP: hello-app-server login/start result', loginResult);
+    const accountRead = await request('account/read', { refreshToken: false });
+    console.log('TEMP: hello-app-server account/read after login', accountRead);
+    console.log(`Loaded ChatGPT auth tokens from ${authInfo.authPath}.`);
+  }
+
+  const threadResult = await request('thread/start', {});
+  const threadId = threadResult?.thread?.id;
+  if (!threadId) {
+    throw new Error('Server did not return a thread id');
+  }
+  console.log('Started thread', threadId);
+
+  console.log('TEMP: hello-app-server sending turn/start to app-server');
+  const turnResult = await request('turn/start', {
+    threadId,
+    input: [{ type: 'text', text: 'Describe the folder.' }],
+  });
+
+  watchedTurnId = turnResult?.turn?.id;
+  console.log('TEMP: hello-app-server prompt text=Describe the folder.');
+  console.log('Waiting for turn', watchedTurnId, 'to complete...');
+}
+
+main().catch((error) => {
+  console.error('Example failed:', error);
+  shutdown();
+});
