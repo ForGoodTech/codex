@@ -24,43 +24,11 @@ Fork-specific changes are confined to `ext/`; files outside it follow upstream.
 
 ## Protocol exports
 
-`app-server-protocol-export/` is a reference for developers and coding agents
-working with the Codex app-server protocol. The runtime images do not consume
-this directory.
-
-### Building and releasing images
-
-**You do not need to export the protocol or check your locally installed Codex
-version to build or release the Pi, Camera, and Pi Web images.** Follow the image
-build instructions for those targets.
-
-The image build scripts use `CODEX_RELEASE_TAG` to select the release when
-building the base runtime. The host's installed `codex` does not select that
-version. Image builds do not regenerate the reference snapshot; updating the
-release pin and refreshing the reference are separate maintenance tasks.
-
-### Refreshing the reference during development
-
-Refresh and review the reference when following upstream protocol changes.
-Use a release's executable for a snapshot of that release, or the checked-out
-source to inspect upstream development. The source checkout can contain changes
-beyond the release selected for an image build.
-
-The `export` binary in `codex-app-server-protocol` has been removed. Use the
-`codex` CLI's `app-server generate-ts` and `app-server generate-json-schema`
-commands to export the TypeScript bindings and JSON Schemas, respectively.
-
-To export from the **current source checkout**, run the following Bash snippet
-from the **Codex repository root**. It builds the CLI from the current checkout
-and includes experimental methods and fields. Both exports go into a fresh
-directory before replacing the snapshot, so obsolete files are removed and an
-export failure leaves the existing snapshot intact.
-
-The build must run inside `codex-rs` so rustup selects
-`codex-rs/rust-toolchain.toml` and Cargo loads `codex-rs/.cargo/config.toml`.
-Passing `--manifest-path codex-rs/Cargo.toml` from the repository root does not
-select that toolchain. Check `codex-rs/rust-toolchain.toml` for the version
-required by the checkout.
+On the fork checkout prepared for `rust-v0.171.0`, run this Bash block from
+the Codex repository root. Rustup selects the toolchain from the checkout
+and Cargo builds the CLI from source. The block exports TypeScript and
+JSON Schema, including experimental APIs, and replaces the previous snapshot
+after both exports succeed.
 
 ```bash
 (
@@ -70,8 +38,6 @@ required by the checkout.
 
   (
     cd codex-rs
-    rustup show active-toolchain
-
     cargo run -p codex-cli --bin codex -- \
       app-server generate-ts --experimental \
       --out "$protocol_export_dir"
@@ -81,6 +47,7 @@ required by the checkout.
       --out "$protocol_export_dir"
   )
 
+  printf '%s\n' 'rust-v0.171.0' > "$protocol_export_dir/.codex-release"
   rm -rf -- ext/app-server-protocol-export
   mv -- "$protocol_export_dir" ext/app-server-protocol-export
   git diff --stat -- ext/app-server-protocol-export
@@ -88,30 +55,6 @@ required by the checkout.
 )
 ```
 
-If `rustup show active-toolchain` reports an older compiler inside `codex-rs`,
-check for a `RUSTUP_TOOLCHAIN` environment variable or a directory override;
-[these take precedence over the toolchain file](https://rust-lang.github.io/rustup/overrides.html).
-
-For a **reference matching a particular release**, use that release's `codex`
-executable and verify its version with `codex --version`. To match an image's
-protocol, use the version selected by its `CODEX_RELEASE_TAG`. Inside the snippet
-above, replace the entire inner subshell (the `cd codex-rs`, toolchain check, and
-Cargo commands) with these commands, keeping the same staging and replacement
-steps:
-
-```shell
-release_tag=rust-v0.171.0
-test "$(codex --version)" = "codex-cli ${release_tag#rust-v}"
-codex app-server generate-ts --experimental --out "$protocol_export_dir"
-codex app-server generate-json-schema --experimental --out "$protocol_export_dir"
-printf '%s\n' "$release_tag" > "$protocol_export_dir/.codex-release"
-```
-
-Use the official release tag for your branch and commit the version marker
-with its generated files. SurestInfo's production workflow checks the marker
-against the runtime version.
-
-The export commands unpack upstream's precomputed protocol bundles included in
-the selected CLI. Repeating an export with the same bundles and options should
-produce no changes. Maintaining this snapshot requires no edits to upstream's
-Rust definitions or generated SDK files.
+Review, commit, and push the changes under `ext/app-server-protocol-export/`,
+including `.codex-release`. SurestInfo CI checks the marker against the pinned
+runtime version.
