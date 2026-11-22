@@ -59,9 +59,8 @@ export failure leaves the existing snapshot intact.
 The build must run inside `codex-rs` so rustup selects
 `codex-rs/rust-toolchain.toml` and Cargo loads `codex-rs/.cargo/config.toml`.
 Passing `--manifest-path codex-rs/Cargo.toml` from the repository root does not
-select that toolchain. The current pin is Rust 1.95.0, which
-[stabilized `if let` guards](https://blog.rust-lang.org/2026/04/16/Rust-1.95.0/);
-an older compiler reports `error[E0658]: if let guards are experimental`.
+select that toolchain. Check `codex-rs/rust-toolchain.toml` for the version
+required by the checkout.
 
 ```bash
 (
@@ -101,11 +100,16 @@ Cargo commands) with these commands, keeping the same staging and replacement
 steps:
 
 ```shell
+release_tag=rust-v0.171.0
+test "$(codex --version)" = "codex-cli ${release_tag#rust-v}"
 codex app-server generate-ts --experimental --out "$protocol_export_dir"
 codex app-server generate-json-schema --experimental --out "$protocol_export_dir"
+printf '%s\n' "$release_tag" > "$protocol_export_dir/.codex-release"
 ```
 
-This version check applies only to maintaining the reference snapshot.
+Use the official release tag for your branch and commit the version marker
+with its generated files. SurestInfo's production workflow checks the marker
+against the runtime version.
 
 The export commands unpack upstream's precomputed protocol bundles included in
 the selected CLI. Repeating an export with the same bundles and options should
